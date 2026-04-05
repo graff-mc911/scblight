@@ -1,0 +1,245 @@
+import React, { Suspense, lazy, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
+import { ToastProvider, useToastContext } from './contexts/ToastContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { Sidebar } from './components/Sidebar';
+import { MobileTopNav } from './components/MobileTopNav';
+import { BottomNav } from './components/BottomNav';
+import { Loading } from './components/Loading';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { Home } from './pages/Home';
+import { Invoices } from './pages/Invoices';
+import { Clients } from './pages/Clients';
+import { Account } from './pages/Account';
+import { Language } from './pages/Language';
+import { Login } from './pages/Login';
+import { Signup } from './pages/Signup';
+import { PrivacyPolicy } from './pages/PrivacyPolicy';
+import { TermsOfService } from './pages/TermsOfService';
+import Settings from './pages/Settings';
+import Upgrade from './pages/Upgrade';
+import Receipts from './pages/Receipts';
+import { initSyncManager, onSyncFlush } from './lib/syncManager';
+
+const InvoiceForm = lazy(() => import('./pages/InvoiceForm').then(module => ({ default: module.InvoiceForm })));
+const InvoiceView = lazy(() => import('./pages/InvoiceView').then(module => ({ default: module.InvoiceView })));
+const ClientForm = lazy(() => import('./pages/ClientForm').then(module => ({ default: module.ClientForm })));
+const Onboarding = lazy(() => import('./pages/Onboarding').then(module => ({ default: module.Onboarding })));
+const ClientInvoices = lazy(() => import('./pages/ClientInvoices').then(module => ({ default: module.ClientInvoices })));
+const ReceiptForm = lazy(() => import('./pages/ReceiptForm'));
+const PdfCreator = lazy(() => import('./pages/PdfCreator'));
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000,
+      gcTime: 24 * 60 * 60 * 1000,
+      retry: (failureCount) => {
+        if (!navigator.onLine) return false;
+        return failureCount < 2;
+      },
+      networkMode: 'offlineFirst',
+    },
+    mutations: {
+      networkMode: 'offlineFirst',
+    },
+  },
+});
+
+function SyncInit() {
+  const { showSuccess } = useToastContext();
+  useEffect(() => {
+    onSyncFlush((count) => {
+      showSuccess(`${count} ${count === 1 ? 'зміну синхронізовано' : 'змін синхронізовано'}`);
+      queryClient.invalidateQueries();
+    });
+    initSyncManager();
+  }, [showSuccess]);
+  return null;
+}
+
+function AppContent() {
+  const location = useLocation();
+  const { language } = useLanguage();
+  const isAuthPage =
+    location.pathname === '/login' ||
+    location.pathname === '/signup' ||
+    location.pathname === '/onboarding' ||
+    location.pathname === '/privacy' ||
+    location.pathname === '/terms';
+
+  return (
+    <div className="min-h-screen" key={language}>
+      <SyncInit />
+      <OfflineIndicator />
+      {!isAuthPage && (
+        <ProtectedRoute>
+          <>
+            <Sidebar />
+            <MobileTopNav />
+            <BottomNav />
+          </>
+        </ProtectedRoute>
+      )}
+      <div className={isAuthPage ? '' : 'pt-16 lg:pt-0'}>
+        <Suspense fallback={<Loading />}>
+          <Routes>
+            <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/terms" element={<TermsOfService />} />
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <Home />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/invoices"
+              element={
+                <ProtectedRoute>
+                  <Invoices />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/invoices/new"
+              element={
+                <ProtectedRoute>
+                  <InvoiceForm />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/invoices/:id"
+              element={
+                <ProtectedRoute>
+                  <InvoiceForm />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/invoices/:id/view"
+              element={
+                <ProtectedRoute>
+                  <InvoiceView />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/clients"
+              element={
+                <ProtectedRoute>
+                  <Clients />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/clients/new"
+              element={
+                <ProtectedRoute>
+                  <ClientForm />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/clients/:id/edit"
+              element={
+                <ProtectedRoute>
+                  <ClientForm />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/clients/:id/invoices"
+              element={
+                <ProtectedRoute>
+                  <ClientInvoices />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/receipts"
+              element={
+                <ProtectedRoute>
+                  <Receipts />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/receipt/:id"
+              element={
+                <ProtectedRoute>
+                  <ReceiptForm />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/pdf-creator"
+              element={
+                <ProtectedRoute>
+                  <PdfCreator />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/account"
+              element={
+                <ProtectedRoute>
+                  <Account />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/language"
+              element={
+                <ProtectedRoute>
+                  <Language />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <Settings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/upgrade"
+              element={
+                <ProtectedRoute>
+                  <Upgrade />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <LanguageProvider>
+        <ErrorBoundary>
+          <ToastProvider>
+            <BrowserRouter>
+              <AppContent />
+            </BrowserRouter>
+          </ToastProvider>
+        </ErrorBoundary>
+      </LanguageProvider>
+    </QueryClientProvider>
+  );
+}
