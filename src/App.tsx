@@ -11,6 +11,7 @@ import { BottomNav } from './components/BottomNav';
 import { Loading } from './components/Loading';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { Home } from './pages/Home';
+import { Landing } from './pages/Landing';
 import { Invoices } from './pages/Invoices';
 import { Clients } from './pages/Clients';
 import { Account } from './pages/Account';
@@ -23,6 +24,7 @@ import Settings from './pages/Settings';
 import Upgrade from './pages/Upgrade';
 import Receipts from './pages/Receipts';
 import { initSyncManager, onSyncFlush } from './lib/syncManager';
+import { supabase } from './lib/supabase';
 
 const InvoiceForm = lazy(() => import('./pages/InvoiceForm').then(module => ({ default: module.InvoiceForm })));
 const InvoiceView = lazy(() => import('./pages/InvoiceView').then(module => ({ default: module.InvoiceView })));
@@ -61,10 +63,53 @@ function SyncInit() {
   return null;
 }
 
+function RootPage() {
+  const [loading, setLoading] = React.useState(true);
+  const [authenticated, setAuthenticated] = React.useState(false);
+
+  React.useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      setAuthenticated(!!data.session);
+      setLoading(false);
+    })();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_, session) => {
+      setAuthenticated(!!session);
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#1e272e] flex items-center justify-center">
+        <div className="text-white text-xl">Завантаження...</div>
+      </div>
+    );
+  }
+
+  if (!authenticated) {
+    return <Landing />;
+  }
+
+  return (
+    <>
+      <Sidebar />
+      <MobileTopNav />
+      <BottomNav />
+      <div className="pt-16 lg:pt-0">
+        <Home />
+      </div>
+    </>
+  );
+}
+
 function AppContent() {
   const location = useLocation();
   const { language } = useLanguage();
   const isAuthPage =
+    location.pathname === '/' ||
     location.pathname === '/login' ||
     location.pathname === '/signup' ||
     location.pathname === '/onboarding' ||
@@ -92,14 +137,7 @@ function AppContent() {
             <Route path="/signup" element={<Signup />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <Home />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/" element={<RootPage />} />
             <Route
               path="/invoices"
               element={
