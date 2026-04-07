@@ -465,6 +465,7 @@ const baseTranslations = {
   paymentDue: 'Payment due immediately, net',
   closingText: 'Thank you for your trust in our construction company. We look forward to continued cooperation',
   withRegards: 'With best regards',
+  legalNotice: 'As a private person you are obligated to keep this invoice for at least 2 years. Companies are obligated to keep documents for 10 years.',
   appNameFull: 'SKB Light',
   signature: 'Signature',
   signInvoice: 'Sign invoice',
@@ -966,8 +967,9 @@ export const translations: Record<string, Record<string, string>> = {
     paymentDue: 'Оплата негайно, без знижок',
     closingText: 'Дякуємо за довіру до нашої будівельної компанії. Ми раді подальшій співпраці',
     withRegards: 'З повагою',
+    legalNotice: 'Як фізична особа Ви зобов\'язані зберігати цей рахунок щонайменше 2 роки. Підприємства зобов\'язані зберігати документи 10 років.',
     appNameFull: 'SKB Light',
-  
+
     signature: 'Підпис',
     signInvoice: 'Підписати рахунок',
     signerName: 'Ім\'я підписанта',
@@ -1234,8 +1236,9 @@ export const translations: Record<string, Record<string, string>> = {
     paymentDue: 'Zahlbar sofort, rein netto',
     closingText: 'Vielen Dank für Ihr Vertrauen in unser Bauunternehmen. Wir freuen uns auf die weitere Zusammenarbeit',
     withRegards: 'Mit freundlichen Grüßen',
+    legalNotice: 'Als Privatperson sind Sie gemäß § 14 Abs. 1 UStG verpflichtet, diese Rechnung mindestens zwei Jahre lang aufzubewahren. Unternehmen sind verpflichtet Unterlagen 10 Jahre lang aufzubewahren.',
     appNameFull: 'SKB Light',
-  
+
     invoiceTitle: 'RECHNUNG',
     netAmount: 'Nettobetrag',
     grossAmount: 'Bruttobetrag',

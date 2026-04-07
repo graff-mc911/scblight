@@ -150,6 +150,7 @@ export const generateInvoicePDF = async (
   const lang = (invoice.invoice_language || 'de') as keyof typeof translations;
   const t = translations[lang] || translations['de'];
   const tStr = (key: keyof typeof t): string => (t[key] as string) || (translations['de'][key as keyof typeof translations['de']] as string) || '';
+  const tStrAny = (key: string): string => ((t as any)[key] as string) || ((translations['de'] as any)[key] as string) || '';
 
   doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
@@ -165,7 +166,7 @@ export const generateInvoicePDF = async (
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  const salutation = `${tStr('dearSalutation')},`;
+  const salutation = `${tStr('dearClient')} ${invoice.client_name},`;
   doc.text(salutation, leftMargin, currentY);
   currentY += 8;
 
@@ -273,7 +274,7 @@ export const generateInvoicePDF = async (
   doc.setFontSize(7);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(0, 0, 0);
-  const legalText = 'Als Privatperson sind Sie gemäß § 14 Abs. 1 UStG verpflichtet, diese Rechnung mindestens zwei Jahre lang aufzubewahren. Unternehmen sind verpflichtet Unterlagen 10 Jahre lang aufzubewahren.';
+  const legalText = tStrAny('legalNotice');
   const legalLines = doc.splitTextToSize(legalText, pageWidth - leftMargin - rightMargin);
   doc.text(legalLines, leftMargin, legalY);
 

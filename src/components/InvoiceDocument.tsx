@@ -174,7 +174,7 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
       )}
 
       <div style={{ fontSize: '10pt', lineHeight: '1.6', marginBottom: '5mm' }}>
-        <p style={{ marginBottom: '3mm' }}>{tInvoice('dearSalutation')},</p>
+        <p style={{ marginBottom: '3mm' }}>{tInvoice('dearClient')} {data.client_name},</p>
         <p style={{ marginBottom: '3mm' }}>
           {tInvoice('thankYouText')}
         </p>
@@ -246,7 +246,7 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
       </div>
 
       <div style={{ fontSize: '9pt', lineHeight: '1.4', marginBottom: '15mm', flex: '1' }}>
-        <p>Als Privatperson sind Sie gemäß § 14 Abs. 1 UStG verpflichtet, diese Rechnung mindestens zwei Jahre lang aufzubewahren. Unternehmen sind verpflichtet Unterlagen 10 Jahre lang aufzubewahren.</p>
+        <p>{tInvoice('legalNotice')}</p>
       </div>
 
       <div
