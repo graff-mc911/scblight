@@ -76,6 +76,20 @@ p {
   }
 }
 
+#invoice-document,
+#invoice-document p,
+#invoice-document h1,
+#invoice-document h2,
+#invoice-document h3,
+#invoice-document h4,
+#invoice-document h5,
+#invoice-document h6,
+#invoice-document td,
+#invoice-document th,
+#invoice-document div {
+  color: #000000;
+}
+
 /* Glass Card */
 .glass-card {
   background: var(--glass-bg);
