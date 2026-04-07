@@ -75,9 +75,9 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     date: invoice.date,
     work_period_start: invoice.work_period_start,
     work_period_end: invoice.work_period_end,
-    client_name: client?.name || '',
+    client_name: client?.name || invoice.client_name || '',
     client_number: invoice.client_number || client?.client_number || '',
-    client_address: client?.address || '',
+    client_address: client?.address || invoice.client_address || '',
     client_tax_number: client?.tax_number || '',
     currency: invoice.currency,
     items: invoice.items.map((item: any) => ({
@@ -100,6 +100,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     company_iban: companyProfile?.iban,
     company_bic: companyProfile?.bic,
     company_logo_url: companyProfile?.logo_url,
+    invoice_language: invoice.invoice_language,
   };
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {

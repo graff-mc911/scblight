@@ -1028,6 +1028,7 @@ export const InvoiceForm: React.FC = () => {
             vat_rate: formData.vat_rate,
             object_address: formData.object_address,
             notes: formData.notes,
+            invoice_language: language,
           }}
           client={clients.find(c => c.id === formData.client_id)}
           companyProfile={companyProfile}
