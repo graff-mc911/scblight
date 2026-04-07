@@ -123,13 +123,15 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
 
   if (!onClose) {
     return (
-      <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl overflow-auto shadow-lg">
-        <div
-          ref={documentRef}
-          className="bg-white"
-          style={{ width: '794px', minHeight: '1123px' }}
-        >
-          <InvoiceDocument data={invoiceData} />
+      <div className="flex justify-center">
+        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-lg" style={{ width: '794px' }}>
+          <div
+            ref={documentRef}
+            className="bg-white"
+            style={{ width: '794px', minHeight: '1123px' }}
+          >
+            <InvoiceDocument data={invoiceData} />
+          </div>
         </div>
       </div>
     );
