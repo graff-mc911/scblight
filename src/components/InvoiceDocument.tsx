@@ -74,10 +74,6 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
   const vatAmount = data.vat_enabled ? (netTotal * data.vat_rate) / 100 : 0;
   const grossTotal = netTotal + vatAmount;
 
-  const getClientSalutation = () => {
-    return `${tInvoice('dearClient')} ${data.client_name}`;
-  };
-
   return (
     <div
       id="invoice-document"
@@ -178,7 +174,7 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
       )}
 
       <div style={{ fontSize: '10pt', lineHeight: '1.6', marginBottom: '5mm' }}>
-        <p style={{ marginBottom: '3mm' }}>{getClientSalutation()},</p>
+        <p style={{ marginBottom: '3mm' }}>{tInvoice('dearSalutation')},</p>
         <p style={{ marginBottom: '3mm' }}>
           {tInvoice('thankYouText')}
         </p>

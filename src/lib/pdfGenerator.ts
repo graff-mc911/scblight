@@ -165,7 +165,7 @@ export const generateInvoicePDF = async (
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
-  const salutation = `${tStr('dearClient')} ${invoice.client_name},`;
+  const salutation = `${tStr('dearSalutation')},`;
   doc.text(salutation, leftMargin, currentY);
   currentY += 8;
 
