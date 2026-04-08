@@ -1,15 +1,20 @@
 import { useState } from 'react';
+import { Check, Sparkles, Zap } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { Sparkles, Zap } from 'lucide-react';
+import { useToastContext } from '../contexts/ToastContext';
 
 type Plan = 'monthly' | 'yearly';
 
 export default function PaywallCard() {
-  const [loadingPlan, setLoadingPlan] = useState<Plan | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<Plan>('yearly');
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const { showError } = useToastContext();
 
-  async function startCheckout(plan: Plan) {
+  async function startCheckout() {
     try {
-      setLoadingPlan(plan);
+      setLoading(true);
+      setErrorMsg(null);
 
       const {
         data: { session },
@@ -17,7 +22,8 @@ export default function PaywallCard() {
 
       const accessToken = session?.access_token;
       if (!accessToken) {
-        alert('Please log in first.');
+        setErrorMsg('Please log in first.');
+        showError('Please log in first.');
         return;
       }
 
@@ -29,26 +35,33 @@ export default function PaywallCard() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${accessToken}`,
           },
-          body: JSON.stringify({ plan }),
+          body: JSON.stringify({ plan: selectedPlan }),
         }
       );
 
       const data = await response.json();
 
       if (!response.ok) {
-        console.error(data);
-        alert(data?.error || 'Failed to create checkout session');
+        const msg = data?.error || 'Failed to create checkout session';
+        setErrorMsg(msg);
+        showError(msg);
         return;
       }
 
       if (data?.url) {
         window.location.href = data.url;
+      } else {
+        const msg = 'No checkout URL received. Please try again.';
+        setErrorMsg(msg);
+        showError(msg);
       }
     } catch (error) {
+      const msg = 'Checkout failed. Please check your connection and try again.';
+      setErrorMsg(msg);
+      showError(msg);
       console.error(error);
-      alert('Checkout failed');
     } finally {
-      setLoadingPlan(null);
+      setLoading(false);
     }
   }
 
@@ -67,41 +80,62 @@ export default function PaywallCard() {
       <div className="space-y-3 mb-6">
         <button
           type="button"
-          onClick={() => startCheckout('monthly')}
-          disabled={loadingPlan !== null}
-          className="w-full rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-orange-500/30 p-4 text-left transition-all active:scale-98 disabled:opacity-50"
+          onClick={() => setSelectedPlan('monthly')}
+          disabled={loading}
+          className={`w-full rounded-xl border p-4 text-left transition-all disabled:opacity-50 relative ${
+            selectedPlan === 'monthly'
+              ? 'border-orange-500/60 bg-orange-500/10'
+              : 'border-white/10 bg-white/5 hover:bg-white/10 hover:border-orange-500/30'
+          }`}
         >
+          {selectedPlan === 'monthly' && (
+            <span className="absolute top-3 right-3 w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center">
+              <Check size={12} className="text-white" />
+            </span>
+          )}
           <div className="font-medium text-white">Monthly plan</div>
           <div className="text-sm text-white/50 mt-0.5">30 days free, then 5.00 € / month</div>
-          {loadingPlan === 'monthly' && (
-            <div className="mt-2 text-xs text-orange-400">Redirecting...</div>
-          )}
         </button>
 
         <button
           type="button"
-          onClick={() => startCheckout('yearly')}
-          disabled={loadingPlan !== null}
-          className="w-full rounded-xl border border-orange-500/30 bg-orange-500/8 hover:bg-orange-500/15 p-4 text-left transition-all active:scale-98 disabled:opacity-50 relative"
+          onClick={() => setSelectedPlan('yearly')}
+          disabled={loading}
+          className={`w-full rounded-xl border p-4 text-left transition-all disabled:opacity-50 relative ${
+            selectedPlan === 'yearly'
+              ? 'border-orange-500/60 bg-orange-500/10'
+              : 'border-white/10 bg-white/5 hover:bg-white/10 hover:border-orange-500/30'
+          }`}
         >
-          <span className="absolute top-3 right-3 text-[10px] px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 font-medium border border-orange-500/20">
-            Save 17%
+          <span className="absolute top-3 right-3 flex items-center gap-1.5">
+            {selectedPlan === 'yearly' && (
+              <span className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center">
+                <Check size={12} className="text-white" />
+              </span>
+            )}
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 font-medium border border-orange-500/20">
+              Save 17%
+            </span>
           </span>
           <div className="font-medium text-white">Yearly plan</div>
           <div className="text-sm text-white/50 mt-0.5">30 days free, then 50.00 € / year</div>
-          {loadingPlan === 'yearly' && (
-            <div className="mt-2 text-xs text-orange-400">Redirecting...</div>
-          )}
         </button>
       </div>
 
+      {errorMsg && (
+        <div className="mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+          {errorMsg}
+        </div>
+      )}
+
       <button
-        onClick={() => startCheckout('monthly')}
-        disabled={loadingPlan !== null}
-        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-medium transition-all active:scale-95 disabled:opacity-50"
+        type="button"
+        onClick={startCheckout}
+        disabled={loading}
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 active:scale-95 text-white font-medium transition-all disabled:opacity-60 disabled:cursor-not-allowed"
       >
         <Zap size={16} />
-        {loadingPlan ? 'Loading...' : 'Start 30-day free trial'}
+        {loading ? 'Redirecting to payment...' : 'Start 30-day free trial'}
       </button>
 
       <p className="mt-3 text-xs text-white/30 text-center">
