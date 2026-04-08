@@ -8,9 +8,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const PRICE_IDS: Record<string, string> = {
-  monthly: "price_1THkjyJhQw2K2SWp22tIFUzq",
-  yearly: "price_1TI2UaJhQw2K2SWpIRp642tL",
+const PRICE_IDS: Record<string, string | undefined> = {
+  monthly: Deno.env.get("STRIPE_PRICE_MONTHLY"),
+  yearly: Deno.env.get("STRIPE_PRICE_YEARLY"),
 };
 
 Deno.serve(async (req: Request) => {
