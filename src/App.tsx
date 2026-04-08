@@ -108,6 +108,41 @@ function RootPage() {
 function AppContent() {
   const location = useLocation();
   const { language } = useLanguage();
+  const [authenticated, setAuthenticated] = React.useState<boolean | null>(null);
+  const [unlocked, setUnlocked] = React.useState(false);
+  const [subChecked, setSubChecked] = React.useState(false);
+
+  React.useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      setAuthenticated(!!data.session);
+    })();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_, session) => {
+      setAuthenticated(!!session);
+      if (!session) {
+        setUnlocked(false);
+        setSubChecked(false);
+      }
+    });
+
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  React.useEffect(() => {
+    if (authenticated === null) return;
+    if (!authenticated) {
+      setSubChecked(true);
+      return;
+    }
+    (async () => {
+      const { data } = await supabase.functions.invoke("subscription-status");
+      const ok = data?.status === "active" || data?.status === "trialing";
+      setUnlocked(ok);
+      setSubChecked(true);
+    })();
+  }, [authenticated]);
+
   const isAuthPage =
     location.pathname === '/' ||
     location.pathname === '/login' ||
@@ -115,6 +150,10 @@ function AppContent() {
     location.pathname === '/onboarding' ||
     location.pathname === '/privacy' ||
     location.pathname === '/terms';
+
+  if (authenticated && !isAuthPage && subChecked && !unlocked) {
+    return <Paywall onUnlocked={() => setUnlocked(true)} />;
+  }
 
   return (
     <div className="min-h-screen" key={language}>
