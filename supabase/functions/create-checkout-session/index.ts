@@ -57,8 +57,8 @@ Deno.serve(async (req: Request) => {
     };
 
     const priceMap: Record<string, string | undefined> = {
-      monthly: Deno.env.get("STRIPE_PRICE_MONTHLY"),
-      yearly: Deno.env.get("STRIPE_PRICE_YEARLY"),
+      monthly: Deno.env.get("STRIPE_PRICE_MONTHLY") ?? "price_1TI2UaJhQw2K2SWpIRp642tL",
+      yearly: Deno.env.get("STRIPE_PRICE_YEARLY") ?? "price_1TI2UaJhQw2K2SWpIRp642tL",
     };
 
     const paymentLinkId = paymentLinkMap[plan];
