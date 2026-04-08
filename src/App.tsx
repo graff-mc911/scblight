@@ -15,6 +15,7 @@ import { Landing } from './pages/Landing';
 import { Invoices } from './pages/Invoices';
 import { Clients } from './pages/Clients';
 import { Account } from './pages/Account';
+import { Paywall } from './pages/Paywall';
 import { Language } from './pages/Language';
 import { Login } from './pages/Login';
 import { Signup } from './pages/Signup';
@@ -261,6 +262,14 @@ function AppContent() {
               element={
                 <ProtectedRoute>
                   <Settings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/paywall"
+              element={
+                <ProtectedRoute>
+                  <Paywall />
                 </ProtectedRoute>
               }
             />

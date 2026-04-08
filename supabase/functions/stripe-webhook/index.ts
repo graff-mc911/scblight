@@ -23,7 +23,7 @@ Deno.serve(async (req) => {
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
-      const userId = session.metadata?.supabase_user_id ?? null;
+      const userId = session.metadata?.supabase_user_id ?? session.client_reference_id ?? null;
       const plan = session.metadata?.plan ?? null;
 
       if (userId && session.subscription) {
