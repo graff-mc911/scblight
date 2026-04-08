@@ -22,6 +22,7 @@ import { PrivacyPolicy } from './pages/PrivacyPolicy';
 import { TermsOfService } from './pages/TermsOfService';
 import Settings from './pages/Settings';
 import Receipts from './pages/Receipts';
+import Paywall from './pages/Paywall';
 import { initSyncManager, onSyncFlush } from './lib/syncManager';
 import { supabase } from './lib/supabase';
 
@@ -246,6 +247,14 @@ function AppContent() {
               element={
                 <ProtectedRoute>
                   <Settings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/paywall"
+              element={
+                <ProtectedRoute>
+                  <Paywall />
                 </ProtectedRoute>
               }
             />
