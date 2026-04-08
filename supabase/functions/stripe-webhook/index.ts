@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
             subscription.items.data[0]?.price?.recurring?.interval === 'year'
               ? 'yearly'
               : 'monthly',
-          trial_ends_at: subscription.trial_end
+          trial_end: subscription.trial_end
             ? new Date(subscription.trial_end * 1000).toISOString()
             : null,
           current_period_end: (() => {

@@ -106,8 +106,8 @@ Deno.serve(async (req) => {
     });
 
     await serviceSupabase.from('subscriptions').upsert(
-      { user_id: user.id, stripe_customer_id: customerId, plan },
-      { onConflict: 'user_id' }
+      { user_id: user.id, stripe_customer_id: customerId, plan, status: 'trialing' },
+      { onConflict: 'user_id', ignoreDuplicates: false }
     );
 
     return new Response(JSON.stringify({ url: session.url }), {

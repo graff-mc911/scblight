@@ -16,7 +16,7 @@ type SubscriptionRecord = {
   stripe_subscription_id: string | null;
   status: SubscriptionStatus;
   plan: 'monthly' | 'yearly' | null;
-  trial_ends_at: string | null;
+  trial_end: string | null;
   current_period_end: string | null;
 };
 
