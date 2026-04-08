@@ -8,6 +8,9 @@ import { supabase } from '../lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { offlineStore } from '../lib/offlineStore';
+import { useSubscription } from '../hooks/useSubscription';
+import ViewOnlyBanner from '../components/ViewOnlyBanner';
+
 export const Clients: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
@@ -16,6 +19,7 @@ export const Clients: React.FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [clientToDelete, setClientToDelete] = useState<{ id: string; name: string } | null>(null);
   const queryClient = useQueryClient();
+  const { canEdit, isTrialing, trialDaysLeft } = useSubscription();
 
   const { data: session } = useQuery({
     queryKey: ['session'],
@@ -84,6 +88,8 @@ export const Clients: React.FC = () => {
 
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-6xl mx-auto">
+      {!canEdit && <ViewOnlyBanner trialDaysLeft={trialDaysLeft} isTrialing={isTrialing} />}
+
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="text-2xl font-semibold text-white">{t('clients')}</h2>
@@ -92,8 +98,8 @@ export const Clients: React.FC = () => {
 
         <div className="flex gap-2">
           <button
-            onClick={() => navigate('/clients/new')}
-            className="p-2.5 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 transition-all active:scale-95"
+            onClick={() => canEdit ? navigate('/clients/new') : navigate('/settings')}
+            className={`p-2.5 rounded-xl backdrop-blur-xl border transition-all active:scale-95 ${canEdit ? 'bg-white/10 border-white/10 text-orange-500 hover:bg-white/20' : 'bg-white/5 border-white/10 text-white/30'}`}
             title={t('addClient') || 'New Client'}
           >
             <Plus size={16} />
@@ -135,10 +141,10 @@ export const Clients: React.FC = () => {
             </p>
             {!search && (
               <button
-                onClick={() => navigate('/clients/new')}
+                onClick={() => canEdit ? navigate('/clients/new') : navigate('/settings')}
                 className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-6 py-2.5 rounded-xl font-medium transition-all active:scale-95"
               >
-                {t('addClient') || 'Add Client'}
+                {canEdit ? (t('addClient') || 'Add Client') : 'Підписатись'}
               </button>
             )}
           </div>
@@ -183,20 +189,24 @@ export const Clients: React.FC = () => {
                   >
                     <Eye size={16} />
                   </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); navigate(`/clients/${client.id}`); }}
-                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-orange-400 transition-all active:scale-95"
-                    title={t('edit')}
-                  >
-                    <Edit2 size={16} />
-                  </button>
-                  <button
-                    onClick={(e) => handleDeleteClick(e, client.id, client.name)}
-                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-red-400 transition-all active:scale-95"
-                    title={t('delete')}
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); navigate(`/clients/${client.id}`); }}
+                      className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-orange-400 transition-all active:scale-95"
+                      title={t('edit')}
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button
+                      onClick={(e) => handleDeleteClick(e, client.id, client.name)}
+                      className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-red-400 transition-all active:scale-95"
+                      title={t('delete')}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                 </div>
               </motion.div>
             ))}

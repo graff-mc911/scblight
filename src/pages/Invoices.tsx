@@ -12,6 +12,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { exportInvoicesToCSV } from '../lib/exportData';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { offlineStore } from '../lib/offlineStore';
+import { useSubscription } from '../hooks/useSubscription';
+import ViewOnlyBanner from '../components/ViewOnlyBanner';
 
 const InvoiceThumbnail: React.FC<{ invoice: Record<string, unknown> }> = ({ invoice }) => {
   return (
@@ -379,6 +381,8 @@ export const Invoices: React.FC = () => {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [editUploadedInvoice, setEditUploadedInvoice] = useState<Record<string, unknown> | null>(null);
 
+  const { canEdit, isTrialing, trialDaysLeft } = useSubscription();
+
   const { data: session } = useQuery({
     queryKey: ['session'],
     queryFn: async () => {
@@ -474,6 +478,8 @@ export const Invoices: React.FC = () => {
 
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-2xl mx-auto">
+      {!canEdit && <ViewOnlyBanner trialDaysLeft={trialDaysLeft} isTrialing={isTrialing} />}
+
       <div className="flex justify-between items-center mb-4">
         <div>
           <h2 className="text-2xl font-semibold text-white">{t('invoices')}</h2>
@@ -489,16 +495,18 @@ export const Invoices: React.FC = () => {
           >
             <Download size={16} />
           </button>
+          {canEdit && (
+            <button
+              onClick={() => setUploadModalOpen(true)}
+              className="p-2.5 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 transition-all active:scale-95"
+              title={t('uploadExternalInvoice') || 'Завантажити чужий рахунок'}
+            >
+              <Upload size={16} />
+            </button>
+          )}
           <button
-            onClick={() => setUploadModalOpen(true)}
-            className="p-2.5 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 transition-all active:scale-95"
-            title={t('uploadExternalInvoice') || 'Завантажити чужий рахунок'}
-          >
-            <Upload size={16} />
-          </button>
-          <button
-            onClick={() => navigate('/invoices/new')}
-            className="p-2.5 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 transition-all active:scale-95"
+            onClick={() => canEdit ? navigate('/invoices/new') : navigate('/settings')}
+            className={`p-2.5 rounded-xl backdrop-blur-xl border transition-all active:scale-95 ${canEdit ? 'bg-white/10 border-white/10 text-orange-500 hover:bg-white/20' : 'bg-white/5 border-white/10 text-white/30'}`}
             title={t('newInvoice')}
           >
             <Plus size={16} />
@@ -558,10 +566,10 @@ export const Invoices: React.FC = () => {
             <p className="text-white/60 mb-6 text-sm">{t('createFirstIn30Sec')}</p>
             {activeFilter === 'all' && (
               <button
-                onClick={() => navigate('/invoices/new')}
+                onClick={() => canEdit ? navigate('/invoices/new') : navigate('/settings')}
                 className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-6 py-2.5 rounded-xl font-medium transition-all active:scale-95"
               >
-                {t('createInvoice')}
+                {canEdit ? t('createInvoice') : 'Підписатись'}
               </button>
             )}
           </div>
@@ -635,7 +643,7 @@ export const Invoices: React.FC = () => {
                       </div>
                     </button>
 
-                    {isUploaded && (
+                    {isUploaded && canEdit && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -647,17 +655,19 @@ export const Invoices: React.FC = () => {
                         <Pencil size={15} />
                       </button>
                     )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setInvoiceToDelete(invoice.id);
-                        setDeleteDialogOpen(true);
-                      }}
-                      className="pr-4 pl-2 py-4 text-white/30 hover:text-red-400 transition-colors active:scale-90 md:opacity-0 md:group-hover:opacity-100"
-                      title={t('delete')}
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setInvoiceToDelete(invoice.id);
+                          setDeleteDialogOpen(true);
+                        }}
+                        className="pr-4 pl-2 py-4 text-white/30 hover:text-red-400 transition-colors active:scale-90 md:opacity-0 md:group-hover:opacity-100"
+                        title={t('delete')}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </div>
 
                   {index < filteredInvoices.length - 1 && (

@@ -47,13 +47,18 @@ export default function Settings() {
         .from('subscriptions')
         .select('*')
         .eq('user_id', session!.user.id)
-        .in('status', ['active', 'trialing'])
         .maybeSingle();
       return data;
     },
   });
 
-  const isActive = !!subscription;
+  const now = new Date();
+  const trialEnd = subscription?.trial_end ? new Date(subscription.trial_end as string) : null;
+  const isTrialingActive = subscription?.status === 'trialing' && trialEnd !== null && trialEnd > now;
+  const trialDaysLeftSettings = isTrialingActive && trialEnd
+    ? Math.max(0, Math.ceil((trialEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+    : null;
+  const isActive = subscription?.status === 'active' || isTrialingActive;
 
   const buildLink = (base: string) => {
     if (!session?.user) return base;
@@ -183,20 +188,22 @@ export default function Settings() {
 
           {isActive ? (
             <div className="space-y-3">
-              <div className="flex items-center gap-3 py-3 px-4 bg-green-500/10 border border-green-500/20 rounded-xl">
-                <Crown className="h-5 w-5 text-green-400 shrink-0" />
+              <div className={`flex items-center gap-3 py-3 px-4 rounded-xl border ${isTrialingActive ? 'bg-orange-500/10 border-orange-500/20' : 'bg-green-500/10 border-green-500/20'}`}>
+                <Crown className={`h-5 w-5 shrink-0 ${isTrialingActive ? 'text-orange-400' : 'text-green-400'}`} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-green-400 font-medium text-sm">Підписка активна</p>
+                  <p className={`font-medium text-sm ${isTrialingActive ? 'text-orange-400' : 'text-green-400'}`}>
+                    {isTrialingActive ? `Пробний період · ${trialDaysLeftSettings} ${trialDaysLeftSettings === 1 ? 'день' : trialDaysLeftSettings && trialDaysLeftSettings < 5 ? 'дні' : 'днів'}` : 'Підписка активна'}
+                  </p>
                   <p className="text-white/50 text-xs mt-0.5">
-                    {subscription?.plan === 'yearly' ? 'Річний план' : 'Місячний план'}
-                    {subscription?.cancel_at_period_end && (
+                    {isTrialingActive ? 'Після закінчення потрібна підписка' : (subscription?.plan === 'yearly' ? 'Річний план' : 'Місячний план')}
+                    {!isTrialingActive && subscription?.cancel_at_period_end && (
                       <span className="ml-1 text-orange-400"> · Скасовується в кінці періоду</span>
                     )}
                   </p>
                 </div>
               </div>
 
-              {!subscription?.cancel_at_period_end && (
+              {!isTrialingActive && !subscription?.cancel_at_period_end && subscription?.stripe_subscription_id && (
                 <>
                   {!showCancelConfirm ? (
                     <button

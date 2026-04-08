@@ -11,6 +11,8 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { downloadReceiptPDF } from '../lib/receiptPdfGenerator';
 import ReceiptScanReview from '../components/ReceiptScanReview';
 import { ScannedReceiptData } from '../lib/receiptOCR';
+import { useSubscription } from '../hooks/useSubscription';
+import ViewOnlyBanner from '../components/ViewOnlyBanner';
 
 interface ReceiptType {
   id: string;
@@ -84,6 +86,7 @@ export default function Receipts() {
   const { t } = useLanguage();
   const { showSuccess, showError } = useToastContext();
   const queryClient = useQueryClient();
+  const { canEdit, isTrialing, trialDaysLeft } = useSubscription();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [scanFile, setScanFile] = useState<File | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -191,6 +194,8 @@ export default function Receipts() {
 
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-2xl mx-auto">
+      {!canEdit && <ViewOnlyBanner trialDaysLeft={trialDaysLeft} isTrialing={isTrialing} />}
+
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="text-2xl font-semibold text-white">{t('allReceipts') || t('receipts')}</h2>
@@ -198,16 +203,18 @@ export default function Receipts() {
         </div>
 
         <div className="flex gap-2">
+          {canEdit && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2.5 rounded-xl bg-white/8 border border-white/10 text-white/60 hover:bg-white/15 hover:text-white/90 transition-all active:scale-95"
+              title="Foto vom Gerät hochladen"
+            >
+              <Upload size={18} />
+            </button>
+          )}
           <button
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2.5 rounded-xl bg-white/8 border border-white/10 text-white/60 hover:bg-white/15 hover:text-white/90 transition-all active:scale-95"
-            title="Foto vom Gerät hochladen"
-          >
-            <Upload size={18} />
-          </button>
-          <button
-            onClick={() => navigate('/pdf-creator')}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-orange-500/15 border border-orange-500/30 text-orange-400 hover:bg-orange-500/25 transition-all active:scale-95 text-sm font-medium"
+            onClick={() => canEdit ? navigate('/pdf-creator') : navigate('/settings')}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all active:scale-95 text-sm font-medium ${canEdit ? 'bg-orange-500/15 border-orange-500/30 text-orange-400 hover:bg-orange-500/25' : 'bg-white/5 border-white/10 text-white/30'}`}
           >
             <FileText size={16} />
             {t('createPdfBtn')}
@@ -308,17 +315,19 @@ export default function Receipts() {
                     <Download size={14} />
                   </button>
 
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setReceiptToDelete(receipt.id);
-                      setDeleteDialogOpen(true);
-                    }}
-                    className="mr-3 pl-1 pr-2 py-4 text-white/30 hover:text-red-400 transition-colors active:scale-90 md:opacity-0 md:group-hover:opacity-100"
-                    title={t('delete')}
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReceiptToDelete(receipt.id);
+                        setDeleteDialogOpen(true);
+                      }}
+                      className="mr-3 pl-1 pr-2 py-4 text-white/30 hover:text-red-400 transition-colors active:scale-90 md:opacity-0 md:group-hover:opacity-100"
+                      title={t('delete')}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                 </div>
 
                 {index < receipts.length - 1 && (

@@ -12,6 +12,8 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { safeEval } from '../lib/calculator';
 import { generateInvoicePDFBlob } from '../lib/pdfGenerator';
+import { useSubscription } from '../hooks/useSubscription';
+import ViewOnlyBanner from '../components/ViewOnlyBanner';
 
 interface InvoiceItem {
   quantity: number;
@@ -28,6 +30,7 @@ export const InvoiceForm: React.FC = () => {
   const navigate = useNavigate();
   const { t, language } = useLanguage();
   const { showSuccess, showError } = useToastContext();
+  const { canEdit, isTrialing, trialDaysLeft, isLoading: subLoading } = useSubscription();
   const [clients, setClients] = useState<any[]>([]);
   const [companyProfile, setCompanyProfile] = useState<any>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -57,6 +60,12 @@ export const InvoiceForm: React.FC = () => {
   const [items, setItems] = useState<InvoiceItem[]>([
     { quantity: 0, quantityDisplay: '', unit: 'm²', price: 0, material: '', description: '', total: 0 },
   ]);
+
+  useEffect(() => {
+    if (!subLoading && !canEdit && !id) {
+      navigate('/settings');
+    }
+  }, [subLoading, canEdit, id, navigate]);
 
   useEffect(() => {
     fetchClients();
@@ -685,6 +694,7 @@ export const InvoiceForm: React.FC = () => {
 
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-5xl mx-auto">
+      {id && !canEdit && <ViewOnlyBanner trialDaysLeft={trialDaysLeft} isTrialing={isTrialing} />}
 
       <div className="mb-6">
         <button
@@ -1004,8 +1014,9 @@ export const InvoiceForm: React.FC = () => {
           </button>
           <button
             type="submit"
-            className="p-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white transition-all active:scale-95"
-            title={t('save')}
+            disabled={!canEdit}
+            className="p-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-all active:scale-95"
+            title={canEdit ? t('save') : 'Потрібна підписка'}
           >
             <Save className="h-4 w-4" />
           </button>
