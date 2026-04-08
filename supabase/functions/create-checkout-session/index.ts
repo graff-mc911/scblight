@@ -51,12 +51,32 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const plan: string = body.plan;
 
+    const paymentLinkMap: Record<string, string | undefined> = {
+      monthly: Deno.env.get("STRIPE_PAYMENT_LINK_MONTHLY"),
+      yearly: Deno.env.get("STRIPE_PAYMENT_LINK_YEARLY"),
+    };
+
     const priceMap: Record<string, string | undefined> = {
       monthly: Deno.env.get("STRIPE_PRICE_MONTHLY"),
       yearly: Deno.env.get("STRIPE_PRICE_YEARLY"),
     };
 
+    const paymentLinkId = paymentLinkMap[plan];
     const priceId = priceMap[plan];
+
+    if (paymentLinkId) {
+      const paymentLink = await stripe.paymentLinks.retrieve(paymentLinkId);
+      const baseUrl = paymentLink.url;
+      const params = new URLSearchParams({
+        client_reference_id: user.id,
+        prefilled_email: user.email ?? "",
+      });
+      const url = `${baseUrl}?${params.toString()}`;
+      return new Response(JSON.stringify({ url }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (!priceId) {
       return new Response(JSON.stringify({ error: `Invalid plan or price not configured: ${plan}` }), {
         status: 400,
