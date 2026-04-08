@@ -1,10 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Moon, Sun, Globe, LogOut, ArrowLeft, Trash2, AlertTriangle } from 'lucide-react';
+import { Moon, Sun, Globe, LogOut, ArrowLeft, Trash2, AlertTriangle, Zap, Check, Crown } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { languages } from '../lib/languages';
 import { motion } from 'framer-motion';
+import { useQuery } from '@tanstack/react-query';
+
+const MONTHLY_LINK = 'https://buy.stripe.com/test_bJe14o2ip6Oe99f0N49oc00';
+const YEARLY_LINK = 'https://buy.stripe.com/test_eVq5kEbSZ0pQ5X3dzQ9oc01';
+
+const FEATURES = [
+  'Необмежена кількість рахунків',
+  'Необмежена кількість клієнтів',
+  'Генерація PDF рахунків',
+  'Сканер та OCR квитанцій',
+  'Створення PDF документів',
+  'Хмарна синхронізація',
+  'Підпис на документах',
+  'Мультимовний інтерфейс',
+];
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -12,6 +27,39 @@ export default function Settings() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+
+  const { data: session } = useQuery({
+    queryKey: ['session'],
+    queryFn: async () => {
+      const { data } = await supabase.auth.getSession();
+      return data.session;
+    },
+  });
+
+  const { data: subscription } = useQuery({
+    queryKey: ['subscription', session?.user?.id],
+    enabled: !!session?.user?.id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .eq('user_id', session!.user.id)
+        .in('status', ['active', 'trialing'])
+        .maybeSingle();
+      return data;
+    },
+  });
+
+  const isActive = !!subscription;
+
+  const buildLink = (base: string) => {
+    if (!session?.user) return base;
+    const params = new URLSearchParams({
+      client_reference_id: session.user.id,
+      prefilled_email: session.user.email ?? '',
+    });
+    return `${base}?${params.toString()}`;
+  };
 
   const handleDeleteAccount = async () => {
     if (deleteConfirmText.toLowerCase() !== 'delete') return;
@@ -97,6 +145,79 @@ export default function Settings() {
               {isDark ? (t('switchToLight') || 'Світла') : (t('switchToDark') || 'Темна')}
             </button>
           </div>
+        </div>
+
+        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-lg">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-8 h-8 bg-orange-500/20 rounded-xl flex items-center justify-center">
+              <Zap className="h-4 w-4 text-orange-400" />
+            </div>
+            <h2 className="text-lg font-medium text-white">SCB Light Pro</h2>
+          </div>
+
+          {isActive ? (
+            <div className="flex items-center gap-3 py-3 px-4 bg-green-500/10 border border-green-500/20 rounded-xl">
+              <Crown className="h-5 w-5 text-green-400 shrink-0" />
+              <div>
+                <p className="text-green-400 font-medium text-sm">Підписка активна</p>
+                <p className="text-white/50 text-xs mt-0.5">
+                  {subscription?.plan === 'yearly' ? 'Річний план' : 'Місячний план'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-white/50 text-sm">
+                Активна підписка відсутня. Отримайте доступ до всіх функцій.
+              </p>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-2">
+                <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {FEATURES.map((f) => (
+                    <li key={f} className="flex items-center gap-2 text-xs text-white/70">
+                      <div className="shrink-0 w-4 h-4 rounded-full bg-orange-500/20 flex items-center justify-center">
+                        <Check size={10} className="text-orange-400" />
+                      </div>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <a
+                  href={buildLink(MONTHLY_LINK)}
+                  className="block bg-white/10 border border-white/10 rounded-xl p-4 hover:bg-white/15 hover:border-white/20 transition-all group"
+                >
+                  <p className="text-white/50 text-xs mb-0.5">Щомісяця</p>
+                  <p className="text-xl font-bold text-white mb-0.5">
+                    €5<span className="text-sm font-normal text-white/50">/міс</span>
+                  </p>
+                  <p className="text-white/30 text-xs mb-3">30 днів безкоштовно</p>
+                  <div className="w-full py-2 bg-white/10 border border-white/10 rounded-lg text-center text-xs text-white/80 group-hover:bg-white/20 transition-all">
+                    Розпочати
+                  </div>
+                </a>
+                <a
+                  href={buildLink(YEARLY_LINK)}
+                  className="block bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 hover:bg-orange-500/15 transition-all group relative"
+                >
+                  <div className="absolute top-2 right-2 bg-orange-500 text-white text-xs font-semibold px-1.5 py-0.5 rounded-full">
+                    -17%
+                  </div>
+                  <p className="text-white/50 text-xs mb-0.5">Щорічно</p>
+                  <p className="text-xl font-bold text-white mb-0.5">
+                    €50<span className="text-sm font-normal text-white/50">/рік</span>
+                  </p>
+                  <p className="text-white/30 text-xs mb-3">€4.17/міс &bull; 30 днів безкоштовно</p>
+                  <div className="w-full py-2 bg-orange-500 rounded-lg text-center text-xs text-white font-medium group-hover:bg-orange-600 transition-all">
+                    Розпочати
+                  </div>
+                </a>
+              </div>
+              <p className="text-center text-white/30 text-xs">
+                Скасувати можна будь-коли. Безпечна оплата через Stripe.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-lg">
