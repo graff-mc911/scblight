@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import Stripe from "npm:stripe@14";
+import Stripe from "npm:stripe@14.25.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -8,20 +8,21 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const PRICE_IDS: Record<string, string | undefined> = {
-  monthly: Deno.env.get("STRIPE_PRICE_MONTHLY"),
-  yearly: Deno.env.get("STRIPE_PRICE_YEARLY"),
-};
-
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   try {
-    const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", {
-      apiVersion: "2024-04-10",
-    });
+    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+    if (!stripeKey) {
+      return new Response(JSON.stringify({ error: "Stripe not configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" });
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -47,11 +48,17 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const { plan } = await req.json();
-    const priceId = PRICE_IDS[plan];
+    const body = await req.json();
+    const plan: string = body.plan;
 
+    const priceMap: Record<string, string | undefined> = {
+      monthly: Deno.env.get("STRIPE_PRICE_MONTHLY"),
+      yearly: Deno.env.get("STRIPE_PRICE_YEARLY"),
+    };
+
+    const priceId = priceMap[plan];
     if (!priceId) {
-      return new Response(JSON.stringify({ error: "Invalid plan" }), {
+      return new Response(JSON.stringify({ error: `Invalid plan or price not configured: ${plan}` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -92,7 +99,8 @@ Deno.serve(async (req: Request) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    console.error("create-checkout-session error:", err);
+    return new Response(JSON.stringify({ error: err.message ?? "Unknown error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

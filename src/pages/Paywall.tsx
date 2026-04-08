@@ -27,7 +27,10 @@ export default function Paywall({ onUnlocked }: PaywallProps) {
         body: { plan },
       });
 
-      if (error) throw error;
+      if (error) {
+        const detail = data?.error ?? error.message;
+        throw new Error(detail);
+      }
       if (!data?.url) throw new Error("Checkout URL not returned.");
 
       window.location.href = data.url;
