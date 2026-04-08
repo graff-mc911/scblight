@@ -1,14 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Moon, Sun, Globe, LogOut, ArrowLeft, Trash2, AlertTriangle, Zap, Check, Crown } from 'lucide-react';
+import { Moon, Sun, Globe, LogOut, ArrowLeft, Trash2, AlertTriangle, Zap, Check, Crown, Loader2 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { languages } from '../lib/languages';
 import { motion } from 'framer-motion';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-
-const MONTHLY_LINK = 'https://buy.stripe.com/test_bJe14o2ip6Oe99f0N49oc00';
-const YEARLY_LINK = 'https://buy.stripe.com/test_eVq5kEbSZ0pQ5X3dzQ9oc01';
 
 const FEATURES = [
   'Необмежена кількість рахунків',
@@ -30,6 +27,8 @@ export default function Settings() {
   const [deleting, setDeleting] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState<'monthly' | 'yearly' | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const { data: session } = useQuery({
     queryKey: ['session'],
@@ -60,13 +59,30 @@ export default function Settings() {
     : null;
   const isActive = subscription?.status === 'active' || isTrialingActive;
 
-  const buildLink = (base: string) => {
-    if (!session?.user) return base;
-    const params = new URLSearchParams({
-      client_reference_id: session.user.id,
-      prefilled_email: session.user.email ?? '',
-    });
-    return `${base}?${params.toString()}`;
+  const handleCheckout = async (plan: 'monthly' | 'yearly') => {
+    if (!session) { navigate('/login'); return; }
+    setCheckoutLoading(plan);
+    setCheckoutError(null);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-checkout-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ plan }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        setCheckoutError(data.error ?? 'Помилка створення сесії оплати');
+        return;
+      }
+      window.open(data.url, '_blank', 'noopener,noreferrer');
+    } catch {
+      setCheckoutError('Помилка з\'єднання. Спробуйте ще раз.');
+    } finally {
+      setCheckoutLoading(null);
+    }
   };
 
   const handleDeleteAccount = async () => {
@@ -254,23 +270,31 @@ export default function Settings() {
                   ))}
                 </ul>
               </div>
+              {checkoutError && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-xs text-red-400 text-center">
+                  {checkoutError}
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <a
-                  href={buildLink(MONTHLY_LINK)}
-                  className="block bg-white/10 border border-white/10 rounded-xl p-4 hover:bg-white/15 hover:border-white/20 transition-all group"
+                <button
+                  onClick={() => handleCheckout('monthly')}
+                  disabled={checkoutLoading !== null}
+                  className="block text-left bg-white/10 border border-white/10 rounded-xl p-4 hover:bg-white/15 hover:border-white/20 transition-all group disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <p className="text-white/50 text-xs mb-0.5">Щомісяця</p>
                   <p className="text-xl font-bold text-white mb-0.5">
                     €5<span className="text-sm font-normal text-white/50">/міс</span>
                   </p>
                   <p className="text-white/30 text-xs mb-3">30 днів безкоштовно</p>
-                  <div className="w-full py-2 bg-white/10 border border-white/10 rounded-lg text-center text-xs text-white/80 group-hover:bg-white/20 transition-all">
+                  <div className="w-full py-2 bg-white/10 border border-white/10 rounded-lg text-center text-xs text-white/80 group-hover:bg-white/20 transition-all flex items-center justify-center gap-1.5">
+                    {checkoutLoading === 'monthly' && <Loader2 size={12} className="animate-spin" />}
                     Розпочати
                   </div>
-                </a>
-                <a
-                  href={buildLink(YEARLY_LINK)}
-                  className="block bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 hover:bg-orange-500/15 transition-all group relative"
+                </button>
+                <button
+                  onClick={() => handleCheckout('yearly')}
+                  disabled={checkoutLoading !== null}
+                  className="block text-left bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 hover:bg-orange-500/15 transition-all group relative disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <div className="absolute top-2 right-2 bg-orange-500 text-white text-xs font-semibold px-1.5 py-0.5 rounded-full">
                     -17%
@@ -280,10 +304,11 @@ export default function Settings() {
                     €50<span className="text-sm font-normal text-white/50">/рік</span>
                   </p>
                   <p className="text-white/30 text-xs mb-3">€4.17/міс &bull; 30 днів безкоштовно</p>
-                  <div className="w-full py-2 bg-orange-500 rounded-lg text-center text-xs text-white font-medium group-hover:bg-orange-600 transition-all">
+                  <div className="w-full py-2 bg-orange-500 rounded-lg text-center text-xs text-white font-medium group-hover:bg-orange-600 transition-all flex items-center justify-center gap-1.5">
+                    {checkoutLoading === 'yearly' && <Loader2 size={12} className="animate-spin" />}
                     Розпочати
                   </div>
-                </a>
+                </button>
               </div>
               <p className="text-center text-white/30 text-xs">
                 Скасувати можна будь-коли. Безпечна оплата через Stripe.
