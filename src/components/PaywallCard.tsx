@@ -36,6 +36,7 @@ export default function PaywallCard() {
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${accessToken}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({ plan: selectedPlan }),
         }
