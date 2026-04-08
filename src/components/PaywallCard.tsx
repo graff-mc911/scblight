@@ -16,9 +16,11 @@ export default function PaywallCard() {
       setLoading(true);
       setErrorMsg(null);
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+
+      const session = refreshError || !refreshData?.session
+        ? (await supabase.auth.getSession()).data.session
+        : refreshData.session;
 
       const accessToken = session?.access_token;
       if (!accessToken) {
@@ -42,9 +44,13 @@ export default function PaywallCard() {
       const data = await response.json();
 
       if (!response.ok) {
-        const msg = data?.error || 'Failed to create checkout session';
+        const msg =
+          data?.error ||
+          data?.message ||
+          `Request failed (${response.status}). Please try again.`;
         setErrorMsg(msg);
         showError(msg);
+        console.error('Checkout error response:', response.status, data);
         return;
       }
 
@@ -59,7 +65,7 @@ export default function PaywallCard() {
       const msg = 'Checkout failed. Please check your connection and try again.';
       setErrorMsg(msg);
       showError(msg);
-      console.error(error);
+      console.error('Checkout exception:', error);
     } finally {
       setLoading(false);
     }
