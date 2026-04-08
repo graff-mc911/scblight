@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Building2, Save, Upload, X, CheckCircle, Crown, AlertCircle } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Building2, Save, Upload, X, CheckCircle } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -8,13 +8,11 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { supabase } from '../lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { format } from 'date-fns';
 
 export const Account: React.FC = () => {
   const { t } = useLanguage();
   const { showSuccess, showError } = useToastContext();
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [billingSuccess, setBillingSuccess] = useState(false);
@@ -68,19 +66,6 @@ export const Account: React.FC = () => {
     enabled: !!session?.user?.id,
   });
 
-  const { data: subscription } = useQuery({
-    queryKey: ['subscription', session?.user?.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('subscriptions')
-        .select('status, plan, trial_end, current_period_end, cancel_at_period_end')
-        .eq('user_id', session?.user?.id || '')
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!session?.user?.id,
-  });
 
   useEffect(() => {
     if (profile) {
@@ -238,75 +223,6 @@ export const Account: React.FC = () => {
       )}
 
       <div className="space-y-4">
-        <Card className="p-5">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-orange-500/20 rounded-full flex items-center justify-center">
-              <Crown className="h-5 w-5 text-orange-400" />
-            </div>
-            <div>
-              <h2 className="font-medium text-white">Підписка</h2>
-              <p className="text-sm text-white/60">SCB Light Pro</p>
-            </div>
-          </div>
-
-          {!subscription || subscription.status === 'none' ? (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-4 bg-white/5 border border-white/10 rounded-xl">
-              <AlertCircle size={18} className="text-white/40 shrink-0" />
-              <p className="text-sm text-white/60 flex-1">Активна підписка відсутня</p>
-              <button
-                onClick={() => navigate('/paywall')}
-                className="shrink-0 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-xl transition-colors"
-              >
-                Отримати Pro
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-4 bg-white/5 border border-white/10 rounded-xl">
-                <div>
-                  <p className="text-sm text-white/60 mb-0.5">Статус</p>
-                  <div className="flex items-center gap-2">
-                    {subscription.status === 'active' || subscription.status === 'trialing' ? (
-                      <span className="inline-flex items-center gap-1.5 text-sm font-medium text-green-400">
-                        <span className="w-2 h-2 bg-green-400 rounded-full" />
-                        {subscription.status === 'trialing' ? 'Пробний період' : 'Активна'}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-sm font-medium text-red-400">
-                        <span className="w-2 h-2 bg-red-400 rounded-full" />
-                        {subscription.status === 'canceled' ? 'Скасована' : subscription.status}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm text-white/60 mb-0.5">
-                    {subscription.plan === 'yearly' ? 'Річна' : 'Місячна'}
-                  </p>
-                  <p className="text-sm font-medium text-white">
-                    {subscription.plan === 'yearly' ? '€50/рік' : '€5/міс'}
-                  </p>
-                </div>
-              </div>
-
-              {subscription.trial_end && subscription.status === 'trialing' && (
-                <p className="text-xs text-white/40 px-1">
-                  Пробний період до:{' '}
-                  {format(new Date(subscription.trial_end), 'dd.MM.yyyy')}
-                </p>
-              )}
-
-              {subscription.current_period_end && subscription.status !== 'trialing' && (
-                <p className="text-xs text-white/40 px-1">
-                  {subscription.cancel_at_period_end
-                    ? `Скасовано. Доступ до: ${format(new Date(subscription.current_period_end), 'dd.MM.yyyy')}`
-                    : `Наступне списання: ${format(new Date(subscription.current_period_end), 'dd.MM.yyyy')}`}
-                </p>
-              )}
-            </div>
-          )}
-        </Card>
-
         <Card className="p-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="w-12 h-12 bg-orange-500/20 rounded-full flex items-center justify-center">
