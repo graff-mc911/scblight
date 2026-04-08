@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Building2, Save, Upload, X } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Building2, Save, Upload, X, CheckCircle } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -13,6 +14,18 @@ export const Account: React.FC = () => {
   const { showSuccess, showError } = useToastContext();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [billingSuccess, setBillingSuccess] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get('billing') === 'success') {
+      setBillingSuccess(true);
+      showSuccess('Ваш 30-денний пробний період розпочато!');
+      const p = new URLSearchParams(searchParams);
+      p.delete('billing');
+      setSearchParams(p, { replace: true });
+    }
+  }, []);
 
   const [formData, setFormData] = useState({
     company_name: 'Sovban BAU',
@@ -200,6 +213,13 @@ export const Account: React.FC = () => {
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-semibold text-white mb-6">{t('account')}</h1>
+
+      {billingSuccess && (
+        <div className="mb-4 flex items-center gap-3 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-sm">
+          <CheckCircle size={18} className="shrink-0" />
+          <span>Ваш 30-денний пробний період розпочато. Всі функції розблоковано.</span>
+        </div>
+      )}
 
       <div className="space-y-4">
         <Card className="p-6">
