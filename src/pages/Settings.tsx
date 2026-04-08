@@ -5,7 +5,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { languages } from '../lib/languages';
 import { motion } from 'framer-motion';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 const MONTHLY_LINK = 'https://buy.stripe.com/test_bJe14o2ip6Oe99f0N49oc00';
 const YEARLY_LINK = 'https://buy.stripe.com/test_eVq5kEbSZ0pQ5X3dzQ9oc01';
@@ -24,9 +24,12 @@ const FEATURES = [
 export default function Settings() {
   const navigate = useNavigate();
   const { t, language, setLanguage } = useLanguage();
+  const queryClient = useQueryClient();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [canceling, setCanceling] = useState(false);
 
   const { data: session } = useQuery({
     queryKey: ['session'],
@@ -77,6 +80,29 @@ export default function Settings() {
       navigate('/login');
     } catch {
       setDeleting(false);
+    }
+  };
+
+  const handleCancelSubscription = async () => {
+    setCanceling(true);
+    try {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/cancel-subscription`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${currentSession?.access_token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      if (res.ok) {
+        await queryClient.invalidateQueries({ queryKey: ['subscription'] });
+        setShowCancelConfirm(false);
+      }
+    } finally {
+      setCanceling(false);
     }
   };
 
@@ -156,14 +182,53 @@ export default function Settings() {
           </div>
 
           {isActive ? (
-            <div className="flex items-center gap-3 py-3 px-4 bg-green-500/10 border border-green-500/20 rounded-xl">
-              <Crown className="h-5 w-5 text-green-400 shrink-0" />
-              <div>
-                <p className="text-green-400 font-medium text-sm">Підписка активна</p>
-                <p className="text-white/50 text-xs mt-0.5">
-                  {subscription?.plan === 'yearly' ? 'Річний план' : 'Місячний план'}
-                </p>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 py-3 px-4 bg-green-500/10 border border-green-500/20 rounded-xl">
+                <Crown className="h-5 w-5 text-green-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-green-400 font-medium text-sm">Підписка активна</p>
+                  <p className="text-white/50 text-xs mt-0.5">
+                    {subscription?.plan === 'yearly' ? 'Річний план' : 'Місячний план'}
+                    {subscription?.cancel_at_period_end && (
+                      <span className="ml-1 text-orange-400"> · Скасовується в кінці періоду</span>
+                    )}
+                  </p>
+                </div>
               </div>
+
+              {!subscription?.cancel_at_period_end && (
+                <>
+                  {!showCancelConfirm ? (
+                    <button
+                      onClick={() => setShowCancelConfirm(true)}
+                      className="w-full py-2.5 px-4 bg-white/5 border border-white/10 text-white/50 hover:text-white/80 hover:bg-white/10 transition-all rounded-xl text-sm active:scale-95"
+                    >
+                      Скасувати підписку
+                    </button>
+                  ) : (
+                    <div className="space-y-3 p-4 bg-white/5 border border-white/10 rounded-xl">
+                      <p className="text-sm text-white/70">
+                        Підписка буде активна до кінця оплаченого періоду. Ви впевнені?
+                      </p>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => setShowCancelConfirm(false)}
+                          className="flex-1 py-2 px-4 bg-white/10 border border-white/10 text-white/70 hover:text-white hover:bg-white/20 transition-all rounded-xl text-sm font-medium active:scale-95"
+                        >
+                          Ні, залишити
+                        </button>
+                        <button
+                          onClick={handleCancelSubscription}
+                          disabled={canceling}
+                          className="flex-1 py-2 px-4 bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all rounded-xl text-sm font-medium active:scale-95"
+                        >
+                          {canceling ? 'Скасування...' : 'Так, скасувати'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
