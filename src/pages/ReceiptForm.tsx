@@ -10,7 +10,6 @@ import { TopNav } from '../components/TopNav';
 import { useLanguage } from '../contexts/LanguageContext';
 import { AnimatePresence, motion } from 'framer-motion';
 import { downloadReceiptPDF } from '../lib/receiptPdfGenerator';
-import PremiumGate from '../components/PremiumGate';
 
 interface ReceiptFormData {
   receipt_number: string;
@@ -391,7 +390,6 @@ export default function ReceiptForm() {
   };
 
   return (
-    <PremiumGate showPaywall={false}>
     <div className="min-h-screen bg-[#1a1f24] text-white pb-24 pt-20">
       <TopNav />
 
@@ -656,6 +654,5 @@ export default function ReceiptForm() {
       </AnimatePresence>
 
     </div>
-    </PremiumGate>
   );
 }

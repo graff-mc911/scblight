@@ -21,7 +21,6 @@ import { Signup } from './pages/Signup';
 import { PrivacyPolicy } from './pages/PrivacyPolicy';
 import { TermsOfService } from './pages/TermsOfService';
 import Settings from './pages/Settings';
-import Upgrade from './pages/Upgrade';
 import Receipts from './pages/Receipts';
 import { initSyncManager, onSyncFlush } from './lib/syncManager';
 import { supabase } from './lib/supabase';
@@ -247,14 +246,6 @@ function AppContent() {
               element={
                 <ProtectedRoute>
                   <Settings />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/upgrade"
-              element={
-                <ProtectedRoute>
-                  <Upgrade />
                 </ProtectedRoute>
               }
             />

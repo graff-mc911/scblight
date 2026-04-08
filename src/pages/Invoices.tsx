@@ -12,7 +12,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { exportInvoicesToCSV } from '../lib/exportData';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { offlineStore } from '../lib/offlineStore';
-import { useSubscription } from '../hooks/useSubscription';
 
 const InvoiceThumbnail: React.FC<{ invoice: Record<string, unknown> }> = ({ invoice }) => {
   return (
@@ -372,7 +371,6 @@ type FilterStatus = 'all' | 'draft' | 'sent' | 'paid' | 'overdue';
 export const Invoices: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const { fullAccess } = useSubscription();
   const { showSuccess, showError } = useToastContext();
   const queryClient = useQueryClient();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -499,7 +497,7 @@ export const Invoices: React.FC = () => {
             <Upload size={16} />
           </button>
           <button
-            onClick={() => fullAccess ? navigate('/invoices/new') : navigate('/upgrade')}
+            onClick={() => navigate('/invoices/new')}
             className="p-2.5 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 transition-all active:scale-95"
             title={t('newInvoice')}
           >
@@ -560,7 +558,7 @@ export const Invoices: React.FC = () => {
             <p className="text-white/60 mb-6 text-sm">{t('createFirstIn30Sec')}</p>
             {activeFilter === 'all' && (
               <button
-                onClick={() => fullAccess ? navigate('/invoices/new') : navigate('/upgrade')}
+                onClick={() => navigate('/invoices/new')}
                 className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-6 py-2.5 rounded-xl font-medium transition-all active:scale-95"
               >
                 {t('createInvoice')}

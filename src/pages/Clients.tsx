@@ -8,12 +8,9 @@ import { supabase } from '../lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { offlineStore } from '../lib/offlineStore';
-import { useSubscription } from '../hooks/useSubscription';
-
 export const Clients: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const { fullAccess } = useSubscription();
   const { showSuccess, showError } = useToastContext();
   const [search, setSearch] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -95,7 +92,7 @@ export const Clients: React.FC = () => {
 
         <div className="flex gap-2">
           <button
-            onClick={() => fullAccess ? navigate('/clients/new') : navigate('/upgrade')}
+            onClick={() => navigate('/clients/new')}
             className="p-2.5 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 transition-all active:scale-95"
             title={t('addClient') || 'New Client'}
           >
@@ -138,7 +135,7 @@ export const Clients: React.FC = () => {
             </p>
             {!search && (
               <button
-                onClick={() => fullAccess ? navigate('/clients/new') : navigate('/upgrade')}
+                onClick={() => navigate('/clients/new')}
                 className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-6 py-2.5 rounded-xl font-medium transition-all active:scale-95"
               >
                 {t('addClient') || 'Add Client'}

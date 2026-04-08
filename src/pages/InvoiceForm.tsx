@@ -12,7 +12,6 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { safeEval } from '../lib/calculator';
 import { generateInvoicePDFBlob } from '../lib/pdfGenerator';
-import PremiumGate from '../components/PremiumGate';
 
 interface InvoiceItem {
   quantity: number;
@@ -685,7 +684,6 @@ export const InvoiceForm: React.FC = () => {
   };
 
   return (
-    <PremiumGate showPaywall={false}>
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-5xl mx-auto">
 
       <div className="mb-6">
@@ -1036,6 +1034,5 @@ export const InvoiceForm: React.FC = () => {
         />
       )}
     </div>
-    </PremiumGate>
   );
 };

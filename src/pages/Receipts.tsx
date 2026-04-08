@@ -11,7 +11,6 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { downloadReceiptPDF } from '../lib/receiptPdfGenerator';
 import ReceiptScanReview from '../components/ReceiptScanReview';
 import { ScannedReceiptData } from '../lib/receiptOCR';
-import { useSubscription } from '../hooks/useSubscription';
 
 interface ReceiptType {
   id: string;
@@ -83,7 +82,6 @@ const PaidBadge: React.FC<{ method: string }> = ({ method }) => {
 export default function Receipts() {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const { fullAccess } = useSubscription();
   const { showSuccess, showError } = useToastContext();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -201,7 +199,7 @@ export default function Receipts() {
 
         <div className="flex gap-2">
           <button
-            onClick={() => fullAccess ? fileInputRef.current?.click() : navigate('/upgrade')}
+            onClick={() => fileInputRef.current?.click()}
             className="p-2.5 rounded-xl bg-white/8 border border-white/10 text-white/60 hover:bg-white/15 hover:text-white/90 transition-all active:scale-95"
             title="Foto vom Gerät hochladen"
           >
