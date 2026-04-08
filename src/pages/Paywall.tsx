@@ -75,6 +75,8 @@ export const Paywall: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <a
           href={buildLink(MONTHLY_LINK)}
+          target="_blank"
+          rel="noopener noreferrer"
           className="block bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 hover:bg-white/15 hover:border-white/20 transition-all group"
         >
           <p className="text-white/60 text-sm mb-1">Щомісяця</p>
@@ -89,6 +91,8 @@ export const Paywall: React.FC = () => {
 
         <a
           href={buildLink(YEARLY_LINK)}
+          target="_blank"
+          rel="noopener noreferrer"
           className="block bg-orange-500/10 backdrop-blur-xl border border-orange-500/30 rounded-2xl p-6 hover:bg-orange-500/15 transition-all group relative"
         >
           <div className="absolute top-3 right-3 bg-orange-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full">
