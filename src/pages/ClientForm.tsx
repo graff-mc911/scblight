@@ -8,15 +8,12 @@ import { Textarea } from '../components/ui/Textarea';
 import { useLanguage } from '../contexts/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSubscription } from '../hooks/useSubscription';
-import ViewOnlyBanner from '../components/ViewOnlyBanner';
 
 export const ClientForm: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const { t } = useLanguage();
   const queryClient = useQueryClient();
-  const { canEdit, isTrialing, trialDaysLeft, isLoading: subLoading } = useSubscription();
   const [formData, setFormData] = useState({
     client_number: '',
     name: '',
@@ -46,12 +43,6 @@ export const ClientForm: React.FC = () => {
     },
     enabled: !!id,
   });
-
-  useEffect(() => {
-    if (!subLoading && !canEdit && !id) {
-      navigate('/settings');
-    }
-  }, [subLoading, canEdit, id, navigate]);
 
   useEffect(() => {
     if (client) {
@@ -119,7 +110,6 @@ export const ClientForm: React.FC = () => {
 
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-4xl mx-auto">
-      {id && !canEdit && <ViewOnlyBanner trialDaysLeft={trialDaysLeft} isTrialing={isTrialing} />}
       <button
         onClick={() => navigate('/clients')}
         className="flex items-center justify-center p-2 bg-white/10 backdrop-blur-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/20 rounded-xl mb-6 transition-all active:scale-95"
@@ -175,9 +165,9 @@ export const ClientForm: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={saveMutation.isPending || !canEdit}
-              className="p-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-              title={canEdit ? t('save') : 'Потрібна підписка'}
+              disabled={saveMutation.isPending}
+              className="p-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white transition-all active:scale-95 disabled:opacity-50"
+              title={t('save')}
             >
               <Save className="h-4 w-4" />
             </button>

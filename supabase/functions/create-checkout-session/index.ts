@@ -51,19 +51,18 @@ Deno.serve(async (req: Request) => {
     const body = await req.json();
     const plan: string = body.plan;
 
-    const priceMap: Record<string, string> = {
-      monthly: "price_1THkjyJhQw2K2SWp22tIFUzq",
-      yearly: "price_1TI2UaJhQw2K2SWpIRp642tL",
+    const priceMap: Record<string, string | undefined> = {
+      monthly: Deno.env.get("STRIPE_PRICE_MONTHLY"),
+      yearly: Deno.env.get("STRIPE_PRICE_YEARLY"),
     };
 
-    if (!plan || !priceMap[plan]) {
-      return new Response(JSON.stringify({ error: `Invalid plan: ${plan}` }), {
+    const priceId = priceMap[plan];
+    if (!priceId) {
+      return new Response(JSON.stringify({ error: `Invalid plan or price not configured: ${plan}` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const priceId = priceMap[plan];
 
     const { data: existingSub } = await supabase
       .from("subscriptions")

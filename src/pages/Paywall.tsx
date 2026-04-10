@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, Zap, ArrowLeft, Loader2 } from 'lucide-react';
+import { Check, Zap, ArrowLeft } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
+
+const MONTHLY_LINK = 'https://buy.stripe.com/test_bJe14o2ip6Oe99f0N49oc00';
+const YEARLY_LINK = 'https://buy.stripe.com/test_eVq5kEbSZ0pQ5X3dzQ9oc01';
 
 const FEATURES = [
   'Необмежена кількість рахунків',
@@ -17,8 +20,6 @@ const FEATURES = [
 
 export const Paywall: React.FC = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState<'monthly' | 'yearly' | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const { data: session } = useQuery({
     queryKey: ['session'],
@@ -28,34 +29,13 @@ export const Paywall: React.FC = () => {
     },
   });
 
-  const handleCheckout = async (plan: 'monthly' | 'yearly') => {
-    if (!session) {
-      navigate('/login');
-      return;
-    }
-    setLoading(plan);
-    setError(null);
-    try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const res = await fetch(`${supabaseUrl}/functions/v1/create-checkout-session`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ plan }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.url) {
-        setError(data.error ?? 'Помилка створення сесії оплати');
-        return;
-      }
-      window.open(data.url, '_blank', 'noopener,noreferrer');
-    } catch {
-      setError('Помилка з\'єднання. Спробуйте ще раз.');
-    } finally {
-      setLoading(null);
-    }
+  const buildLink = (base: string) => {
+    if (!session?.user) return base;
+    const params = new URLSearchParams({
+      client_reference_id: session.user.id,
+      prefilled_email: session.user.email ?? '',
+    });
+    return `${base}?${params.toString()}`;
   };
 
   return (
@@ -92,33 +72,24 @@ export const Paywall: React.FC = () => {
         </ul>
       </div>
 
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-4 text-sm text-red-400 text-center">
-          {error}
-        </div>
-      )}
-
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <button
-          onClick={() => handleCheckout('monthly')}
-          disabled={loading !== null}
-          className="block text-left bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 hover:bg-white/15 hover:border-white/20 transition-all group disabled:opacity-60 disabled:cursor-not-allowed"
+        <a
+          href={buildLink(MONTHLY_LINK)}
+          className="block bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 hover:bg-white/15 hover:border-white/20 transition-all group"
         >
           <p className="text-white/60 text-sm mb-1">Щомісяця</p>
           <p className="text-3xl font-bold text-white mb-1">
             €5<span className="text-lg font-normal text-white/60">/міс</span>
           </p>
           <p className="text-white/40 text-xs mb-5">30 днів безкоштовно</p>
-          <div className="w-full py-2.5 bg-white/10 border border-white/10 rounded-xl text-center text-sm text-white/80 group-hover:bg-white/20 transition-all flex items-center justify-center gap-2">
-            {loading === 'monthly' ? <Loader2 size={15} className="animate-spin" /> : null}
+          <div className="w-full py-2.5 bg-white/10 border border-white/10 rounded-xl text-center text-sm text-white/80 group-hover:bg-white/20 transition-all">
             Розпочати
           </div>
-        </button>
+        </a>
 
-        <button
-          onClick={() => handleCheckout('yearly')}
-          disabled={loading !== null}
-          className="block text-left bg-orange-500/10 backdrop-blur-xl border border-orange-500/30 rounded-2xl p-6 hover:bg-orange-500/15 transition-all group relative disabled:opacity-60 disabled:cursor-not-allowed"
+        <a
+          href={buildLink(YEARLY_LINK)}
+          className="block bg-orange-500/10 backdrop-blur-xl border border-orange-500/30 rounded-2xl p-6 hover:bg-orange-500/15 transition-all group relative"
         >
           <div className="absolute top-3 right-3 bg-orange-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full">
             -17%
@@ -128,11 +99,10 @@ export const Paywall: React.FC = () => {
             €50<span className="text-lg font-normal text-white/60">/рік</span>
           </p>
           <p className="text-white/40 text-xs mb-5">€4.17/міс &bull; 30 днів безкоштовно</p>
-          <div className="w-full py-2.5 bg-orange-500 rounded-xl text-center text-sm text-white font-medium group-hover:bg-orange-600 transition-all flex items-center justify-center gap-2">
-            {loading === 'yearly' ? <Loader2 size={15} className="animate-spin" /> : null}
+          <div className="w-full py-2.5 bg-orange-500 rounded-xl text-center text-sm text-white font-medium group-hover:bg-orange-600 transition-all">
             Розпочати
           </div>
-        </button>
+        </a>
       </div>
 
       <p className="text-center text-white/30 text-xs mt-6">

@@ -10,8 +10,6 @@ import { TopNav } from '../components/TopNav';
 import { useLanguage } from '../contexts/LanguageContext';
 import { AnimatePresence, motion } from 'framer-motion';
 import { downloadReceiptPDF } from '../lib/receiptPdfGenerator';
-import { useSubscription } from '../hooks/useSubscription';
-import ViewOnlyBanner from '../components/ViewOnlyBanner';
 
 interface ReceiptFormData {
   receipt_number: string;
@@ -45,7 +43,6 @@ export default function ReceiptForm() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const { t } = useLanguage();
-  const { canEdit, isTrialing, trialDaysLeft, isLoading: subLoading } = useSubscription();
   const isEdit = id !== 'new';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
@@ -360,7 +357,7 @@ export default function ReceiptForm() {
   };
 
   const sym = formatCurrencySymbol(formData.currency);
-  const canSave = canEdit && formData.store_name.trim() && (formData.amount_gross || formData.total);
+  const canSave = formData.store_name.trim() && (formData.amount_gross || formData.total);
   const [showOriginalImage, setShowOriginalImage] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const isImageUrl = formData.file_url && /\.(jpg|jpeg|png|gif|webp|heic|heif)(\?|$)/i.test(formData.file_url);
@@ -397,7 +394,6 @@ export default function ReceiptForm() {
       <TopNav />
 
       <form onSubmit={handleSubmit} className="p-4 space-y-4 max-w-xl mx-auto">
-        {!canEdit && <ViewOnlyBanner trialDaysLeft={trialDaysLeft} isTrialing={isTrialing} />}
 
         <div className="flex items-center gap-3 mb-2">
           <button type="button" onClick={() => navigate('/receipts')} className="p-2 rounded-xl bg-white/8 hover:bg-white/15 transition-all">
