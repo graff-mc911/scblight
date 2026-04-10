@@ -688,7 +688,8 @@ export const InvoiceForm: React.FC = () => {
 
       <div className="mb-6">
         <button
-          onClick={() => navigate('/invoices')}
+  type="button"
+  onClick={() => navigate('/invoices')}
           className="flex items-center justify-center p-2 bg-white/10 backdrop-blur-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/20 rounded-xl mb-4 transition-all active:scale-95"
           title={t('back')}
         >
