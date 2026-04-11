@@ -1,20 +1,8 @@
-export default function InvoiceForm() {
-  import React, { useState, useEffect, useCallback } from 'react';
+
+ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import {
-  ArrowLeft,
-  Upload,
-  FileText,
-  Download,
-  Trash2,
-  PenTool,
-  Send,
-  Mail,
-  ZoomIn,
-  ZoomOut,
-  Edit2,
-  Eye,
-} from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, Plus, Trash2, Upload, FileText, Download, Eye, Save } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { InvoicePreview } from '../components/InvoicePreview';
 import { SignatureCanvas } from '../components/SignatureCanvas';
@@ -23,7 +11,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { generateInvoicePDFBlob } from '../lib/pdfGenerator';
 
-export default function InvoiceForm() {
+export const InvoiceForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { t, language } = useLanguage();
