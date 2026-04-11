@@ -127,7 +127,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
 
   if (!onClose) {
     return (
-   <div className="flex justify-center w-full overflow-x-hidden">
+  <div className="flex justify-center w-full max-w-full overflow-x-hidden">
         <div
           className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-lg"
           style={{ width: `${A4_WIDTH_PX}px` }}
