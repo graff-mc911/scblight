@@ -22,7 +22,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { generateInvoicePDFBlob } from '../lib/pdfGenerator';
 
-export const InvoiceView: React.FC = () => {
+export default function InvoiceForm() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { t, language } = useLanguage();
