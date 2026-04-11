@@ -1,6 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Upload, FileText, Download, Trash2, PenTool, Send, Mail, ZoomIn, ZoomOut, Maximize2, CreditCard as Edit2, Eye, Save } from 'lucide-react';
+import {
+  ArrowLeft,
+  Upload,
+  FileText,
+  Download,
+  Trash2,
+  PenTool,
+  Send,
+  Mail,
+  ZoomIn,
+  ZoomOut,
+  Edit2,
+  Eye,
+} from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { InvoicePreview } from '../components/InvoicePreview';
 import { SignatureCanvas } from '../components/SignatureCanvas';
@@ -27,7 +40,8 @@ export const InvoiceView: React.FC = () => {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [showFullScreenPDF, setShowFullScreenPDF] = useState(false);
   const [pdfZoom, setPdfZoom] = useState(100);
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+  const isMobile = window.innerWidth < 768;
 
   useEffect(() => {
     if (id) {
@@ -37,7 +51,10 @@ export const InvoiceView: React.FC = () => {
 
   const fetchInvoice = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) return;
 
       const { data: invoiceData, error: invoiceError } = await supabase
@@ -48,6 +65,7 @@ export const InvoiceView: React.FC = () => {
         .maybeSingle();
 
       if (invoiceError) throw invoiceError;
+
       if (!invoiceData) {
         showError(t('invoiceNotFound') || 'Invoice not found');
         navigate('/invoices');
@@ -76,15 +94,16 @@ export const InvoiceView: React.FC = () => {
         signature_data_url: invoiceData.signature_data_url,
         signed_by: invoiceData.signed_by,
         signed_at: invoiceData.signed_at,
-        items: itemsData?.map(item => ({
-          quantity: Number(item.quantity),
-          quantityDisplay: item.quantity.toString(),
-          unit: item.unit,
-          price: Number(item.price),
-          material: item.material,
-          description: item.description || '',
-          total: Number(item.total),
-        })) || [],
+        items:
+          itemsData?.map((item) => ({
+            quantity: Number(item.quantity),
+            quantityDisplay: item.quantity.toString(),
+            unit: item.unit,
+            price: Number(item.price),
+            material: item.material,
+            description: item.description || '',
+            total: Number(item.total),
+          })) || [],
       };
 
       setInvoice(invoiceWithItems);
@@ -97,6 +116,7 @@ export const InvoiceView: React.FC = () => {
           .select('*')
           .eq('id', invoiceData.client_id)
           .maybeSingle();
+
         setClient(clientData);
       }
 
@@ -105,6 +125,7 @@ export const InvoiceView: React.FC = () => {
         .select('*')
         .eq('user_id', user.id)
         .maybeSingle();
+
       setCompanyProfile(profileData);
     } catch (error) {
       showError(t('errorLoadingInvoice') || 'Error loading invoice');
@@ -125,7 +146,10 @@ export const InvoiceView: React.FC = () => {
     setUploadingFile(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) throw new Error('Not authenticated');
 
       const fileExt = file.name.split('.').pop();
@@ -137,9 +161,9 @@ export const InvoiceView: React.FC = () => {
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('invoice-pdfs')
-        .getPublicUrl(fileName);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('invoice-pdfs').getPublicUrl(fileName);
 
       const { error: updateError } = await supabase
         .from('invoices')
@@ -162,7 +186,10 @@ export const InvoiceView: React.FC = () => {
 
     try {
       const fileName = attachedFile.split('/').pop();
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) throw new Error('Not authenticated');
 
       const filePath = `${user.id}/${fileName}`;
@@ -240,9 +267,9 @@ export const InvoiceView: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-6xl mx-auto">
+      <div className="min-h-screen pt-20 px-4 max-w-6xl mx-auto">
         <div className="flex items-center justify-center py-16">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500" />
         </div>
       </div>
     );
@@ -269,9 +296,10 @@ export const InvoiceView: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-6xl mx-auto">
+    <div className="min-h-screen pt-20 pb-10 px-3 md:px-6 max-w-6xl mx-auto overflow-x-hidden">
       <div className="mb-6">
         <button
+          type="button"
           onClick={() => navigate('/invoices')}
           className="flex items-center justify-center p-2 bg-white/10 backdrop-blur-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/20 rounded-xl mb-4 transition-all active:scale-95"
           title={t('back')}
@@ -279,19 +307,20 @@ export const InvoiceView: React.FC = () => {
           <ArrowLeft size={20} />
         </button>
 
-        <div className="flex justify-between items-start mb-6">
-          <div>
+        <div className="flex justify-between items-start gap-3 mb-6">
+          <div className="min-w-0">
             <h2 className="text-2xl font-semibold text-white mb-1">
               {t('invoicePreviewTitle')}
             </h2>
-            <p className="text-white/60 text-sm">
+            <p className="text-white/60 text-sm break-words">
               {invoice.document_no || invoice.document_number}
             </p>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap justify-end">
             {pdfUrl && (
               <button
+                type="button"
                 onClick={() => setShowFullScreenPDF(true)}
                 className="p-2.5 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 transition-all active:scale-95"
                 title={t('viewFile') || 'View PDF'}
@@ -299,8 +328,10 @@ export const InvoiceView: React.FC = () => {
                 <Eye size={18} />
               </button>
             )}
+
             {!invoice.signature_data_url && (
               <button
+                type="button"
                 onClick={() => setShowSignatureModal(true)}
                 className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-blue-400 transition-all active:scale-95"
                 title={t('sign') || 'Sign'}
@@ -308,7 +339,9 @@ export const InvoiceView: React.FC = () => {
                 <PenTool size={18} />
               </button>
             )}
+
             <button
+              type="button"
               onClick={() => {
                 setEmailTo(client?.email || '');
                 setShowEmailModal(true);
@@ -318,7 +351,9 @@ export const InvoiceView: React.FC = () => {
             >
               <Send size={18} />
             </button>
+
             <button
+              type="button"
               onClick={() => navigate(`/invoices/${id}`)}
               className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-orange-400 transition-all active:scale-95"
               title={t('edit')}
@@ -329,43 +364,65 @@ export const InvoiceView: React.FC = () => {
         </div>
       </div>
 
-      <InvoicePreview
-        invoice={invoiceData}
-        client={client}
-        companyProfile={companyProfile}
-      />
-
-      {pdfUrl && !isMobile && (
-        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-white">
-              {t('invoicePreviewTitle') || 'Invoice PDF'}
-            </h3>
-            <div className="flex gap-2">
-              <a
-                href={pdfUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-blue-400 transition-all"
-              >
-                <Download size={20} />
-              </a>
-              <button
-                onClick={() => setShowFullScreenPDF(true)}
-                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-orange-400 transition-all"
-              >
-                <Maximize2 size={20} />
-              </button>
-            </div>
-          </div>
-          <div className="rounded-xl overflow-hidden">
+      {isMobile ? (
+        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden">
+          {pdfUrl ? (
             <iframe
-              src={pdfUrl!}
-              className="w-full h-[800px]"
+              src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
               title="Invoice PDF"
+              className="w-full border-0 bg-white"
+              style={{ height: '78vh' }}
             />
-          </div>
+          ) : (
+            <div className="p-6 text-center text-white/70">
+              {t('pdfNotAvailable') || 'PDF not available'}
+            </div>
+          )}
         </div>
+      ) : (
+        <>
+          <InvoicePreview
+            invoice={invoiceData}
+            client={client}
+            companyProfile={companyProfile}
+          />
+
+          {pdfUrl && (
+            <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mb-6 mt-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">
+                  {t('invoicePreviewTitle') || 'Invoice PDF'}
+                </h3>
+                <div className="flex gap-2">
+                  <a
+                    href={pdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-blue-400 transition-all"
+                  >
+                    <Download size={20} />
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setShowFullScreenPDF(true)}
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-orange-400 transition-all"
+                  >
+                    <Eye size={20} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl overflow-hidden">
+                <iframe
+                  src={`${pdfUrl}#view=FitH`}
+                  className="w-full border-0"
+                  style={{ height: '800px' }}
+                  title="Invoice PDF"
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mt-6">
@@ -374,15 +431,20 @@ export const InvoiceView: React.FC = () => {
         </h3>
 
         {attachedFile ? (
-          <div className="flex items-center justify-between bg-white/5 rounded-xl p-4">
-            <div className="flex items-center gap-3">
-              <FileText className="text-orange-400" size={24} />
-              <div>
-                <p className="text-white font-medium">{t('fileAttached') || 'File attached'}</p>
-                <p className="text-white/60 text-sm">{t('clickToDownload') || 'Click to download'}</p>
+          <div className="flex items-center justify-between gap-3 bg-white/5 rounded-xl p-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <FileText className="text-orange-400 flex-shrink-0" size={24} />
+              <div className="min-w-0">
+                <p className="text-white font-medium">
+                  {t('fileAttached') || 'File attached'}
+                </p>
+                <p className="text-white/60 text-sm break-words">
+                  {t('clickToDownload') || 'Click to download'}
+                </p>
               </div>
             </div>
-            <div className="flex gap-2">
+
+            <div className="flex gap-2 flex-shrink-0">
               <a
                 href={attachedFile}
                 target="_blank"
@@ -392,6 +454,7 @@ export const InvoiceView: React.FC = () => {
                 <Download size={20} />
               </a>
               <button
+                type="button"
                 onClick={handleDeleteFile}
                 className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-red-400 transition-all"
               >
@@ -402,7 +465,10 @@ export const InvoiceView: React.FC = () => {
         ) : (
           <div className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center">
             <Upload className="mx-auto text-white/40 mb-3" size={32} />
-            <p className="text-white/60 mb-4">{t('uploadReceiptFile') || 'Upload file'}</p>
+            <p className="text-white/60 mb-4">
+              {t('uploadReceiptFile') || 'Upload file'}
+            </p>
+
             <label className="inline-block">
               <input
                 type="file"
@@ -412,10 +478,15 @@ export const InvoiceView: React.FC = () => {
                 className="hidden"
               />
               <span className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-block">
-                {uploadingFile ? t('uploading') || 'Uploading...' : t('selectFiles') || 'Select File'}
+                {uploadingFile
+                  ? t('uploading') || 'Uploading...'
+                  : t('selectFiles') || 'Select File'}
               </span>
             </label>
-            <p className="text-white/40 text-xs mt-2">{t('fileSizeLimitInfo') || 'PDF, DOC, images up to 10MB'}</p>
+
+            <p className="text-white/40 text-xs mt-2">
+              {t('fileSizeLimitInfo') || 'PDF, DOC, images up to 10MB'}
+            </p>
           </div>
         )}
       </div>
@@ -439,7 +510,9 @@ export const InvoiceView: React.FC = () => {
                   {t('sendInvoice') || 'Send Invoice'}
                 </h3>
               </div>
+
               <button
+                type="button"
                 onClick={() => setShowEmailModal(false)}
                 className="p-2 hover:bg-white/10 rounded-lg transition-colors"
               >
@@ -480,6 +553,7 @@ export const InvoiceView: React.FC = () => {
               >
                 {t('cancel')}
               </Button>
+
               <Button
                 onClick={handleSendEmail}
                 disabled={sendingEmail || !emailTo.trim()}
@@ -500,10 +574,11 @@ export const InvoiceView: React.FC = () => {
       )}
 
       {showFullScreenPDF && pdfUrl && (
-        <div className="fixed inset-0 bg-black z-50 flex flex-col">
+        <div className="fixed inset-0 bg-black z-[9999] flex flex-col">
           <div className="bg-slate-900 border-b border-white/10 p-3 md:p-4 flex items-center justify-between flex-shrink-0">
-            <div className="flex items-center gap-2 md:gap-4">
+            <div className="flex items-center gap-2 md:gap-4 min-w-0">
               <button
+                type="button"
                 onClick={() => {
                   setShowFullScreenPDF(false);
                   setPdfZoom(100);
@@ -512,71 +587,59 @@ export const InvoiceView: React.FC = () => {
               >
                 <ArrowLeft className="text-white" size={20} />
               </button>
+
               <h3 className="text-sm md:text-lg font-semibold text-white truncate">
                 {invoice.document_no || invoice.document_number}
               </h3>
             </div>
-            <div className="flex items-center gap-1 md:gap-2">
-              <div className="hidden md:flex items-center gap-1">
+
+            {!isMobile && (
+              <div className="flex items-center gap-1 md:gap-2">
                 <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setPdfZoom(prev => Math.max(50, prev - 10));
-                  }}
+                  type="button"
+                  onClick={() => setPdfZoom((prev) => Math.max(50, prev - 10))}
                   disabled={pdfZoom <= 50}
                   className="p-2 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ZoomOut className="text-white" size={18} />
                 </button>
+
                 <span className="text-white font-medium text-sm min-w-[60px] text-center">
                   {pdfZoom}%
                 </span>
+
                 <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setPdfZoom(prev => Math.min(200, prev + 10));
-                  }}
+                  type="button"
+                  onClick={() => setPdfZoom((prev) => Math.min(200, prev + 10))}
                   disabled={pdfZoom >= 200}
                   className="p-2 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ZoomIn className="text-white" size={18} />
                 </button>
-                <div className="w-px h-6 bg-white/20 mx-2"></div>
-              </div>
-              <a
-                href={pdfUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-              >
-                <Download className="text-white" size={18} />
-              </a>
-            </div>
-          </div>
-          <div className="flex-1 overflow-auto bg-slate-800">
-            {isMobile ? (
-              <div className="flex flex-col items-center justify-center h-full p-6 gap-4">
-                <FileText className="text-orange-400" size={56} />
-                <p className="text-white font-semibold text-lg text-center">
-                  {invoice.document_no || invoice.document_number}
-                </p>
-                <p className="text-white/60 text-sm text-center">
-                  {t('tapToOpen') || 'Tap the button below to open the PDF in your browser'}
-                </p>
+
                 <a
-                  href={pdfUrl!}
+                  href={pdfUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-semibold transition-all text-base"
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors"
                 >
-                  <Download size={20} />
-                  {t('openPdf') || 'Open PDF'}
+                  <Download className="text-white" size={18} />
                 </a>
               </div>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-auto bg-slate-800">
+            {isMobile ? (
+              <iframe
+                src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
+                className="w-full h-full border-0 bg-white"
+                title="Invoice PDF Fullscreen"
+              />
             ) : (
-              <div className="p-4">
+              <div className="p-4 flex justify-center">
                 <div
-                  className="mx-auto bg-white shadow-2xl transition-all duration-200"
+                  className="bg-white shadow-2xl"
                   style={{
                     transform: `scale(${pdfZoom / 100})`,
                     transformOrigin: 'top center',
@@ -584,9 +647,9 @@ export const InvoiceView: React.FC = () => {
                   }}
                 >
                   <iframe
-                    src={`${pdfUrl}#view=FitV`}
+                    src={`${pdfUrl}#view=FitH`}
                     className="w-full border-0"
-                    style={{ height: 'calc(100vh - 80px)', minHeight: '600px' }}
+                    style={{ height: 'calc(100vh - 90px)', minHeight: '600px' }}
                     title="Invoice PDF Fullscreen"
                   />
                 </div>
