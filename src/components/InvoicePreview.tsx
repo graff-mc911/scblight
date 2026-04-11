@@ -10,6 +10,9 @@ interface InvoicePreviewProps {
   onClose?: () => void;
 }
 
+const A4_WIDTH_PX = 794;
+const A4_MIN_HEIGHT_PX = 1123;
+
 export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   invoice,
   client,
@@ -17,15 +20,19 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   onClose,
 }) => {
   const { t } = useLanguage();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const documentRef = useRef<HTMLDivElement>(null);
+
   const [zoom, setZoom] = useState(1);
   const [initialZoom, setInitialZoom] = useState(1);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [docHeight, setDocHeight] = useState(A4_MIN_HEIGHT_PX);
 
   useEffect(() => {
     const calculateInitialZoom = () => {
       const viewportWidth = window.innerWidth;
       const horizontalPadding = viewportWidth < 640 ? 16 : 32;
-      const fitZoom = Math.min((viewportWidth - horizontalPadding) / 794, 1);
+      const availableWidth = Math.max(viewportWidth - horizontalPadding, 240);
+      const fitZoom = Math.min(availableWidth / A4_WIDTH_PX, 1);
 
       setInitialZoom(fitZoom);
       setZoom(fitZoom);
@@ -37,6 +44,36 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     return () => window.removeEventListener('resize', calculateInitialZoom);
   }, []);
 
+  useEffect(() => {
+    if (!documentRef.current) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const height = Math.max(entry.contentRect.height, A4_MIN_HEIGHT_PX);
+        setDocHeight(height);
+      }
+    });
+
+    observer.observe(documentRef.current);
+
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!onClose) return;
+
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalHtmlOverflow = document.documentElement.style.overflow;
+
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = originalBodyOverflow;
+      document.documentElement.style.overflow = originalHtmlOverflow;
+    };
+  }, [onClose]);
+
   const invoiceData = {
     document_number: invoice.document_number,
     date: invoice.date,
@@ -47,8 +84,8 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     client_address: client?.address || invoice.client_address || '',
     client_tax_number: client?.tax_number || '',
     currency: invoice.currency,
-    items: invoice.items.map((item: any) => ({
-      description: item.description || item.material,
+    items: (invoice.items || []).map((item: any) => ({
+      description: item.description || item.material || '',
       quantity: item.quantity,
       unit: item.unit,
       price: item.price,
@@ -93,11 +130,15 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
       <div className="flex justify-center w-full overflow-x-auto">
         <div
           className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-lg"
-          style={{ width: '794px' }}
+          style={{ width: `${A4_WIDTH_PX}px` }}
         >
           <div
+            ref={documentRef}
             className="bg-white"
-            style={{ width: '794px', minHeight: '1123px' }}
+            style={{
+              width: `${A4_WIDTH_PX}px`,
+              minHeight: `${A4_MIN_HEIGHT_PX}px`,
+            }}
           >
             <InvoiceDocument data={invoiceData} />
           </div>
@@ -108,14 +149,10 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 overflow-auto"
+      className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm overflow-hidden"
       onClick={handleOverlayClick}
-      style={{
-        WebkitOverflowScrolling: 'touch',
-        overscrollBehavior: 'contain',
-      }}
     >
-      <div className="h-full flex flex-col">
+      <div className="h-full w-screen max-w-full flex flex-col overflow-hidden">
         <div className="flex-shrink-0 px-2 sm:px-4 pt-4 sm:pt-8 pb-2 sticky top-0 z-[100] bg-black/60 backdrop-blur-xl">
           <div className="flex justify-between items-center gap-2 rounded-xl p-2">
             <h2 className="text-base sm:text-xl font-semibold text-white truncate">
@@ -173,6 +210,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                   onClose();
                 }}
                 className="p-1.5 sm:p-2 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 text-white hover:bg-white/20 active:bg-white/30 transition-all touch-manipulation"
+                title={t('close') || 'Close'}
               >
                 <X className="h-4 w-4 sm:h-5 sm:w-5" />
               </button>
@@ -180,19 +218,27 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
           </div>
         </div>
 
-        <div ref={containerRef} className="flex-1 overflow-auto px-2 sm:px-4 pb-32">
-          <div className="flex justify-center">
+        <div
+          ref={containerRef}
+          className="flex-1 overflow-auto overscroll-contain px-2 sm:px-4 pb-32"
+          style={{
+            WebkitOverflowScrolling: 'touch',
+            touchAction: 'pan-x pan-y',
+          }}
+        >
+          <div className="flex justify-center min-w-full">
             <div
-              className="bg-white rounded-none sm:rounded-lg shadow-2xl mx-auto overflow-hidden"
+              className="mx-auto bg-white rounded-none sm:rounded-lg shadow-2xl overflow-hidden"
               style={{
-                width: `${794 * zoom}px`,
-                minHeight: `${1123 * zoom}px`,
+                width: `${A4_WIDTH_PX * zoom}px`,
+                minHeight: `${docHeight * zoom}px`,
               }}
             >
               <div
+                ref={documentRef}
                 style={{
-                  width: '794px',
-                  minHeight: '1123px',
+                  width: `${A4_WIDTH_PX}px`,
+                  minHeight: `${Math.max(docHeight, A4_MIN_HEIGHT_PX)}px`,
                   transform: `scale(${zoom})`,
                   transformOrigin: 'top left',
                 }}
