@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { InvoiceDocument } from './InvoiceDocument';
 import { useLanguage } from '../contexts/LanguageContext';
+import { generateInvoicePDFBlob } from '../lib/pdfGenerator';
 
 interface InvoicePreviewProps {
   invoice: any;
@@ -9,9 +10,6 @@ interface InvoicePreviewProps {
   companyProfile?: any;
   onClose?: () => void;
 }
-
-const A4_WIDTH = 794;
-const A4_HEIGHT = 1123;
 
 export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   invoice,
@@ -22,18 +20,21 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   const { t } = useLanguage();
   const [zoom, setZoom] = useState(1);
   const [initialZoom, setInitialZoom] = useState(1);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [loadingPdf, setLoadingPdf] = useState(false);
+
+  const isMobile = useMemo(() => window.innerWidth < 768, []);
 
   useEffect(() => {
     const calc = () => {
       const width = window.innerWidth;
-      const fit = Math.min((width - 24) / A4_WIDTH, 1);
+      const fit = Math.min((width - 24) / 794, 1);
       setInitialZoom(fit);
       setZoom(fit);
     };
 
     calc();
     window.addEventListener('resize', calc);
-
     return () => window.removeEventListener('resize', calc);
   }, []);
 
@@ -73,6 +74,12 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     vat_rate: invoice.vat_rate,
     object_address: invoice.object_address,
     notes: invoice.notes,
+    service_period_start: invoice.work_period_start,
+    service_period_end: invoice.work_period_end,
+    invoice_language: invoice.invoice_language,
+  };
+
+  const companyData = {
     company_name: companyProfile?.company_name,
     company_address: companyProfile?.address,
     company_phone: companyProfile?.phone,
@@ -81,9 +88,38 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     company_bank: companyProfile?.bank_name,
     company_iban: companyProfile?.iban,
     company_bic: companyProfile?.bic,
-    company_logo_url: companyProfile?.logo_url,
-    invoice_language: invoice.invoice_language,
   };
+
+  useEffect(() => {
+    let revokedUrl: string | null = null;
+
+    const makePdf = async () => {
+      if (!isMobile) return;
+
+      try {
+        setLoadingPdf(true);
+        const blob = await generateInvoicePDFBlob(
+          invoiceData,
+          companyData,
+          companyProfile?.logo_url
+        );
+        const url = URL.createObjectURL(blob);
+        revokedUrl = url;
+        setPdfUrl(url);
+      } catch (e) {
+        console.error('PDF preview failed', e);
+        setPdfUrl(null);
+      } finally {
+        setLoadingPdf(false);
+      }
+    };
+
+    makePdf();
+
+    return () => {
+      if (revokedUrl) URL.revokeObjectURL(revokedUrl);
+    };
+  }, [isMobile, invoice, client, companyProfile]);
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget && onClose) onClose();
@@ -96,13 +132,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   if (!onClose) {
     return (
       <div className="w-full overflow-auto">
-        <div
-          className="mx-auto bg-white shadow-lg"
-          style={{
-            width: `${A4_WIDTH}px`,
-            minHeight: `${A4_HEIGHT}px`,
-          }}
-        >
+        <div className="mx-auto bg-white shadow-lg" style={{ width: '794px', minHeight: '1123px' }}>
           <InvoiceDocument data={invoiceData} />
         </div>
       </div>
@@ -118,67 +148,82 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
         <div className="flex items-center justify-between bg-black/70 p-3">
           <span className="text-white text-sm sm:text-base">{t('preview')}</span>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={zoomOut}
-              className="rounded-lg bg-white/10 p-2 text-white"
-            >
-              <ZoomOut className="h-4 w-4" />
-            </button>
+          {!isMobile && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={zoomOut}
+                className="rounded-lg bg-white/10 p-2 text-white"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
 
-            <button
-              type="button"
-              onClick={zoomIn}
-              className="rounded-lg bg-white/10 p-2 text-white"
-            >
-              <ZoomIn className="h-4 w-4" />
-            </button>
+              <button
+                type="button"
+                onClick={zoomIn}
+                className="rounded-lg bg-white/10 p-2 text-white"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
 
-            <button
-              type="button"
-              onClick={resetZoom}
-              className="rounded-lg bg-white/10 p-2 text-white"
-            >
-              <RotateCcw className="h-4 w-4" />
-            </button>
+              <button
+                type="button"
+                onClick={resetZoom}
+                className="rounded-lg bg-white/10 p-2 text-white"
+              >
+                <RotateCcw className="h-4 w-4" />
+              </button>
+            </div>
+          )}
 
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg bg-white/10 p-2 text-white"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg bg-white/10 p-2 text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
-        <div
-          className="flex-1 overflow-auto p-2"
-          style={{
-            WebkitOverflowScrolling: 'touch',
-            touchAction: 'pan-x pan-y',
-          }}
-        >
-          <div className="flex justify-center">
-            <div
-              style={{
-                width: `${A4_WIDTH * zoom}px`,
-                minHeight: `${A4_HEIGHT * zoom}px`,
-                overflow: 'visible',
-              }}
-            >
+        <div className="flex-1 overflow-auto bg-neutral-900">
+          {isMobile ? (
+            loadingPdf ? (
+              <div className="flex h-full items-center justify-center text-white/70">
+                {t('loading') || 'Loading...'}
+              </div>
+            ) : pdfUrl ? (
+              <iframe
+                src={pdfUrl}
+                title="Invoice PDF Preview"
+                className="h-full w-full border-0 bg-white"
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center text-white/70 px-4 text-center">
+                PDF preview error
+              </div>
+            )
+          ) : (
+            <div className="flex justify-center p-4">
               <div
                 style={{
-                  width: `${A4_WIDTH}px`,
-                  minHeight: `${A4_HEIGHT}px`,
-                  zoom: zoom,
+                  width: `${794 * zoom}px`,
+                  minHeight: `${1123 * zoom}px`,
+                  overflow: 'hidden',
                 }}
               >
-                <InvoiceDocument data={invoiceData} />
+                <div
+                  style={{
+                    width: '794px',
+                    minHeight: '1123px',
+                    transform: `scale(${zoom})`,
+                    transformOrigin: 'top left',
+                  }}
+                >
+                  <InvoiceDocument data={invoiceData} />
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
