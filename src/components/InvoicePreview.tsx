@@ -118,31 +118,31 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
         </div>
 
         {/* DOCUMENT */}
-        <div
-          ref={containerRef}
-          className="flex-1 overflow-auto"
-          style={{ touchAction: 'pan-x pan-y' }}
-        >
-          <div className="flex justify-center w-full overflow-hidden">
-            <div
-              style={{
-                width: A4_WIDTH * zoom,
-                height: A4_HEIGHT * zoom,
-              }}
-            >
-              <div
-                style={{
-                  transform: `scale(${zoom})`,
-                  transformOrigin: 'top left',
-                  width: A4_WIDTH,
-                  height: A4_HEIGHT,
-                }}
-              >
-                <InvoiceDocument data={invoiceData} />
-              </div>
-            </div>
-          </div>
-        </div>
+     <div
+  ref={containerRef}
+  className="flex-1 overflow-auto px-2"
+  style={{ touchAction: 'pan-x pan-y' }}
+>
+  <div className="flex justify-center min-w-max">
+    <div
+      style={{
+        width: A4_WIDTH * zoom,
+        minHeight: A4_HEIGHT * zoom,
+      }}
+    >
+      <div
+        style={{
+          transform: `scale(${zoom})`,
+          transformOrigin: 'top center',
+          width: A4_WIDTH,
+          minHeight: A4_HEIGHT,
+        }}
+      >
+        <InvoiceDocument data={invoiceData} />
+      </div>
+    </div>
+  </div>
+</div>
 
       </div>
     </div>
