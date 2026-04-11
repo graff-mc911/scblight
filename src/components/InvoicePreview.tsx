@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { InvoiceDocument } from './InvoiceDocument';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -20,37 +20,37 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   onClose,
 }) => {
   const { t } = useLanguage();
-  const containerRef = useRef<HTMLDivElement>(null);
-
   const [zoom, setZoom] = useState(1);
   const [initialZoom, setInitialZoom] = useState(1);
 
-  // 🔒 блокуємо скрол всього додатку
-  useEffect(() => {
-    if (!onClose) return;
-
-    document.body.style.overflow = 'hidden';
-    document.documentElement.style.overflow = 'hidden';
-
-    return () => {
-      document.body.style.overflow = '';
-      document.documentElement.style.overflow = '';
-    };
-  }, [onClose]);
-
-  // 📱 fit-to-screen
   useEffect(() => {
     const calc = () => {
       const width = window.innerWidth;
-      const fit = Math.min((width - 16) / A4_WIDTH, 1);
+      const fit = Math.min((width - 24) / A4_WIDTH, 1);
       setInitialZoom(fit);
       setZoom(fit);
     };
 
     calc();
     window.addEventListener('resize', calc);
+
     return () => window.removeEventListener('resize', calc);
   }, []);
+
+  useEffect(() => {
+    if (!onClose) return;
+
+    const prevBody = document.body.style.overflow;
+    const prevHtml = document.documentElement.style.overflow;
+
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = prevBody;
+      document.documentElement.style.overflow = prevHtml;
+    };
+  }, [onClose]);
 
   const invoiceData = {
     document_number: invoice.document_number,
@@ -58,10 +58,12 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     work_period_start: invoice.work_period_start,
     work_period_end: invoice.work_period_end,
     client_name: client?.name || invoice.client_name || '',
-    client_number: invoice.client_number || '',
+    client_number: invoice.client_number || client?.client_number || '',
+    client_address: client?.address || invoice.client_address || '',
+    client_tax_number: client?.tax_number || '',
     currency: invoice.currency,
     items: (invoice.items || []).map((i: any) => ({
-      description: i.description || i.material,
+      description: i.description || i.material || '',
       quantity: i.quantity,
       unit: i.unit,
       price: i.price,
@@ -73,9 +75,17 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     notes: invoice.notes,
     company_name: companyProfile?.company_name,
     company_address: companyProfile?.address,
+    company_phone: companyProfile?.phone,
+    company_email: companyProfile?.email,
+    company_tax_number: companyProfile?.tax_number,
+    company_bank: companyProfile?.bank_name,
+    company_iban: companyProfile?.iban,
+    company_bic: companyProfile?.bic,
+    company_logo_url: companyProfile?.logo_url,
+    invoice_language: invoice.invoice_language,
   };
 
-  const handleOverlayClick = (e: any) => {
+  const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget && onClose) onClose();
   };
 
@@ -83,13 +93,15 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   const zoomOut = () => setZoom((z) => Math.max(z - 0.1, 0.3));
   const resetZoom = () => setZoom(initialZoom);
 
-  // 🧾 INLINE preview (без модалки)
   if (!onClose) {
     return (
-      <div className="flex justify-center w-full max-w-full overflow-x-hidden">
+      <div className="w-full overflow-auto">
         <div
-          className="bg-white shadow-lg"
-          style={{ width: A4_WIDTH }}
+          className="mx-auto bg-white shadow-lg"
+          style={{
+            width: `${A4_WIDTH}px`,
+            minHeight: `${A4_HEIGHT}px`,
+          }}
         >
           <InvoiceDocument data={invoiceData} />
         </div>
@@ -97,53 +109,77 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     );
   }
 
-  // 🔥 FULLSCREEN PREVIEW
   return (
     <div
       className="fixed inset-0 z-[9999] bg-black/90 overflow-hidden"
       onClick={handleOverlayClick}
     >
-      <div className="flex flex-col h-full w-full overflow-hidden">
+      <div className="flex h-full w-full flex-col overflow-hidden">
+        <div className="flex items-center justify-between bg-black/70 p-3">
+          <span className="text-white text-sm sm:text-base">{t('preview')}</span>
 
-        {/* HEADER */}
-        <div className="flex justify-between items-center p-3 bg-black/70">
-          <span className="text-white">{t('preview')}</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={zoomOut}
+              className="rounded-lg bg-white/10 p-2 text-white"
+            >
+              <ZoomOut className="h-4 w-4" />
+            </button>
 
-          <div className="flex gap-2">
-            <button onClick={zoomOut}><ZoomOut /></button>
-            <button onClick={zoomIn}><ZoomIn /></button>
-            <button onClick={resetZoom}><RotateCcw /></button>
-            <button onClick={onClose}><X /></button>
+            <button
+              type="button"
+              onClick={zoomIn}
+              className="rounded-lg bg-white/10 p-2 text-white"
+            >
+              <ZoomIn className="h-4 w-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={resetZoom}
+              className="rounded-lg bg-white/10 p-2 text-white"
+            >
+              <RotateCcw className="h-4 w-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg bg-white/10 p-2 text-white"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         </div>
 
-        {/* DOCUMENT */}
-     <div
-  ref={containerRef}
-  className="flex-1 overflow-auto px-2"
-  style={{ touchAction: 'pan-x pan-y' }}
->
-  <div className="flex justify-center min-w-max">
-    <div
-      style={{
-        width: A4_WIDTH * zoom,
-        minHeight: A4_HEIGHT * zoom,
-      }}
-    >
-      <div
-        style={{
-          transform: `scale(${zoom})`,
-          transformOrigin: 'top center',
-          width: A4_WIDTH,
-          minHeight: A4_HEIGHT,
-        }}
-      >
-        <InvoiceDocument data={invoiceData} />
-      </div>
-    </div>
-  </div>
-</div>
-
+        <div
+          className="flex-1 overflow-auto p-2"
+          style={{
+            WebkitOverflowScrolling: 'touch',
+            touchAction: 'pan-x pan-y',
+          }}
+        >
+          <div className="flex justify-center">
+            <div
+              style={{
+                width: `${A4_WIDTH * zoom}px`,
+                minHeight: `${A4_HEIGHT * zoom}px`,
+                overflow: 'visible',
+              }}
+            >
+              <div
+                style={{
+                  width: `${A4_WIDTH}px`,
+                  minHeight: `${A4_HEIGHT}px`,
+                  zoom: zoom,
+                }}
+              >
+                <InvoiceDocument data={invoiceData} />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
