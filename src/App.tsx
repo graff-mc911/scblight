@@ -25,13 +25,21 @@ import Receipts from './pages/Receipts';
 import { initSyncManager, onSyncFlush } from './lib/syncManager';
 import { supabase } from './lib/supabase';
 
-const InvoiceForm = lazy(() => import('./pages/InvoiceForm'));
-const InvoiceView = lazy(() => import('./pages/InvoiceView'));
-const ClientForm = lazy(() => import('./pages/ClientForm'));
-const Onboarding = lazy(() => import('./pages/Onboarding'));
-const ClientInvoices = lazy(() => import('./pages/ClientInvoices'));
-const ReceiptForm = lazy(() => import('./pages/ReceiptForm'));
-const PdfCreator = lazy(() => import('./pages/PdfCreator'));
+const InvoiceForm = lazy(() =>
+  import('./pages/InvoiceForm').then((module) => ({ default: module.InvoiceForm }))
+);
+const InvoiceView = lazy(() =>
+  import('./pages/InvoiceView').then((module) => ({ default: module.InvoiceView }))
+);
+const ClientForm = lazy(() =>
+  import('./pages/ClientForm').then((module) => ({ default: module.ClientForm }))
+);
+const Onboarding = lazy(() =>
+  import('./pages/Onboarding').then((module) => ({ default: module.Onboarding }))
+);
+const ClientInvoices = lazy(() =>
+  import('./pages/ClientInvoices').then((module) => ({ default: module.ClientInvoices }))
+);
 const ReceiptForm = lazy(() => import('./pages/ReceiptForm'));
 const PdfCreator = lazy(() => import('./pages/PdfCreator'));
 
