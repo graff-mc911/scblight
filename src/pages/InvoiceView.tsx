@@ -173,52 +173,50 @@ export const InvoiceView: React.FC = () => {
     }
   }, [id, fetchInvoice]);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+ const handleDeleteFile = async () => {
+  if (!attachedFile || !id) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      showError(t('fileSizeLimit10mb') || 'File size must be less than 10MB');
-      return;
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      throw new Error('Користувач не авторизований');
     }
 
-    setUploadingFile(true);
+    const url = new URL(attachedFile);
+    const pathParts = url.pathname.split('/storage/v1/object/public/invoice-pdfs/');
+    const filePath = pathParts[1];
 
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) throw new Error('Not authenticated');
-
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}/${id}-attachment-${Date.now()}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('invoice-pdfs')
-        .upload(fileName, file);
-
-      if (uploadError) throw uploadError;
-
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from('invoice-pdfs').getPublicUrl(fileName);
-
-      const { error: updateError } = await supabase
-        .from('invoices')
-        .update({ attached_file_url: publicUrl })
-        .eq('id', id);
-
-      if (updateError) throw updateError;
-
-      setAttachedFile(publicUrl);
-      showSuccess(t('fileUploaded') || 'File uploaded successfully');
-    } catch {
-      showError(t('failedUploadFile') || 'Failed to upload file');
-    } finally {
-      setUploadingFile(false);
+    if (!filePath) {
+      throw new Error('Не вдалося визначити шлях до файлу');
     }
-  };
+
+    const { error: deleteError } = await supabase.storage
+      .from('invoice-pdfs')
+      .remove([filePath]);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+
+    const { error: updateError } = await supabase
+      .from('invoices')
+      .update({ attached_file_url: null })
+      .eq('id', id);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    setAttachedFile(null);
+    showSuccess(t('fileDeleted') || 'File deleted successfully');
+  } catch (error: any) {
+    console.error('File delete error:', error);
+    showError(error?.message || t('failedDeleteFile') || 'Failed to delete file');
+  }
+};
 
   const handleDeleteFile = async () => {
     if (!attachedFile) return;
