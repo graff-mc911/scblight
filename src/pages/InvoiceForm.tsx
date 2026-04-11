@@ -27,6 +27,7 @@ interface InvoiceItem {
 export const InvoiceForm: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { t, language } = useLanguage();
   const { showSuccess, showError } = useToastContext();
   const [clients, setClients] = useState<any[]>([]);
