@@ -1,14 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
-// import { InvoiceDocument } from './InvoiceDocument';
-
-const InvoiceDocument = ({ data }: { data: any }) => (
-  <div className="w-full h-full bg-white p-4">
-    <div className="text-black text-sm break-words whitespace-normal">
-      TEST DOCUMENT
-    </div>
-  </div>
-);
+import { InvoiceDocument } from './InvoiceDocument';
 import { useLanguage } from '../contexts/LanguageContext';
 
 interface InvoicePreviewProps {
