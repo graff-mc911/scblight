@@ -30,6 +30,7 @@ export const InvoiceForm: React.FC = () => {
   const queryClient = useQueryClient();
   const { t, language } = useLanguage();
   const { showSuccess, showError } = useToastContext();
+
   const [clients, setClients] = useState<any[]>([]);
   const [companyProfile, setCompanyProfile] = useState<any>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -57,7 +58,15 @@ export const InvoiceForm: React.FC = () => {
   });
 
   const [items, setItems] = useState<InvoiceItem[]>([
-    { quantity: 0, quantityDisplay: '', unit: 'm²', price: 0, material: '', description: '', total: 0 },
+    {
+      quantity: 0,
+      quantityDisplay: '',
+      unit: 'm²',
+      price: 0,
+      material: '',
+      description: '',
+      total: 0,
+    },
   ]);
 
   useEffect(() => {
@@ -72,7 +81,10 @@ export const InvoiceForm: React.FC = () => {
   }, [id]);
 
   const generateDocumentNumber = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     if (!user) return;
 
     const { data } = await supabase
@@ -84,20 +96,24 @@ export const InvoiceForm: React.FC = () => {
       .maybeSingle();
 
     let nextNumber = 1;
+
     if (data?.document_no) {
       const match = data.document_no.match(/\d+$/);
       if (match) {
-        nextNumber = parseInt(match[0]) + 1;
+        nextNumber = parseInt(match[0], 10) + 1;
       }
     }
 
     const year = new Date().getFullYear();
     const docNumber = `INV-${year}-${String(nextNumber).padStart(4, '0')}`;
-    setFormData(prev => ({ ...prev, document_number: docNumber }));
+    setFormData((prev) => ({ ...prev, document_number: docNumber }));
   };
 
   const fetchClients = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     if (!user) return;
 
     const { data } = await supabase
@@ -110,7 +126,10 @@ export const InvoiceForm: React.FC = () => {
   };
 
   const fetchCompanyProfile = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     if (!user) return;
 
     const { data } = await supabase
@@ -129,32 +148,35 @@ export const InvoiceForm: React.FC = () => {
       .eq('id', id)
       .maybeSingle();
 
-    if (invoiceData) {
-      setFormData({
-        client_id: invoiceData.client_id || '',
-        document_number: invoiceData.document_no || '',
-        date: invoiceData.date,
-        work_period_start: invoiceData.work_period_start || invoiceData.date,
-        work_period_end: invoiceData.work_period_end || invoiceData.date,
-        currency: invoiceData.currency,
-        status: invoiceData.status,
-        vat_enabled: invoiceData.tax_percent > 0,
-        vat_rate: invoiceData.tax_percent || 20,
-        document_type: invoiceData.document_type || 'invoice',
-        project_area: invoiceData.total_project_area?.toString() || '',
-        object_address: invoiceData.object_address || '',
-        notes: invoiceData.notes || '',
-      });
-      setAttachedFile(invoiceData.attached_file_url || null);
+    if (!invoiceData) return;
 
-      const { data: itemsData } = await supabase
-        .from('invoice_items')
-        .select('*')
-        .eq('invoice_id', id)
-        .order('sort_order');
+    setFormData({
+      client_id: invoiceData.client_id || '',
+      document_number: invoiceData.document_no || '',
+      date: invoiceData.date,
+      work_period_start: invoiceData.work_period_start || invoiceData.date,
+      work_period_end: invoiceData.work_period_end || invoiceData.date,
+      currency: invoiceData.currency,
+      status: invoiceData.status,
+      vat_enabled: invoiceData.tax_percent > 0,
+      vat_rate: invoiceData.tax_percent || 20,
+      document_type: invoiceData.document_type || 'invoice',
+      project_area: invoiceData.total_project_area?.toString() || '',
+      object_address: invoiceData.object_address || '',
+      notes: invoiceData.notes || '',
+    });
 
-      if (itemsData && itemsData.length > 0) {
-        setItems(itemsData.map(item => ({
+    setAttachedFile(invoiceData.attached_file_url || null);
+
+    const { data: itemsData } = await supabase
+      .from('invoice_items')
+      .select('*')
+      .eq('invoice_id', id)
+      .order('sort_order');
+
+    if (itemsData && itemsData.length > 0) {
+      setItems(
+        itemsData.map((item) => ({
           quantity: Number(item.quantity),
           quantityDisplay: item.quantity.toString(),
           unit: item.unit,
@@ -162,8 +184,8 @@ export const InvoiceForm: React.FC = () => {
           material: item.material,
           description: item.description || '',
           total: Number(item.total),
-        })));
-      }
+        }))
+      );
     }
   };
 
@@ -171,9 +193,11 @@ export const InvoiceForm: React.FC = () => {
     const hasClient = !!formData.client_id;
     const hasAddress = !!formData.object_address.trim();
     const hasNotes = !!formData.notes.trim();
-    const hasItems = items.some(item =>
-      item.description.trim() || item.material.trim() || item.price > 0 || item.quantity > 0
+    const hasItems = items.some(
+      (item) =>
+        item.description.trim() || item.material.trim() || item.price > 0 || item.quantity > 0
     );
+
     return hasClient || hasAddress || hasNotes || hasItems;
   }, [formData, items]);
 
@@ -183,10 +207,14 @@ export const InvoiceForm: React.FC = () => {
 
     try {
       setAutosaveStatus('saving');
-      const { data: { user } } = await supabase.auth.getUser();
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) return;
 
-      const selectedClient = clients.find(c => c.id === formData.client_id);
+      const selectedClient = clients.find((c) => c.id === formData.client_id);
       const netTotal = items.reduce((sum, item) => sum + item.total, 0);
       const vatAmount = formData.vat_enabled ? (netTotal * formData.vat_rate) / 100 : 0;
       const grossTotal = netTotal + vatAmount;
@@ -262,7 +290,7 @@ export const InvoiceForm: React.FC = () => {
     } catch {
       setAutosaveStatus('idle');
     }
-  }, [formData, items, clients, hasSignificantData, navigate]);
+  }, [clients, formData, hasSignificantData, items, navigate]);
 
   useEffect(() => {
     if (id) return;
@@ -283,32 +311,39 @@ export const InvoiceForm: React.FC = () => {
 
     try {
       setAutosaveStatus('saving');
-      const { data: { user } } = await supabase.auth.getUser();
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) return;
 
-      const selectedClient = clients.find(c => c.id === formData.client_id);
+      const selectedClient = clients.find((c) => c.id === formData.client_id);
       const netTotal = items.reduce((sum, item) => sum + item.total, 0);
       const vatAmount = formData.vat_enabled ? (netTotal * formData.vat_rate) / 100 : 0;
       const grossTotal = netTotal + vatAmount;
 
-      await supabase.from('invoices').update({
-        client_id: formData.client_id || null,
-        client_name: selectedClient?.name || '',
-        client_number: selectedClient?.client_number || null,
-        document_no: formData.document_number,
-        date: formData.date,
-        work_period_start: formData.work_period_start,
-        work_period_end: formData.work_period_end,
-        currency: formData.currency,
-        status: formData.status,
-        document_type: formData.document_type,
-        object_address: formData.object_address || null,
-        notes: formData.notes || null,
-        total_net: netTotal,
-        tax_percent: formData.vat_enabled ? formData.vat_rate : 0,
-        tax_amount: vatAmount,
-        total_gross: grossTotal,
-      }).eq('id', id);
+      await supabase
+        .from('invoices')
+        .update({
+          client_id: formData.client_id || null,
+          client_name: selectedClient?.name || '',
+          client_number: selectedClient?.client_number || null,
+          document_no: formData.document_number,
+          date: formData.date,
+          work_period_start: formData.work_period_start,
+          work_period_end: formData.work_period_end,
+          currency: formData.currency,
+          status: formData.status,
+          document_type: formData.document_type,
+          object_address: formData.object_address || null,
+          notes: formData.notes || null,
+          total_net: netTotal,
+          tax_percent: formData.vat_enabled ? formData.vat_rate : 0,
+          tax_amount: vatAmount,
+          total_gross: grossTotal,
+        })
+        .eq('id', id);
 
       await supabase.from('invoice_items').delete().eq('invoice_id', id);
 
@@ -332,7 +367,7 @@ export const InvoiceForm: React.FC = () => {
     } catch {
       setAutosaveStatus('idle');
     }
-  }, [id, formData, items, clients]);
+  }, [clients, formData, id, items]);
 
   useEffect(() => {
     if (!id) return;
@@ -366,7 +401,10 @@ export const InvoiceForm: React.FC = () => {
     setUploadingFile(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) throw new Error('Not authenticated');
 
       const fileExt = file.name.split('.').pop();
@@ -378,9 +416,9 @@ export const InvoiceForm: React.FC = () => {
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('invoice-pdfs')
-        .getPublicUrl(fileName);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('invoice-pdfs').getPublicUrl(fileName);
 
       const { error: updateError } = await supabase
         .from('invoices')
@@ -391,7 +429,7 @@ export const InvoiceForm: React.FC = () => {
 
       setAttachedFile(publicUrl);
       showSuccess(t('fileUploaded') || 'File uploaded successfully');
-    } catch (error) {
+    } catch {
       showError(t('failedUploadFile') || 'Failed to upload file');
     } finally {
       setUploadingFile(false);
@@ -403,7 +441,10 @@ export const InvoiceForm: React.FC = () => {
 
     try {
       const fileName = attachedFile.split('/').pop();
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) throw new Error('Not authenticated');
 
       const filePath = `${user.id}/${fileName}`;
@@ -423,7 +464,7 @@ export const InvoiceForm: React.FC = () => {
 
       setAttachedFile(null);
       showSuccess(t('fileDeleted') || 'File deleted successfully');
-    } catch (error) {
+    } catch {
       showError(t('failedDeleteFile') || 'Failed to delete file');
     }
   };
@@ -456,86 +497,94 @@ export const InvoiceForm: React.FC = () => {
     invoiceData: any,
     invoiceItems: InvoiceItem[]
   ) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      throw new Error('Not authenticated');
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error('Not authenticated');
+      }
+
+      const selectedClient = clients.find((c) => c.id === formData.client_id);
+
+      const pdfInvoiceData = {
+        document_number: invoiceData.document_no,
+        date: invoiceData.date,
+        client_name: invoiceData.client_name,
+        client_address: selectedClient?.address || '',
+        client_tax_number: selectedClient?.tax_number || '',
+        client_number: invoiceData.client_number,
+        currency: invoiceData.currency,
+        items: invoiceItems.map((item) => ({
+          description: item.description || item.material || '',
+          quantity: item.quantity,
+          unit: item.unit,
+          price: item.price,
+          total: item.total,
+        })),
+        vat_enabled: formData.vat_enabled,
+        vat_rate: formData.vat_rate,
+        notes: invoiceData.notes,
+        service_period_start: invoiceData.work_period_start,
+        service_period_end: invoiceData.work_period_end,
+        object_address: formData.object_address || '',
+        invoice_language: language,
+      };
+
+      const companyData = {
+        company_name: companyProfile?.company_name || '',
+        company_address: companyProfile?.address || '',
+        company_phone: companyProfile?.phone || '',
+        company_email: companyProfile?.email || '',
+        company_tax_number: companyProfile?.tax_number || '',
+        company_bank: companyProfile?.bank_name || '',
+        company_iban: companyProfile?.iban || '',
+        company_bic: companyProfile?.bic || '',
+      };
+
+      const logoUrl = companyProfile?.logo_url || undefined;
+      const pdfBlob = await generateInvoicePDFBlob(pdfInvoiceData, companyData, logoUrl);
+
+      if (!pdfBlob || pdfBlob.size === 0) {
+        throw new Error('PDF blob is empty');
+      }
+
+      const fileName = `${user.id}/${invoiceId}-invoice.pdf`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('invoice-pdfs')
+        .upload(fileName, pdfBlob, {
+          contentType: 'application/pdf',
+          upsert: true,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('invoice-pdfs').getPublicUrl(fileName);
+
+      if (!publicUrl) {
+        throw new Error('Failed to get public PDF URL');
+      }
+
+      const { error: updateError } = await supabase
+        .from('invoices')
+        .update({ pdf_url: publicUrl })
+        .eq('id', invoiceId);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      throw error;
     }
-
-    const selectedClient = clients.find((c) => c.id === formData.client_id);
-
-    const pdfInvoiceData = {
-      document_number: invoiceData.document_no,
-      date: invoiceData.date,
-      client_name: invoiceData.client_name,
-      client_address: selectedClient?.address || '',
-      client_tax_number: selectedClient?.tax_number || '',
-      client_number: invoiceData.client_number,
-      currency: invoiceData.currency,
-      items: invoiceItems.map((item) => ({
-        description: item.description || item.material || '',
-        quantity: item.quantity,
-        unit: item.unit,
-        price: item.price,
-        total: item.total,
-      })),
-      vat_enabled: formData.vat_enabled,
-      vat_rate: formData.vat_rate,
-      notes: invoiceData.notes,
-      service_period_start: invoiceData.work_period_start,
-      service_period_end: invoiceData.work_period_end,
-      object_address: formData.object_address || '',
-      invoice_language: language,
-    };
-
-    const companyData = {
-      company_name: companyProfile?.company_name || '',
-      company_address: companyProfile?.address || '',
-      company_phone: companyProfile?.phone || '',
-      company_email: companyProfile?.email || '',
-      company_tax_number: companyProfile?.tax_number || '',
-      company_bank: companyProfile?.bank_name || '',
-      company_iban: companyProfile?.iban || '',
-      company_bic: companyProfile?.bic || '',
-    };
-
-    const logoUrl = companyProfile?.logo_url || undefined;
-    const pdfBlob = await generateInvoicePDFBlob(pdfInvoiceData, companyData, logoUrl);
-
-    if (!pdfBlob || pdfBlob.size === 0) {
-      throw new Error('PDF blob is empty');
-    }
-
-    const fileName = `${user.id}/${invoiceId}-invoice.pdf`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('invoice-pdfs')
-      .upload(fileName, pdfBlob, {
-        contentType: 'application/pdf',
-        upsert: true,
-      });
-
-    if (uploadError) {
-      throw uploadError;
-    }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('invoice-pdfs')
-      .getPublicUrl(fileName);
-
-    if (!publicUrl) {
-      throw new Error('Failed to get public PDF URL');
-    }
-
-    const { error: updateError } = await supabase
-      .from('invoices')
-      .update({ pdf_url: publicUrl })
-      .eq('id', invoiceId);
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    return publicUrl;
   };
 
   const handleQuantityBlur = (index: number) => {
@@ -583,7 +632,10 @@ export const InvoiceForm: React.FC = () => {
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) {
         showError(t('notAuthenticated') || 'Not authenticated');
         return;
@@ -658,10 +710,7 @@ export const InvoiceForm: React.FC = () => {
         return;
       }
 
-      await supabase
-        .from('invoice_items')
-        .delete()
-        .eq('invoice_id', invoiceId);
+      await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId);
 
       if (items.length > 0) {
         const itemsData = items.map((item, index) => ({
@@ -689,7 +738,10 @@ export const InvoiceForm: React.FC = () => {
       await generateAndSavePDF(invoiceId, invoiceData, items);
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
 
-      showSuccess(id ? (t('invoiceUpdated') || 'Invoice updated') : (t('invoiceCreated') || 'Invoice created'));
+      showSuccess(
+        id ? (t('invoiceUpdated') || 'Invoice updated') : (t('invoiceCreated') || 'Invoice created')
+      );
+
       navigate(`/invoices/${invoiceId}/view`);
     } catch (error) {
       console.error('Error saving invoice:', error);
@@ -1063,16 +1115,16 @@ export const InvoiceForm: React.FC = () => {
             date: formData.date,
             work_period_start: formData.work_period_start,
             work_period_end: formData.work_period_end,
-            client_number: clients.find(c => c.id === formData.client_id)?.client_number || '',
+            client_number: clients.find((c) => c.id === formData.client_id)?.client_number || '',
             currency: formData.currency,
-            items: items,
+            items,
             vat_enabled: formData.vat_enabled,
             vat_rate: formData.vat_rate,
             object_address: formData.object_address,
             notes: formData.notes,
             invoice_language: language,
           }}
-          client={clients.find(c => c.id === formData.client_id)}
+          client={clients.find((c) => c.id === formData.client_id)}
           companyProfile={companyProfile}
           onClose={() => setIsPreviewOpen(false)}
         />
