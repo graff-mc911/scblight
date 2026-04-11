@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -146,7 +145,7 @@ export const InvoiceForm: React.FC = () => {
         object_address: invoiceData.object_address || '',
         notes: invoiceData.notes || '',
       });
-      setAttachedFile(invoiceData.attached_file_url);
+      setAttachedFile(invoiceData.attached_file_url || null);
 
       const { data: itemsData } = await supabase
         .from('invoice_items')
@@ -279,23 +278,9 @@ export const InvoiceForm: React.FC = () => {
     };
   }, [formData, items, id, performAutosave]);
 
-  useEffect(() => {
-    if (!id) return;
-
-    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-
-    autosaveTimerRef.current = setTimeout(() => {
-      if (isSavedManuallyRef.current) return;
-      performAutosaveForExisting();
-    }, 2000);
-
-    return () => {
-      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-    };
-  }, [formData, items, id]);
-
   const performAutosaveForExisting = useCallback(async () => {
     if (!id) return;
+
     try {
       setAutosaveStatus('saving');
       const { data: { user } } = await supabase.auth.getUser();
@@ -326,6 +311,7 @@ export const InvoiceForm: React.FC = () => {
       }).eq('id', id);
 
       await supabase.from('invoice_items').delete().eq('invoice_id', id);
+
       if (items.length > 0) {
         await supabase.from('invoice_items').insert(
           items.map((item, index) => ({
@@ -347,6 +333,21 @@ export const InvoiceForm: React.FC = () => {
       setAutosaveStatus('idle');
     }
   }, [id, formData, items, clients]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+
+    autosaveTimerRef.current = setTimeout(() => {
+      if (isSavedManuallyRef.current) return;
+      performAutosaveForExisting();
+    }, 2000);
+
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [formData, items, id, performAutosaveForExisting]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -435,6 +436,7 @@ export const InvoiceForm: React.FC = () => {
       const qty = field === 'quantity' ? Number(value) : newItems[index].quantity;
       const price = field === 'price' ? Number(value) : newItems[index].price;
       newItems[index].total = qty * price;
+
       if (field === 'quantity') {
         newItems[index].quantityDisplay = value.toString();
       }
@@ -449,94 +451,97 @@ export const InvoiceForm: React.FC = () => {
     setItems(newItems);
   };
 
-  const generateAndSavePDF = async (invoiceId: string, invoiceData: any, invoiceItems: InvoiceItem[]) => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const selectedClient = clients.find(c => c.id === formData.client_id);
-
-      const pdfInvoiceData = {
-        document_number: invoiceData.document_no,
-        date: invoiceData.date,
-        client_name: invoiceData.client_name,
-        client_address: selectedClient?.address,
-        client_tax_number: selectedClient?.tax_number,
-        client_number: invoiceData.client_number,
-        currency: invoiceData.currency,
-        items: invoiceItems.map(item => ({
-          description: item.description || item.material,
-          quantity: item.quantity,
-          unit: item.unit,
-          price: item.price,
-          total: item.total,
-        })),
-        vat_enabled: formData.vat_enabled,
-        vat_rate: formData.vat_rate,
-        notes: invoiceData.notes,
-        service_period_start: invoiceData.work_period_start,
-        service_period_end: invoiceData.work_period_end,
-        object_address: formData.object_address || undefined,
-        invoice_language: language,
-      };
-
-      const companyData = {
-        company_name: companyProfile?.company_name,
-        company_address: companyProfile?.address,
-        company_phone: companyProfile?.phone,
-        company_email: companyProfile?.email,
-        company_tax_number: companyProfile?.tax_number,
-        company_bank: companyProfile?.bank_name,
-        company_iban: companyProfile?.iban,
-        company_bic: companyProfile?.bic,
-      };
-
-      const logoUrl = companyProfile?.logo_url;
-
-      const pdfBlob = await generateInvoicePDFBlob(pdfInvoiceData, companyData, logoUrl);
-
-      const fileName = `${user.id}/${invoiceId}-invoice.pdf`;
-
-      const { data: existingFiles } = await supabase.storage
-        .from('invoice-pdfs')
-        .list(user.id, {
-          search: `${invoiceId}-invoice.pdf`
-        });
-
-      if (existingFiles && existingFiles.length > 0) {
-        await supabase.storage
-          .from('invoice-pdfs')
-          .remove([fileName]);
-      }
-
-      const { error: uploadError } = await supabase.storage
-        .from('invoice-pdfs')
-        .upload(fileName, pdfBlob, {
-          contentType: 'application/pdf',
-          upsert: true
-        });
-
-      if (uploadError) {
-        console.error('Failed to upload PDF:', uploadError);
-        return;
-      }
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('invoice-pdfs')
-        .getPublicUrl(fileName);
-
-      await supabase
-        .from('invoices')
-        .update({ pdf_url: publicUrl })
-        .eq('id', invoiceId);
-    } catch (error) {
-      console.error('Error generating PDF:', error);
+  const generateAndSavePDF = async (
+    invoiceId: string,
+    invoiceData: any,
+    invoiceItems: InvoiceItem[]
+  ) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      throw new Error('Not authenticated');
     }
+
+    const selectedClient = clients.find((c) => c.id === formData.client_id);
+
+    const pdfInvoiceData = {
+      document_number: invoiceData.document_no,
+      date: invoiceData.date,
+      client_name: invoiceData.client_name,
+      client_address: selectedClient?.address || '',
+      client_tax_number: selectedClient?.tax_number || '',
+      client_number: invoiceData.client_number,
+      currency: invoiceData.currency,
+      items: invoiceItems.map((item) => ({
+        description: item.description || item.material || '',
+        quantity: item.quantity,
+        unit: item.unit,
+        price: item.price,
+        total: item.total,
+      })),
+      vat_enabled: formData.vat_enabled,
+      vat_rate: formData.vat_rate,
+      notes: invoiceData.notes,
+      service_period_start: invoiceData.work_period_start,
+      service_period_end: invoiceData.work_period_end,
+      object_address: formData.object_address || '',
+      invoice_language: language,
+    };
+
+    const companyData = {
+      company_name: companyProfile?.company_name || '',
+      company_address: companyProfile?.address || '',
+      company_phone: companyProfile?.phone || '',
+      company_email: companyProfile?.email || '',
+      company_tax_number: companyProfile?.tax_number || '',
+      company_bank: companyProfile?.bank_name || '',
+      company_iban: companyProfile?.iban || '',
+      company_bic: companyProfile?.bic || '',
+    };
+
+    const logoUrl = companyProfile?.logo_url || undefined;
+    const pdfBlob = await generateInvoicePDFBlob(pdfInvoiceData, companyData, logoUrl);
+
+    if (!pdfBlob || pdfBlob.size === 0) {
+      throw new Error('PDF blob is empty');
+    }
+
+    const fileName = `${user.id}/${invoiceId}-invoice.pdf`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('invoice-pdfs')
+      .upload(fileName, pdfBlob, {
+        contentType: 'application/pdf',
+        upsert: true,
+      });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('invoice-pdfs')
+      .getPublicUrl(fileName);
+
+    if (!publicUrl) {
+      throw new Error('Failed to get public PDF URL');
+    }
+
+    const { error: updateError } = await supabase
+      .from('invoices')
+      .update({ pdf_url: publicUrl })
+      .eq('id', invoiceId);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    return publicUrl;
   };
 
   const handleQuantityBlur = (index: number) => {
     const item = items[index];
     const result = safeEval(item.quantityDisplay);
+
     if (!isNaN(result)) {
       handleItemChange(index, 'quantity', result);
     } else {
@@ -545,15 +550,18 @@ export const InvoiceForm: React.FC = () => {
   };
 
   const addItem = () => {
-    setItems([...items, {
-      quantity: 0,
-      quantityDisplay: '',
-      unit: 'm²',
-      price: 0,
-      material: '',
-      description: '',
-      total: 0
-    }]);
+    setItems([
+      ...items,
+      {
+        quantity: 0,
+        quantityDisplay: '',
+        unit: 'm²',
+        price: 0,
+        material: '',
+        description: '',
+        total: 0,
+      },
+    ]);
   };
 
   const removeItem = (index: number) => {
@@ -566,13 +574,12 @@ export const InvoiceForm: React.FC = () => {
   const vatAmount = formData.vat_enabled ? (netTotal * formData.vat_rate) / 100 : 0;
   const grossTotal = netTotal + vatAmount;
 
-  const formatCurrency = (amount: number) => {
-    return amount.toFixed(2);
-  };
+  const formatCurrency = (amount: number) => amount.toFixed(2);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     isSavedManuallyRef.current = true;
+
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
 
     try {
@@ -582,7 +589,7 @@ export const InvoiceForm: React.FC = () => {
         return;
       }
 
-      const selectedClient = clients.find(c => c.id === formData.client_id);
+      const selectedClient = clients.find((c) => c.id === formData.client_id);
       const totalProjectArea = formData.project_area ? parseFloat(formData.project_area) : 0;
       const totalAreaNet = items.reduce((sum, item) => sum + item.quantity, 0);
       const totalAreaGross = totalAreaNet;
@@ -625,13 +632,16 @@ export const InvoiceForm: React.FC = () => {
           .from('invoices')
           .update(invoiceData)
           .eq('id', existingId);
+
         error = result.error;
       } else {
         const result = await supabase
           .from('invoices')
           .insert([invoiceData])
           .select();
+
         error = result.error;
+
         if (!error && result.data && result.data.length > 0) {
           invoiceId = result.data[0].id;
         }
@@ -639,7 +649,7 @@ export const InvoiceForm: React.FC = () => {
 
       if (error) {
         console.error('Error saving invoice:', error);
-        showError(t('errorSavingInvoice') || 'Error saving invoice: ' + error.message);
+        showError(t('errorSavingInvoice') || `Error saving invoice: ${error.message}`);
         return;
       }
 
@@ -671,7 +681,7 @@ export const InvoiceForm: React.FC = () => {
 
         if (itemsError) {
           console.error('Error saving items:', itemsError);
-          showError(t('errorSavingInvoice') || 'Error saving invoice items: ' + itemsError.message);
+          showError(t('errorSavingInvoice') || `Error saving invoice items: ${itemsError.message}`);
           return;
         }
       }
@@ -680,7 +690,7 @@ export const InvoiceForm: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
 
       showSuccess(id ? (t('invoiceUpdated') || 'Invoice updated') : (t('invoiceCreated') || 'Invoice created'));
-      navigate('/invoices');
+      navigate(`/invoices/${invoiceId}/view`);
     } catch (error) {
       console.error('Error saving invoice:', error);
       showError(t('errorSavingInvoice') || 'Error saving invoice');
@@ -689,16 +699,16 @@ export const InvoiceForm: React.FC = () => {
 
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-5xl mx-auto">
-
       <div className="mb-6">
         <button
-  type="button"
-  onClick={() => navigate('/invoices')}
+          type="button"
+          onClick={() => navigate('/invoices')}
           className="flex items-center justify-center p-2 bg-white/10 backdrop-blur-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/20 rounded-xl mb-4 transition-all active:scale-95"
           title={t('back')}
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
+
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-semibold text-white mb-1">
@@ -708,9 +718,11 @@ export const InvoiceForm: React.FC = () => {
               {id ? t('updateInvoiceInfo') : t('createNewInvoice')}
             </p>
           </div>
+
           {autosaveStatus === 'saving' && (
             <span className="text-white/40 text-xs">{t('saving') || 'Збереження...'}</span>
           )}
+
           {autosaveStatus === 'saved' && (
             <span className="text-green-400/70 text-xs">{t('saved') || 'Збережено'}</span>
           )}
@@ -729,35 +741,41 @@ export const InvoiceForm: React.FC = () => {
               value={formData.client_id}
               onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
             />
+
             <Input
               label={t('documentNumber')}
               value={formData.document_number}
               onChange={(e) => setFormData({ ...formData, document_number: e.target.value })}
             />
+
             <Input
               label={t('date')}
               type="date"
               value={formData.date}
               onChange={(e) => setFormData({ ...formData, date: e.target.value })}
             />
+
             <Input
               label={t('workPeriodStart')}
               type="date"
               value={formData.work_period_start}
               onChange={(e) => setFormData({ ...formData, work_period_start: e.target.value })}
             />
+
             <Input
               label={t('workPeriodEnd')}
               type="date"
               value={formData.work_period_end}
               onChange={(e) => setFormData({ ...formData, work_period_end: e.target.value })}
             />
+
             <Select
               label={t('currency')}
               options={currencies.map((c) => ({ value: c.code, label: `${c.code} (${c.symbol})` }))}
               value={formData.currency}
               onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
             />
+
             <Select
               label={t('documentType')}
               options={[
@@ -768,6 +786,7 @@ export const InvoiceForm: React.FC = () => {
               value={formData.document_type}
               onChange={(e) => setFormData({ ...formData, document_type: e.target.value })}
             />
+
             <Select
               label={t('status')}
               options={statuses.map((s) => ({ value: s.value, label: t(s.value) }))}
@@ -780,11 +799,13 @@ export const InvoiceForm: React.FC = () => {
         <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-lg">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-medium text-white text-lg">{t('positions')}</h2>
-           <Button type="button" size="sm" onClick={addItem}>
-  <Plus className="h-4 w-4" />
-  <span className="ml-1">{t('addPosition')}</span>
-</Button>
+
+            <Button type="button" size="sm" onClick={addItem}>
+              <Plus className="h-4 w-4" />
+              <span className="ml-1">{t('addPosition')}</span>
+            </Button>
           </div>
+
           <div className="space-y-4">
             {items.map((item, index) => (
               <div key={index} className="bg-white/5 border border-white/10 rounded-xl p-4">
@@ -795,6 +816,7 @@ export const InvoiceForm: React.FC = () => {
                     onChange={(e) => handleItemChange(index, 'description', e.target.value)}
                   />
                 </div>
+
                 <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                   <div>
                     <label className="block mb-1.5 text-sm font-medium text-white/70">
@@ -808,6 +830,7 @@ export const InvoiceForm: React.FC = () => {
                       placeholder={t('calculatorPlaceholder')}
                     />
                   </div>
+
                   <div>
                     <label className="block mb-1.5 text-sm font-medium text-white/70">
                       {t('unit')}
@@ -818,6 +841,7 @@ export const InvoiceForm: React.FC = () => {
                       onChange={(e) => handleItemChange(index, 'unit', e.target.value)}
                     />
                   </div>
+
                   <div>
                     <label className="block mb-1.5 text-sm font-medium text-white/70">
                       {t('price')}
@@ -829,6 +853,7 @@ export const InvoiceForm: React.FC = () => {
                       onChange={(e) => handleItemChange(index, 'price', e.target.value)}
                     />
                   </div>
+
                   <div>
                     <label className="block mb-1.5 text-sm font-medium text-white/70">
                       {t('material')}
@@ -838,18 +863,18 @@ export const InvoiceForm: React.FC = () => {
                       onChange={(e) => handleItemChange(index, 'material', e.target.value)}
                     />
                   </div>
+
                   <div className="md:col-span-2 flex gap-2">
                     <div className="flex-1">
                       <label className="block mb-1.5 text-sm font-medium text-white/70">
                         {t('totalAmount')}
                       </label>
-                      <Input
-                        value={item.total ? formatCurrency(item.total) : ''}
-                        disabled
-                      />
+                      <Input value={item.total ? formatCurrency(item.total) : ''} disabled />
                     </div>
+
                     {items.length > 1 && (
                       <Button
+                        type="button"
                         variant="ghost"
                         size="sm"
                         onClick={() => removeItem(index)}
@@ -877,6 +902,7 @@ export const InvoiceForm: React.FC = () => {
                 />
                 <span className="text-white">{t('enableVat')} ({formData.vat_rate}%)</span>
               </label>
+
               {formData.vat_enabled && (
                 <div className="flex items-center gap-2">
                   <span className="text-white/60 text-sm">{t('vatPercent')}</span>
@@ -889,17 +915,20 @@ export const InvoiceForm: React.FC = () => {
                 </div>
               )}
             </div>
+
             <div className="space-y-2 pt-3 border-t border-white/10">
               <div className="flex justify-between items-center">
                 <span className="text-white/60">{t('netAmount')}</span>
                 <span className="font-medium text-white">{formatCurrency(netTotal)} €</span>
               </div>
+
               {formData.vat_enabled && (
                 <div className="flex justify-between items-center">
                   <span className="text-white/60">{t('vat')} ({formData.vat_rate}%)</span>
                   <span className="font-medium text-white">{formatCurrency(vatAmount)} €</span>
                 </div>
               )}
+
               <div className="flex justify-between items-center pt-2 border-t border-white/10">
                 <span className="font-semibold text-white text-lg">{t('grossAmount')}</span>
                 <span className="text-2xl font-bold text-orange-400">{formatCurrency(grossTotal)} €</span>
@@ -915,13 +944,15 @@ export const InvoiceForm: React.FC = () => {
             onChange={(e) => setFormData({ ...formData, project_area: e.target.value })}
             className="mb-4"
           />
+
           <Input
-            label={t('objectAddress') || 'BVH (адреса об\'єкта)'}
+            label={t('objectAddress') || "BVH (адреса об'єкта)"}
             placeholder="Robert-Bosch-Straße 7a, 63303 Dreieich"
             value={formData.object_address}
             onChange={(e) => setFormData({ ...formData, object_address: e.target.value })}
             className="mb-4"
           />
+
           <Textarea
             label={t('notes')}
             placeholder={t('additionalNotes')}
@@ -946,6 +977,7 @@ export const InvoiceForm: React.FC = () => {
                     <p className="text-white/60 text-sm">{t('clickToDownload') || 'Click to download'}</p>
                   </div>
                 </div>
+
                 <div className="flex gap-2">
                   <a
                     href={attachedFile}
@@ -955,6 +987,7 @@ export const InvoiceForm: React.FC = () => {
                   >
                     <Download size={20} />
                   </a>
+
                   <button
                     type="button"
                     onClick={handleDeleteFile}
@@ -968,6 +1001,7 @@ export const InvoiceForm: React.FC = () => {
               <div className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center">
                 <Upload className="mx-auto text-white/40 mb-3" size={32} />
                 <p className="text-white/60 mb-4">{t('uploadReceiptFile') || 'Upload file'}</p>
+
                 <label className="inline-block">
                   <input
                     type="file"
@@ -980,7 +1014,10 @@ export const InvoiceForm: React.FC = () => {
                     {uploadingFile ? t('uploading') || 'Uploading...' : t('selectFiles') || 'Select File'}
                   </span>
                 </label>
-                <p className="text-white/40 text-xs mt-2">{t('fileSizeLimitInfo') || 'PDF, DOC, images up to 10MB'}</p>
+
+                <p className="text-white/40 text-xs mt-2">
+                  {t('fileSizeLimitInfo') || 'PDF, DOC, images up to 10MB'}
+                </p>
               </div>
             )}
           </div>
@@ -995,6 +1032,7 @@ export const InvoiceForm: React.FC = () => {
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
+
           <button
             type="button"
             onClick={(e) => {
@@ -1007,6 +1045,7 @@ export const InvoiceForm: React.FC = () => {
           >
             <Eye className="h-4 w-4" />
           </button>
+
           <button
             type="submit"
             className="p-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white transition-all active:scale-95"
