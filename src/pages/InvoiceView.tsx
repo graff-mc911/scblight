@@ -218,38 +218,50 @@ export const InvoiceView: React.FC = () => {
   }
 };
 
-  const handleDeleteFile = async () => {
-    if (!attachedFile) return;
+const handleDeleteFile = async () => {
+  if (!attachedFile || !id) return;
 
-    try {
-      const fileName = attachedFile.split('/').pop();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-      if (!user) throw new Error('Not authenticated');
-
-      const filePath = `${user.id}/${fileName}`;
-
-      const { error: deleteError } = await supabase.storage
-        .from('invoice-pdfs')
-        .remove([filePath]);
-
-      if (deleteError) throw deleteError;
-
-      const { error: updateError } = await supabase
-        .from('invoices')
-        .update({ attached_file_url: null })
-        .eq('id', id);
-
-      if (updateError) throw updateError;
-
-      setAttachedFile(null);
-      showSuccess(t('fileDeleted') || 'File deleted successfully');
-    } catch {
-      showError(t('failedDeleteFile') || 'Failed to delete file');
+    if (!user) {
+      throw new Error('Користувач не авторизований');
     }
-  };
+
+    const url = new URL(attachedFile);
+    const pathParts = url.pathname.split('/storage/v1/object/public/invoice-pdfs/');
+    const filePath = pathParts[1];
+
+    if (!filePath) {
+      throw new Error('Не вдалося визначити шлях до файлу');
+    }
+
+    const { error: deleteError } = await supabase.storage
+      .from('invoice-pdfs')
+      .remove([filePath]);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+
+    const { error: updateError } = await supabase
+      .from('invoices')
+      .update({ attached_file_url: null })
+      .eq('id', id);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    setAttachedFile(null);
+    showSuccess(t('fileDeleted') || 'File deleted successfully');
+  } catch (error: any) {
+    console.error('File delete error:', error);
+    showError(error?.message || t('failedDeleteFile') || 'Failed to delete file');
+  }
+};
 
   const handleSaveSignature = async (signatureDataUrl: string, signerName: string) => {
     try {
