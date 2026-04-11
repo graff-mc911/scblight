@@ -108,7 +108,7 @@ export const InvoiceView: React.FC = () => {
 
       setInvoice(invoiceWithItems);
       setAttachedFile(invoiceData.attached_file_url);
-      setPdfUrl(invoiceData.pdf_url);
+      setPdfUrl(invoiceData.pdf_url || null);
 
       if (invoiceData.client_id) {
         const { data: clientData } = await supabase
@@ -373,7 +373,7 @@ export const InvoiceView: React.FC = () => {
                 {invoice.document_no || invoice.document_number}
               </h3>
               <p className="text-white/60 text-sm mb-5">
-                {t('tapToOpen') || 'Відкрий PDF окремо, щоб побачити весь документ повністю'}
+                {t('tapToOpen') || 'Відкрий PDF, щоб побачити весь документ повністю'}
               </p>
 
               <div className="flex flex-col gap-3">
@@ -398,11 +398,16 @@ export const InvoiceView: React.FC = () => {
               </div>
             </div>
           ) : (
-            <InvoicePreview
-              invoice={invoiceData}
-              client={client}
-              companyProfile={companyProfile}
-            />
+            <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 text-center">
+              <FileText className="mx-auto text-orange-400 mb-4" size={40} />
+              <h3 className="text-white font-semibold text-lg mb-2">
+                {invoice.document_no || invoice.document_number}
+              </h3>
+              <p className="text-white/60 text-sm">
+                {t('pdfNotAvailable') ||
+                  'Для цього рахунку PDF ще не створено. Відкрий рахунок на редагування і збережи його ще раз.'}
+              </p>
+            </div>
           )}
         </div>
       ) : (
