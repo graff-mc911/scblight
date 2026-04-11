@@ -630,34 +630,89 @@ export const InvoiceView: React.FC = () => {
           </div>
 
           <div className="flex-1 overflow-auto bg-slate-800">
-            {isMobile ? (
-              <iframe
-                src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
-                className="w-full h-full border-0 bg-white"
-                title="Invoice PDF Fullscreen"
-              />
-            ) : (
-              <div className="p-4 flex justify-center">
-                <div
-                  className="bg-white shadow-2xl"
-                  style={{
-                    transform: `scale(${pdfZoom / 100})`,
-                    transformOrigin: 'top center',
-                    width: '210mm',
-                  }}
+               {isMobile ? (
+        <div className="space-y-4">
+          {pdfUrl ? (
+            <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 text-center">
+              <FileText className="mx-auto text-orange-400 mb-4" size={40} />
+              <h3 className="text-white font-semibold text-lg mb-2">
+                {invoice.document_no || invoice.document_number}
+              </h3>
+              <p className="text-white/60 text-sm mb-5">
+                {t('tapToOpen') || 'Відкрий PDF окремо, щоб побачити весь документ повністю'}
+              </p>
+
+              <div className="flex flex-col gap-3">
+                <a
+                  href={pdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-semibold transition-all"
                 >
-                  <iframe
-                    src={`${pdfUrl}#view=FitH`}
-                    className="w-full border-0"
-                    style={{ height: 'calc(100vh - 90px)', minHeight: '600px' }}
-                    title="Invoice PDF Fullscreen"
-                  />
+                  <Eye size={18} />
+                  {t('openPdf') || 'Відкрити PDF'}
+                </a>
+
+                <a
+                  href={pdfUrl}
+                  download
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-white font-medium transition-all"
+                >
+                  <Download size={18} />
+                  {t('download') || 'Завантажити'}
+                </a>
+              </div>
+            </div>
+          ) : (
+            <InvoicePreview
+              invoice={invoiceData}
+              client={client}
+              companyProfile={companyProfile}
+            />
+          )}
+        </div>
+      ) : (
+        <>
+          <InvoicePreview
+            invoice={invoiceData}
+            client={client}
+            companyProfile={companyProfile}
+          />
+
+          {pdfUrl && (
+            <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mb-6 mt-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">
+                  {t('invoicePreviewTitle') || 'Invoice PDF'}
+                </h3>
+                <div className="flex gap-2">
+                  <a
+                    href={pdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-blue-400 transition-all"
+                  >
+                    <Download size={20} />
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setShowFullScreenPDF(true)}
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-orange-400 transition-all"
+                  >
+                    <Eye size={20} />
+                  </button>
                 </div>
               </div>
-            )}
-          </div>
-        </div>
+
+              <div className="rounded-xl overflow-hidden">
+                <iframe
+                  src={`${pdfUrl}#view=FitH`}
+                  className="w-full border-0"
+                  style={{ height: '800px' }}
+                  title="Invoice PDF"
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
-    </div>
-  );
-};
