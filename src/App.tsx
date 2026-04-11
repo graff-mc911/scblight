@@ -7,7 +7,6 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
 import { MobileTopNav } from './components/MobileTopNav';
-import { BottomNav } from './components/BottomNav';
 import { Loading } from './components/Loading';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { Home } from './pages/Home';
@@ -26,11 +25,21 @@ import Receipts from './pages/Receipts';
 import { initSyncManager, onSyncFlush } from './lib/syncManager';
 import { supabase } from './lib/supabase';
 
-const InvoiceForm = lazy(() => import('./pages/InvoiceForm').then(module => ({ default: module.InvoiceForm })));
-const InvoiceView = lazy(() => import('./pages/InvoiceView').then(module => ({ default: module.InvoiceView })));
-const ClientForm = lazy(() => import('./pages/ClientForm').then(module => ({ default: module.ClientForm })));
-const Onboarding = lazy(() => import('./pages/Onboarding').then(module => ({ default: module.Onboarding })));
-const ClientInvoices = lazy(() => import('./pages/ClientInvoices').then(module => ({ default: module.ClientInvoices })));
+const InvoiceForm = lazy(() =>
+  import('./pages/InvoiceForm').then((module) => ({ default: module.InvoiceForm }))
+);
+const InvoiceView = lazy(() =>
+  import('./pages/InvoiceView').then((module) => ({ default: module.InvoiceView }))
+);
+const ClientForm = lazy(() =>
+  import('./pages/ClientForm').then((module) => ({ default: module.ClientForm }))
+);
+const Onboarding = lazy(() =>
+  import('./pages/Onboarding').then((module) => ({ default: module.Onboarding }))
+);
+const ClientInvoices = lazy(() =>
+  import('./pages/ClientInvoices').then((module) => ({ default: module.ClientInvoices }))
+);
 const ReceiptForm = lazy(() => import('./pages/ReceiptForm'));
 const PdfCreator = lazy(() => import('./pages/PdfCreator'));
 
@@ -53,13 +62,16 @@ const queryClient = new QueryClient({
 
 function SyncInit() {
   const { showSuccess } = useToastContext();
+
   useEffect(() => {
     onSyncFlush((count) => {
       showSuccess(`${count} ${count === 1 ? 'зміну синхронізовано' : 'змін синхронізовано'}`);
       queryClient.invalidateQueries();
     });
+
     initSyncManager();
   }, [showSuccess]);
+
   return null;
 }
 
@@ -97,7 +109,6 @@ function RootPage() {
     <>
       <Sidebar />
       <MobileTopNav />
-      <BottomNav />
       <div className="pt-16 lg:pt-0">
         <Home />
       </div>
@@ -132,18 +143,19 @@ function AppContent() {
     location.pathname === '/terms';
 
   return (
-    <div className="min-h-screen" key={language}>
+    <div className="min-h-screen overflow-x-hidden" key={language}>
       <SyncInit />
       <OfflineIndicator />
+
       {!isAuthPage && (
         <ProtectedRoute>
           <>
             <Sidebar />
             <MobileTopNav />
-            <BottomNav />
           </>
         </ProtectedRoute>
       )}
+
       <div className={isAuthPage ? '' : 'pt-16 lg:pt-0'}>
         <Suspense fallback={<Loading />}>
           <Routes>
@@ -153,6 +165,7 @@ function AppContent() {
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
             <Route path="/" element={<RootPage />} />
+
             <Route
               path="/invoices"
               element={
@@ -185,6 +198,7 @@ function AppContent() {
                 </ProtectedRoute>
               }
             />
+
             <Route
               path="/clients"
               element={
@@ -217,6 +231,7 @@ function AppContent() {
                 </ProtectedRoute>
               }
             />
+
             <Route
               path="/receipts"
               element={
@@ -241,6 +256,7 @@ function AppContent() {
                 </ProtectedRoute>
               }
             />
+
             <Route
               path="/account"
               element={
@@ -273,6 +289,7 @@ function AppContent() {
                 </ProtectedRoute>
               }
             />
+
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
