@@ -677,6 +677,7 @@ export const InvoiceForm: React.FC = () => {
       }
 
       await generateAndSavePDF(invoiceId, invoiceData, items);
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
 
       showSuccess(id ? (t('invoiceUpdated') || 'Invoice updated') : (t('invoiceCreated') || 'Invoice created'));
       navigate('/invoices');
