@@ -776,10 +776,10 @@ export const InvoiceForm: React.FC = () => {
         <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-lg">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-medium text-white text-lg">{t('positions')}</h2>
-            <Button size="sm" onClick={addItem}>
-              <Plus className="h-4 w-4" />
-              <span className="ml-1">{t('addPosition')}</span>
-            </Button>
+           <Button type="button" size="sm" onClick={addItem}>
+  <Plus className="h-4 w-4" />
+  <span className="ml-1">{t('addPosition')}</span>
+</Button>
           </div>
           <div className="space-y-4">
             {items.map((item, index) => (
