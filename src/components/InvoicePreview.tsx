@@ -234,6 +234,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
       </div>
     </div>
   )}
-</div> </div>
+</div>
+    </div>
   );
 };
