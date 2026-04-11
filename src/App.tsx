@@ -119,20 +119,6 @@ function RootPage() {
 function AppContent() {
   const location = useLocation();
   const { language } = useLanguage();
-  const [authenticated, setAuthenticated] = React.useState<boolean | null>(null);
-
-  React.useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      setAuthenticated(!!data.session);
-    })();
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_, session) => {
-      setAuthenticated(!!session);
-    });
-
-    return () => listener.subscription.unsubscribe();
-  }, []);
 
   const isAuthPage =
     location.pathname === '/' ||
