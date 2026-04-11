@@ -207,35 +207,26 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
           </div>
         </div>
 
-               <div ref={containerRef} className="flex-1 overflow-auto px-2 sm:px-4 pb-32">
-          {isMobile ? (
-            <div className="w-full overflow-x-auto">
-              <div className="w-full bg-white rounded-none shadow-2xl">
-                <InvoiceDocument data={invoiceData} />
-              </div>
-            </div>
-          ) : (
+                 <div ref={containerRef} className="flex-1 overflow-auto px-2 sm:px-4 pb-32">
+          <div className="flex justify-center min-w-full">
             <div
               style={{
                 width: `${zoom * 794}px`,
-                minHeight: 'fit-content'
+                minHeight: `${docHeight * zoom}px`
               }}
             >
               <div
+                ref={documentRef}
                 className="bg-white rounded-none sm:rounded-lg shadow-2xl transition-transform duration-200"
                 style={{
                   transform: `scale(${zoom})`,
                   transformOrigin: 'top left',
                   width: '794px',
-                  minHeight: 'fit-content'
+                  minHeight: '1123px'
                 }}
               >
                 <InvoiceDocument data={invoiceData} />
               </div>
             </div>
-          )}
+          </div>
         </div>
-      </div>
-    </div>
-  );
-};
