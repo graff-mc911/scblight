@@ -18,39 +18,23 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
 }) => {
   const { t } = useLanguage();
   const [zoom, setZoom] = useState(1);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const documentRef = useRef<HTMLDivElement>(null);
   const [initialZoom, setInitialZoom] = useState(1);
-  const [docHeight, setDocHeight] = useState(1122);
-
-useEffect(() => {
-  const calculateInitialZoom = () => {
-    const viewportWidth = window.innerWidth;
-    const horizontalPadding = viewportWidth < 640 ? 16 : 32;
-    const fitZoom = Math.min((viewportWidth - horizontalPadding) / 794, 1);
-
-    setInitialZoom(fitZoom);
-    setZoom(fitZoom);
-  };
-
-  calculateInitialZoom();
-  window.addEventListener('resize', calculateInitialZoom);
-
-  return () => window.removeEventListener('resize', calculateInitialZoom);
-}, []);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!documentRef.current) return;
+    const calculateInitialZoom = () => {
+      const viewportWidth = window.innerWidth;
+      const horizontalPadding = viewportWidth < 640 ? 16 : 32;
+      const fitZoom = Math.min((viewportWidth - horizontalPadding) / 794, 1);
 
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setDocHeight(entry.contentRect.height);
-      }
-    });
+      setInitialZoom(fitZoom);
+      setZoom(fitZoom);
+    };
 
-    observer.observe(documentRef.current);
+    calculateInitialZoom();
+    window.addEventListener('resize', calculateInitialZoom);
 
-    return () => observer.disconnect();
+    return () => window.removeEventListener('resize', calculateInitialZoom);
   }, []);
 
   const invoiceData = {
@@ -112,7 +96,6 @@ useEffect(() => {
           style={{ width: '794px' }}
         >
           <div
-            ref={documentRef}
             className="bg-white"
             style={{ width: '794px', minHeight: '1123px' }}
           >
@@ -197,29 +180,29 @@ useEffect(() => {
           </div>
         </div>
 
-    <div ref={containerRef} className="flex-1 overflow-auto px-2 sm:px-4 pb-32">
-  <div className="flex justify-center">
-    <div
-      ref={documentRef}
-      className="bg-white rounded-none sm:rounded-lg shadow-2xl mx-auto"
-      style={{
-        width: `${794 * zoom}px`,
-        minHeight: `${1123 * zoom}px`,
-      }}
-    >
-      <div
-        style={{
-          width: '794px',
-          minHeight: '1123px',
-          transform: `scale(${zoom})`,
-          transformOrigin: 'top left',
-        }}
-      >
-        <InvoiceDocument data={invoiceData} />
+        <div ref={containerRef} className="flex-1 overflow-auto px-2 sm:px-4 pb-32">
+          <div className="flex justify-center">
+            <div
+              className="bg-white rounded-none sm:rounded-lg shadow-2xl mx-auto overflow-hidden"
+              style={{
+                width: `${794 * zoom}px`,
+                minHeight: `${1123 * zoom}px`,
+              }}
+            >
+              <div
+                style={{
+                  width: '794px',
+                  minHeight: '1123px',
+                  transform: `scale(${zoom})`,
+                  transformOrigin: 'top left',
+                }}
+              >
+                <InvoiceDocument data={invoiceData} />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
-</div>
-         
   );
 };
