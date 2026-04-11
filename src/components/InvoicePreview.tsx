@@ -23,25 +23,21 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   const [initialZoom, setInitialZoom] = useState(1);
   const [docHeight, setDocHeight] = useState(1122);
 
-  useEffect(() => {
-    const calculateInitialZoom = () => {
-      if (!containerRef.current) return;
+useEffect(() => {
+  const calculateInitialZoom = () => {
+    const viewportWidth = window.innerWidth;
+    const horizontalPadding = viewportWidth < 640 ? 16 : 32;
+    const fitZoom = Math.min((viewportWidth - horizontalPadding) / 794, 1);
 
-      const containerWidth = containerRef.current.offsetWidth;
-      const a4WidthPx = 794;
-      const padding = window.innerWidth < 640 ? 16 : 32;
-      const availableWidth = Math.max(containerWidth - padding, 200);
-      const fitZoom = Math.min(availableWidth / a4WidthPx, 1);
+    setInitialZoom(fitZoom);
+    setZoom(fitZoom);
+  };
 
-      setInitialZoom(fitZoom);
-      setZoom(fitZoom);
-    };
+  calculateInitialZoom();
+  window.addEventListener('resize', calculateInitialZoom);
 
-    calculateInitialZoom();
-    window.addEventListener('resize', calculateInitialZoom);
-
-    return () => window.removeEventListener('resize', calculateInitialZoom);
-  }, []);
+  return () => window.removeEventListener('resize', calculateInitialZoom);
+}, []);
 
   useEffect(() => {
     if (!documentRef.current) return;
@@ -201,30 +197,29 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
           </div>
         </div>
 
-        <div ref={containerRef} className="flex-1 overflow-auto px-2 sm:px-4 pb-32">
-          <div className="flex justify-center min-w-full">
-            <div
-              style={{
-                width: `${zoom * 794}px`,
-                minHeight: `${docHeight * zoom}px`,
-              }}
-            >
-              <div
-                ref={documentRef}
-                className="bg-white rounded-none sm:rounded-lg shadow-2xl transition-transform duration-200"
-                style={{
-                  transform: `scale(${zoom})`,
-                  transformOrigin: 'top left',
-                  width: '794px',
-                  minHeight: '1123px',
-                }}
-              >
-                <InvoiceDocument data={invoiceData} />
-              </div>
-            </div>
-          </div>
-        </div>
+    <div ref={containerRef} className="flex-1 overflow-auto px-2 sm:px-4 pb-32">
+  <div className="flex justify-center">
+    <div
+      ref={documentRef}
+      className="bg-white rounded-none sm:rounded-lg shadow-2xl mx-auto"
+      style={{
+        width: `${794 * zoom}px`,
+        minHeight: `${1123 * zoom}px`,
+      }}
+    >
+      <div
+        style={{
+          width: '794px',
+          minHeight: '1123px',
+          transform: `scale(${zoom})`,
+          transformOrigin: 'top left',
+        }}
+      >
+        <InvoiceDocument data={invoiceData} />
       </div>
     </div>
+  </div>
+</div>
+         
   );
 };
