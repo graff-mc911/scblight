@@ -514,7 +514,7 @@ export const InvoiceView: React.FC = () => {
 
               <button
                 type="button"
-                onClick={handleDeleteFile}
+               onClick={handleAttachedFileDelete}
                 className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-red-400 transition-all"
               >
                 <Trash2 size={20} />
