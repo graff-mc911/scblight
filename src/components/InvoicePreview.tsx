@@ -139,11 +139,6 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   }
 
   return (
-    <div
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 overflow-auto"
-      onClick={handleOverlayClick}
-      style={{
-      return (
   <div
     className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 overflow-auto"
     onClick={handleOverlayClick}
@@ -241,5 +236,5 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
         </div>
       </div>
     </div>
-  
+  </div>
 );
