@@ -30,8 +30,9 @@ const InvoiceView = lazy(() => import('./pages/InvoiceView'));
 const ClientForm = lazy(() => import('./pages/ClientForm'));
 const Onboarding = lazy(() => import('./pages/Onboarding'));
 const ClientInvoices = lazy(() => import('./pages/ClientInvoices'));
+const ClientInvoices = lazy(() => import('./pages/ClientInvoices'));
   import('./pages/ClientInvoices').then((module) => ({ default: module.ClientInvoices }))
-
+);
 const ReceiptForm = lazy(() => import('./pages/ReceiptForm'));
 const PdfCreator = lazy(() => import('./pages/PdfCreator'));
 
