@@ -240,7 +240,7 @@ export const InvoiceView: React.FC = () => {
     }
   };
 
-  const handleDeleteFile = async () => {
+  const handleAttachedFileDelete = async () => {
     if (!attachedFile || !id) return;
 
     try {
