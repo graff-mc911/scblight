@@ -37,6 +37,7 @@ export const InvoiceForm: React.FC = () => {
   const [uploadingFile, setUploadingFile] = useState(false);
   const [attachedFile, setAttachedFile] = useState<string | null>(null);
   const [autosaveStatus, setAutosaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+
   const autosaveIdRef = useRef<string | null>(null);
   const autosaveTimerRef = useRef<NodeJS.Timeout>();
   const isSavedManuallyRef = useRef(false);
@@ -497,94 +498,93 @@ export const InvoiceForm: React.FC = () => {
     invoiceData: any,
     invoiceItems: InvoiceItem[]
   ) => {
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-      if (!user) {
-        throw new Error('Not authenticated');
-      }
-
-      const selectedClient = clients.find((c) => c.id === formData.client_id);
-
-      const pdfInvoiceData = {
-        document_number: invoiceData.document_no,
-        date: invoiceData.date,
-        client_name: invoiceData.client_name,
-        client_address: selectedClient?.address || '',
-        client_tax_number: selectedClient?.tax_number || '',
-        client_number: invoiceData.client_number,
-        currency: invoiceData.currency,
-        items: invoiceItems.map((item) => ({
-          description: item.description || item.material || '',
-          quantity: item.quantity,
-          unit: item.unit,
-          price: item.price,
-          total: item.total,
-        })),
-        vat_enabled: formData.vat_enabled,
-        vat_rate: formData.vat_rate,
-        notes: invoiceData.notes,
-        service_period_start: invoiceData.work_period_start,
-        service_period_end: invoiceData.work_period_end,
-        object_address: formData.object_address || '',
-        invoice_language: language,
-      };
-
-      const companyData = {
-        company_name: companyProfile?.company_name || '',
-        company_address: companyProfile?.address || '',
-        company_phone: companyProfile?.phone || '',
-        company_email: companyProfile?.email || '',
-        company_tax_number: companyProfile?.tax_number || '',
-        company_bank: companyProfile?.bank_name || '',
-        company_iban: companyProfile?.iban || '',
-        company_bic: companyProfile?.bic || '',
-      };
-
-      const logoUrl = companyProfile?.logo_url || undefined;
-      const pdfBlob = await generateInvoicePDFBlob(pdfInvoiceData, companyData, logoUrl);
-
-      if (!pdfBlob || pdfBlob.size === 0) {
-        throw new Error('PDF blob is empty');
-      }
-
-      const fileName = `${user.id}/${invoiceId}-invoice.pdf`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('invoice-pdfs')
-        .upload(fileName, pdfBlob, {
-          contentType: 'application/pdf',
-          upsert: true,
-        });
-
-      if (uploadError) {
-        throw uploadError;
-      }
-
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from('invoice-pdfs').getPublicUrl(fileName);
-
-      if (!publicUrl) {
-        throw new Error('Failed to get public PDF URL');
-      }
-
-      const { error: updateError } = await supabase
-        .from('invoices')
-        .update({ pdf_url: publicUrl })
-        .eq('id', invoiceId);
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      return publicUrl;
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-      throw error;
+    if (!user) {
+      throw new Error('Not authenticated');
     }
+
+    const selectedClient = clients.find((c) => c.id === formData.client_id);
+
+    const pdfInvoiceData = {
+      document_number: invoiceData.document_no,
+      date: invoiceData.date,
+      client_name: invoiceData.client_name,
+      client_address: selectedClient?.address || '',
+      client_tax_number: selectedClient?.tax_number || '',
+      client_number: invoiceData.client_number,
+      currency: invoiceData.currency,
+      items: invoiceItems.map((item) => ({
+        description: item.description || item.material || '',
+        quantity: item.quantity,
+        unit: item.unit,
+        price: item.price,
+        total: item.total,
+      })),
+      vat_enabled: formData.vat_enabled,
+      vat_rate: formData.vat_rate,
+      notes: invoiceData.notes,
+      service_period_start: invoiceData.work_period_start,
+      service_period_end: invoiceData.work_period_end,
+      object_address: formData.object_address || '',
+      invoice_language: language,
+    };
+
+    const companyData = {
+      company_name: companyProfile?.company_name || '',
+      company_address: companyProfile?.address || '',
+      company_phone: companyProfile?.phone || '',
+      company_email: companyProfile?.email || '',
+      company_tax_number: companyProfile?.tax_number || '',
+      company_bank: companyProfile?.bank_name || '',
+      company_iban: companyProfile?.iban || '',
+      company_bic: companyProfile?.bic || '',
+    };
+
+    const logoUrl = companyProfile?.logo_url || undefined;
+
+    const pdfBlob = await generateInvoicePDFBlob(pdfInvoiceData, companyData, logoUrl);
+
+    if (!pdfBlob || pdfBlob.size === 0) {
+      throw new Error('PDF blob is empty');
+    }
+
+    const fileName = `${user.id}/${invoiceId}-invoice.pdf`;
+
+    // Видаляємо старий PDF, якщо був
+    await supabase.storage.from('invoice-pdfs').remove([fileName]);
+
+    const { error: uploadError } = await supabase.storage
+      .from('invoice-pdfs')
+      .upload(fileName, pdfBlob, {
+        contentType: 'application/pdf',
+        upsert: true,
+      });
+
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from('invoice-pdfs').getPublicUrl(fileName);
+
+    if (!publicUrl) {
+      throw new Error('Failed to get public PDF URL');
+    }
+
+    const { error: updateError } = await supabase
+      .from('invoices')
+      .update({ pdf_url: publicUrl })
+      .eq('id', invoiceId);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    return publicUrl;
   };
 
   const handleQuantityBlur = (index: number) => {
@@ -735,7 +735,13 @@ export const InvoiceForm: React.FC = () => {
         }
       }
 
-      await generateAndSavePDF(invoiceId, invoiceData, items);
+      try {
+        await generateAndSavePDF(invoiceId, invoiceData, items);
+      } catch (pdfError) {
+        console.error('PDF generation failed:', pdfError);
+        showError(t('pdfGenerationFailed') || 'Інвойс збережено, але PDF не вдалося оновити');
+      }
+
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
 
       showSuccess(
