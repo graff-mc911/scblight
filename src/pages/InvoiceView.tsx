@@ -173,95 +173,117 @@ export const InvoiceView: React.FC = () => {
     }
   }, [id, fetchInvoice]);
 
- const handleDeleteFile = async () => {
-  if (!attachedFile || !id) return;
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      throw new Error('Користувач не авторизований');
+    if (!id) {
+      showError('Не знайдено ID рахунку');
+      return;
     }
 
-    const url = new URL(attachedFile);
-    const pathParts = url.pathname.split('/storage/v1/object/public/invoice-pdfs/');
-    const filePath = pathParts[1];
-
-    if (!filePath) {
-      throw new Error('Не вдалося визначити шлях до файлу');
+    if (file.size > 10 * 1024 * 1024) {
+      showError(t('fileSizeLimit10mb') || 'File size must be less than 10MB');
+      return;
     }
 
-    const { error: deleteError } = await supabase.storage
-      .from('invoice-pdfs')
-      .remove([filePath]);
+    setUploadingFile(true);
 
-    if (deleteError) {
-      throw deleteError;
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error('Користувач не авторизований');
+      }
+
+      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'bin';
+      const filePath = `${user.id}/attachments/${id}-${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('invoice-pdfs')
+        .upload(filePath, file, {
+          upsert: false,
+          contentType: file.type || undefined,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('invoice-pdfs').getPublicUrl(filePath);
+
+      if (!publicUrl) {
+        throw new Error('Не вдалося отримати public URL файлу');
+      }
+
+      const { error: updateError } = await supabase
+        .from('invoices')
+        .update({ attached_file_url: publicUrl })
+        .eq('id', id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setAttachedFile(publicUrl);
+      showSuccess(t('fileUploaded') || 'File uploaded successfully');
+    } catch (error: any) {
+      console.error('File upload error:', error);
+      showError(error?.message || t('failedUploadFile') || 'Failed to upload file');
+    } finally {
+      setUploadingFile(false);
+      e.target.value = '';
     }
+  };
 
-    const { error: updateError } = await supabase
-      .from('invoices')
-      .update({ attached_file_url: null })
-      .eq('id', id);
+  const handleDeleteFile = async () => {
+    if (!attachedFile || !id) return;
 
-    if (updateError) {
-      throw updateError;
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error('Користувач не авторизований');
+      }
+
+      const url = new URL(attachedFile);
+      const pathParts = url.pathname.split('/storage/v1/object/public/invoice-pdfs/');
+      const filePath = pathParts[1];
+
+      if (!filePath) {
+        throw new Error('Не вдалося визначити шлях до файлу');
+      }
+
+      const { error: deleteError } = await supabase.storage
+        .from('invoice-pdfs')
+        .remove([filePath]);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      const { error: updateError } = await supabase
+        .from('invoices')
+        .update({ attached_file_url: null })
+        .eq('id', id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setAttachedFile(null);
+      showSuccess(t('fileDeleted') || 'File deleted successfully');
+    } catch (error: any) {
+      console.error('File delete error:', error);
+      showError(error?.message || t('failedDeleteFile') || 'Failed to delete file');
     }
-
-    setAttachedFile(null);
-    showSuccess(t('fileDeleted') || 'File deleted successfully');
-  } catch (error: any) {
-    console.error('File delete error:', error);
-    showError(error?.message || t('failedDeleteFile') || 'Failed to delete file');
-  }
-};
-
-const handleDeleteFile = async () => {
-  if (!attachedFile || !id) return;
-
-  try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      throw new Error('Користувач не авторизований');
-    }
-
-    const url = new URL(attachedFile);
-    const pathParts = url.pathname.split('/storage/v1/object/public/invoice-pdfs/');
-    const filePath = pathParts[1];
-
-    if (!filePath) {
-      throw new Error('Не вдалося визначити шлях до файлу');
-    }
-
-    const { error: deleteError } = await supabase.storage
-      .from('invoice-pdfs')
-      .remove([filePath]);
-
-    if (deleteError) {
-      throw deleteError;
-    }
-
-    const { error: updateError } = await supabase
-      .from('invoices')
-      .update({ attached_file_url: null })
-      .eq('id', id);
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    setAttachedFile(null);
-    showSuccess(t('fileDeleted') || 'File deleted successfully');
-  } catch (error: any) {
-    console.error('File delete error:', error);
-    showError(error?.message || t('failedDeleteFile') || 'Failed to delete file');
-  }
-};
+  };
 
   const handleSaveSignature = async (signatureDataUrl: string, signerName: string) => {
     try {
