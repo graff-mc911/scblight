@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -43,14 +43,28 @@ export const InvoiceView: React.FC = () => {
 
   const isMobile = window.innerWidth < 768;
 
-  useEffect(() => {
-    if (id) {
-      fetchInvoice();
-    }
-  }, [id]);
+  const findPdfInStorage = useCallback(async (userId: string, invoiceId: string) => {
+    const { data: files, error } = await supabase.storage
+      .from('invoice-pdfs')
+      .list(userId);
 
-  const fetchInvoice = async () => {
+    if (error || !files) return null;
+
+    const matchedPdf = files.find((file) => file.name.startsWith(`${invoiceId}-invoice`));
+    if (!matchedPdf) return null;
+
+    const filePath = `${userId}/${matchedPdf.name}`;
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from('invoice-pdfs').getPublicUrl(filePath);
+
+    return publicUrl || null;
+  }, []);
+
+  const fetchInvoice = useCallback(async () => {
     try {
+      setIsLoading(true);
+
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -107,8 +121,24 @@ export const InvoiceView: React.FC = () => {
       };
 
       setInvoice(invoiceWithItems);
-      setAttachedFile(invoiceData.attached_file_url);
-      setPdfUrl(invoiceData.pdf_url || null);
+      setAttachedFile(invoiceData.attached_file_url || null);
+
+      let resolvedPdfUrl = invoiceData.pdf_url || null;
+
+      if (!resolvedPdfUrl && id) {
+        const storagePdfUrl = await findPdfInStorage(user.id, id);
+
+        if (storagePdfUrl) {
+          resolvedPdfUrl = storagePdfUrl;
+
+          await supabase
+            .from('invoices')
+            .update({ pdf_url: storagePdfUrl })
+            .eq('id', id);
+        }
+      }
+
+      setPdfUrl(resolvedPdfUrl);
 
       if (invoiceData.client_id) {
         const { data: clientData } = await supabase
@@ -118,6 +148,8 @@ export const InvoiceView: React.FC = () => {
           .maybeSingle();
 
         setClient(clientData);
+      } else {
+        setClient(null);
       }
 
       const { data: profileData } = await supabase
@@ -126,13 +158,20 @@ export const InvoiceView: React.FC = () => {
         .eq('user_id', user.id)
         .maybeSingle();
 
-      setCompanyProfile(profileData);
+      setCompanyProfile(profileData || null);
     } catch (error) {
+      console.error(error);
       showError(t('errorLoadingInvoice') || 'Error loading invoice');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [findPdfInStorage, id, navigate, showError, t]);
+
+  useEffect(() => {
+    if (id) {
+      fetchInvoice();
+    }
+  }, [id, fetchInvoice]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -174,7 +213,7 @@ export const InvoiceView: React.FC = () => {
 
       setAttachedFile(publicUrl);
       showSuccess(t('fileUploaded') || 'File uploaded successfully');
-    } catch (error) {
+    } catch {
       showError(t('failedUploadFile') || 'Failed to upload file');
     } finally {
       setUploadingFile(false);
@@ -209,7 +248,7 @@ export const InvoiceView: React.FC = () => {
 
       setAttachedFile(null);
       showSuccess(t('fileDeleted') || 'File deleted successfully');
-    } catch (error) {
+    } catch {
       showError(t('failedDeleteFile') || 'Failed to delete file');
     }
   };
@@ -230,7 +269,7 @@ export const InvoiceView: React.FC = () => {
       setShowSignatureModal(false);
       showSuccess(t('signatureSaved') || 'Signature saved successfully');
       fetchInvoice();
-    } catch (error) {
+    } catch {
       showError(t('failedSaveSignature') || 'Failed to save signature');
     }
   };
@@ -258,7 +297,7 @@ export const InvoiceView: React.FC = () => {
       setEmailTo('');
       showSuccess(t('invoiceSent') || 'Invoice marked as sent');
       fetchInvoice();
-    } catch (error) {
+    } catch {
       showError(t('failedSendInvoice') || 'Failed to send invoice');
     } finally {
       setSendingEmail(false);
@@ -398,16 +437,11 @@ export const InvoiceView: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 text-center">
-              <FileText className="mx-auto text-orange-400 mb-4" size={40} />
-              <h3 className="text-white font-semibold text-lg mb-2">
-                {invoice.document_no || invoice.document_number}
-              </h3>
-              <p className="text-white/60 text-sm">
-                {t('pdfNotAvailable') ||
-                  'Для цього рахунку PDF ще не створено. Відкрий рахунок на редагування і збережи його ще раз.'}
-              </p>
-            </div>
+            <InvoicePreview
+              invoice={invoiceData}
+              client={client}
+              companyProfile={companyProfile}
+            />
           )}
         </div>
       ) : (
