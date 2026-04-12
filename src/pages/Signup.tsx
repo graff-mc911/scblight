@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
@@ -30,31 +30,20 @@ export const Signup: React.FC = () => {
     void checkSession();
   }, [navigate]);
 
-  const isValidEmail = (value: string) => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-  };
-
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedFullName = fullName.trim();
-  
 
     if (!normalizedFullName) {
-      setError(t('fullName') || "Введіть повне ім'я");
+      setError("Введіть повне ім'я");
       return;
     }
 
-  if (!isValidEmail(normalizedEmail)) {
-  setError(`Email address "${normalizedEmail}" is invalid`);
-  return;
-} 
     if (!acceptedTerms) {
-      setError(
-        t('mustAcceptTerms') || 'You must accept the Terms of Service and Privacy Policy'
-      );
+      setError(t('mustAcceptTerms') || 'You must accept the Terms of Service and Privacy Policy');
       return;
     }
 
@@ -93,27 +82,16 @@ export const Signup: React.FC = () => {
       });
 
       if (signUpError) {
-        if (signUpError.message?.toLowerCase().includes('breached')) {
-          setError(t('passwordCompromised') || 'This password is not secure enough');
-        } else {
-          setError(signUpError.message || 'Failed to sign up');
-        }
+        setError(signUpError.message || 'Failed to sign up');
         return;
       }
 
       if (data.session) {
         navigate('/');
-        return;
+      } else {
+        setError(t('registrationSuccess') || 'Account created successfully');
+        setTimeout(() => navigate('/login'), 2000);
       }
-
-      setError(
-        t('registrationSuccess') ||
-          'Account created successfully. Please check your email or sign in.'
-      );
-
-      setTimeout(() => {
-        navigate('/login');
-      }, 2000);
     } catch (err: any) {
       setError(err?.message || 'Failed to sign up');
     } finally {
@@ -122,8 +100,7 @@ export const Signup: React.FC = () => {
   };
 
   const isSuccessMessage =
-    error === (t('registrationSuccess') || 'Account created successfully. Please check your email or sign in.') ||
-    error.toLowerCase().includes('successfully');
+    error === (t('registrationSuccess') || 'Account created successfully');
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
@@ -183,7 +160,10 @@ export const Signup: React.FC = () => {
             required
           />
 
-          <p className="text-xs text-white/40">{t('passwordRequirements')}</p>
+          <p className="text-xs text-white/40">
+            {t('passwordRequirements') ||
+              'Minimum 8 characters, including uppercase, lowercase letters and numbers'}
+          </p>
 
           <label className="flex items-start gap-3 cursor-pointer group">
             <div className="relative flex-shrink-0 mt-0.5">
@@ -243,13 +223,13 @@ export const Signup: React.FC = () => {
             disabled={loading || !acceptedTerms}
             className="w-full"
           >
-            {loading ? `${t('loading')}...` : t('signup')}
+            {loading ? `${t('loading') || 'Loading'}...` : t('signup')}
           </Button>
         </form>
 
         <div className="mt-6 text-center">
           <p className="text-sm text-white/60">
-            {t('haveAccount')}{' '}
+            {t('haveAccount') || 'Already have an account?'}{' '}
             <Link to="/login" className="text-orange-400 hover:text-orange-300 font-medium">
               {t('login')}
             </Link>
