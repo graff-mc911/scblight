@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Mail, Lock, User, UserPlus } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
@@ -11,6 +10,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 export const Signup: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -26,30 +26,56 @@ export const Signup: React.FC = () => {
         navigate('/');
       }
     };
-    checkSession();
+
+    void checkSession();
   }, [navigate]);
+
+  const isValidEmail = (value: string) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedFullName = fullName.trim();
+
+    if (!normalizedFullName) {
+      setError(t('fullName') || "Введіть повне ім'я");
+      return;
+    }
+
+    if (!isValidEmail(normalizedEmail)) {
+      setError(`Email address "${normalizedEmail}" is invalid`);
+      return;
+    }
+
     if (!acceptedTerms) {
-      setError(t('mustAcceptTerms') || 'You must accept the Terms of Service and Privacy Policy');
+      setError(
+        t('mustAcceptTerms') || 'You must accept the Terms of Service and Privacy Policy'
+      );
       return;
     }
 
     if (password !== confirmPassword) {
-      setError(t('passwordMismatch'));
+      setError(t('passwordMismatch') || 'Passwords do not match');
       return;
     }
 
     if (password.length < 8) {
-      setError(t('passwordRequirements'));
+      setError(
+        t('passwordRequirements') ||
+          'Minimum 8 characters, including uppercase, lowercase letters and numbers'
+      );
       return;
     }
 
     if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
-      setError(t('passwordRequirements'));
+      setError(
+        t('passwordRequirements') ||
+          'Minimum 8 characters, including uppercase, lowercase letters and numbers'
+      );
       return;
     }
 
@@ -57,37 +83,47 @@ export const Signup: React.FC = () => {
 
     try {
       const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
+        email: normalizedEmail,
         password,
         options: {
           data: {
-            full_name: fullName,
+            full_name: normalizedFullName,
           },
         },
       });
 
       if (signUpError) {
-        if (signUpError.message.includes('breached')) {
-          setError(t('passwordCompromised'));
+        if (signUpError.message?.toLowerCase().includes('breached')) {
+          setError(t('passwordCompromised') || 'This password is not secure enough');
         } else {
-          throw signUpError;
+          setError(signUpError.message || 'Failed to sign up');
         }
-        setLoading(false);
         return;
       }
 
       if (data.session) {
         navigate('/');
-      } else {
-        setError(t('registrationSuccess'));
-        setTimeout(() => navigate('/login'), 2000);
+        return;
       }
+
+      setError(
+        t('registrationSuccess') ||
+          'Account created successfully. Please check your email or sign in.'
+      );
+
+      setTimeout(() => {
+        navigate('/login');
+      }, 2000);
     } catch (err: any) {
-      setError(err.message || 'Failed to sign up');
+      setError(err?.message || 'Failed to sign up');
     } finally {
       setLoading(false);
     }
   };
+
+  const isSuccessMessage =
+    error === (t('registrationSuccess') || 'Account created successfully. Please check your email or sign in.') ||
+    error.toLowerCase().includes('successfully');
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
@@ -99,14 +135,14 @@ export const Signup: React.FC = () => {
 
         <form onSubmit={handleSignup} className="space-y-5">
           {error && (
-            <div className={`p-3 border rounded-lg ${
-              error.includes(t('registrationSuccess')) || error.includes('Success')
-                ? 'bg-green-500/20 border-green-500/30'
-                : 'bg-red-500/20 border-red-500/30'
-            }`}>
-              <p className={`text-sm ${
-                error.includes(t('registrationSuccess')) || error.includes('Success') ? 'text-green-400' : 'text-red-400'
-              }`}>
+            <div
+              className={`p-3 border rounded-lg ${
+                isSuccessMessage
+                  ? 'bg-green-500/20 border-green-500/30'
+                  : 'bg-red-500/20 border-red-500/30'
+              }`}
+            >
+              <p className={`text-sm ${isSuccessMessage ? 'text-green-400' : 'text-red-400'}`}>
                 {error}
               </p>
             </div>
@@ -147,9 +183,7 @@ export const Signup: React.FC = () => {
             required
           />
 
-          <p className="text-xs text-white/40">
-            {t('passwordRequirements')}
-          </p>
+          <p className="text-xs text-white/40">{t('passwordRequirements')}</p>
 
           <label className="flex items-start gap-3 cursor-pointer group">
             <div className="relative flex-shrink-0 mt-0.5">
@@ -159,21 +193,46 @@ export const Signup: React.FC = () => {
                 onChange={(e) => setAcceptedTerms(e.target.checked)}
                 className="sr-only"
               />
-              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${acceptedTerms ? 'bg-orange-500 border-orange-500' : 'border-white/30 bg-white/5 group-hover:border-white/50'}`}>
+              <div
+                className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                  acceptedTerms
+                    ? 'bg-orange-500 border-orange-500'
+                    : 'border-white/30 bg-white/5 group-hover:border-white/50'
+                }`}
+              >
                 {acceptedTerms && (
-                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  <svg
+                    className="w-3 h-3 text-white"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={3}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M5 13l4 4L19 7"
+                    />
                   </svg>
                 )}
               </div>
             </div>
+
             <span className="text-xs text-white/60 leading-relaxed">
               {t('iAcceptThe') || 'I accept the'}{' '}
-              <Link to="/terms" target="_blank" className="text-orange-400 hover:text-orange-300 underline">
+              <Link
+                to="/terms"
+                target="_blank"
+                className="text-orange-400 hover:text-orange-300 underline"
+              >
                 {t('termsOfService') || 'Terms of Service'}
-              </Link>
-              {' '}{t('and') || 'and'}{' '}
-              <Link to="/privacy" target="_blank" className="text-orange-400 hover:text-orange-300 underline">
+              </Link>{' '}
+              {t('and') || 'and'}{' '}
+              <Link
+                to="/privacy"
+                target="_blank"
+                className="text-orange-400 hover:text-orange-300 underline"
+              >
                 {t('privacyPolicy') || 'Privacy Policy'}
               </Link>
             </span>
