@@ -40,9 +40,7 @@ export const Signup: React.FC = () => {
 
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedFullName = fullName.trim();
-    const { data, error: signUpError } = await supabase.auth.signUp({
-  email: normalizedEmail,
-  password,
+  
 
     if (!normalizedFullName) {
       setError(t('fullName') || "Введіть повне ім'я");
