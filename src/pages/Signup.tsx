@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
-import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { Logo } from '../components/Logo';
 import { supabase } from '../lib/supabase';
@@ -11,13 +10,13 @@ export const Signup: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
 
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [fullName, setFullName] = useState('');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -34,8 +33,8 @@ export const Signup: React.FC = () => {
     e.preventDefault();
     setError('');
 
-    const normalizedEmail = email.trim().toLowerCase();
     const normalizedFullName = fullName.trim();
+    const normalizedEmail = email.trim().toLowerCase();
 
     if (!normalizedFullName) {
       setError("Введіть повне ім'я");
@@ -52,18 +51,10 @@ export const Signup: React.FC = () => {
       return;
     }
 
-    if (password.length < 8) {
+    if (password.length < 8 || !/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
       setError(
         t('passwordRequirements') ||
-          'Minimum 8 characters, including uppercase, lowercase letters and numbers'
-      );
-      return;
-    }
-
-    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)) {
-      setError(
-        t('passwordRequirements') ||
-          'Minimum 8 characters, including uppercase, lowercase letters and numbers'
+          'Мінімум 8 символів, включаючи великі, малі літери та цифри'
       );
       return;
     }
@@ -89,8 +80,7 @@ export const Signup: React.FC = () => {
       if (data.session) {
         navigate('/');
       } else {
-        setError(t('registrationSuccess') || 'Account created successfully');
-        setTimeout(() => navigate('/login'), 2000);
+        navigate('/login');
       }
     } catch (err: any) {
       setError(err?.message || 'Failed to sign up');
@@ -99,140 +89,118 @@ export const Signup: React.FC = () => {
     }
   };
 
-  const isSuccessMessage =
-    error === (t('registrationSuccess') || 'Account created successfully');
+  const inputClassName =
+    'w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20';
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <Card className="w-full max-w-md p-8">
-        <div className="flex flex-col items-center mb-8">
+        <div className="mb-8 flex flex-col items-center">
           <Logo variant="glass" size="lg" className="mb-6" />
-          <p className="text-white/60 text-sm">{t('createAccount')}</p>
+          <p className="text-sm text-white/60">{t('createAccount')}</p>
         </div>
 
         <form onSubmit={handleSignup} className="space-y-5">
           {error && (
-            <div
-              className={`p-3 border rounded-lg ${
-                isSuccessMessage
-                  ? 'bg-green-500/20 border-green-500/30'
-                  : 'bg-red-500/20 border-red-500/30'
-              }`}
-            >
-              <p className={`text-sm ${isSuccessMessage ? 'text-green-400' : 'text-red-400'}`}>
-                {error}
-              </p>
+            <div className="rounded-lg border border-red-500/30 bg-red-500/20 p-3">
+              <p className="text-sm text-red-400">{error}</p>
             </div>
           )}
 
-  <Input
-  type="email"
-  label={t('email')}
-  value={email}
-  onChange={(e) => setEmail(e.target.value)}
-  placeholder="your@email.com"
-  required
-/>
+          <div>
+            <label className="mb-2 block text-sm text-white/70">
+              {t('fullName') || "Повне ім'я"}
+            </label>
+            <input
+              type="text"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className={inputClassName}
+              placeholder="Іван"
+              autoComplete="name"
+              required
+            />
+          </div>
 
-          <Input
-            type="email"
-            label={t('email')}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="your@email.com"
-            required
-          />
+          <div>
+            <label className="mb-2 block text-sm text-white/70">
+              {t('email') || 'Email'}
+            </label>
+            <input
+              type="text"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={inputClassName}
+              placeholder="your@email.com"
+              autoComplete="email"
+              required
+            />
+          </div>
 
-          <Input
-            type="password"
-            label={t('password')}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-            required
-          />
+          <div>
+            <label className="mb-2 block text-sm text-white/70">
+              {t('password') || 'Пароль'}
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={inputClassName}
+              placeholder="••••••••"
+              autoComplete="new-password"
+              required
+            />
+          </div>
 
-          <Input
-            type="password"
-            label={t('confirmPassword')}
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="••••••••"
-            required
-          />
+          <div>
+            <label className="mb-2 block text-sm text-white/70">
+              {t('confirmPassword') || 'Підтвердіть пароль'}
+            </label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className={inputClassName}
+              placeholder="••••••••"
+              autoComplete="new-password"
+              required
+            />
+          </div>
 
           <p className="text-xs text-white/40">
             {t('passwordRequirements') ||
-              'Minimum 8 characters, including uppercase, lowercase letters and numbers'}
+              'Мінімум 8 символів, включаючи великі, малі літери та цифри'}
           </p>
 
-          <label className="flex items-start gap-3 cursor-pointer group">
-            <div className="relative flex-shrink-0 mt-0.5">
-              <input
-                type="checkbox"
-                checked={acceptedTerms}
-                onChange={(e) => setAcceptedTerms(e.target.checked)}
-                className="sr-only"
-              />
-              <div
-                className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-                  acceptedTerms
-                    ? 'bg-orange-500 border-orange-500'
-                    : 'border-white/30 bg-white/5 group-hover:border-white/50'
-                }`}
-              >
-                {acceptedTerms && (
-                  <svg
-                    className="w-3 h-3 text-white"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={3}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M5 13l4 4L19 7"
-                    />
-                  </svg>
-                )}
-              </div>
-            </div>
-
-            <span className="text-xs text-white/60 leading-relaxed">
-              {t('iAcceptThe') || 'I accept the'}{' '}
-              <Link
-                to="/terms"
-                target="_blank"
-                className="text-orange-400 hover:text-orange-300 underline"
-              >
-                {t('termsOfService') || 'Terms of Service'}
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={acceptedTerms}
+              onChange={(e) => setAcceptedTerms(e.target.checked)}
+              className="mt-1 h-4 w-4 accent-orange-500"
+            />
+            <span className="text-xs leading-relaxed text-white/60">
+              {t('iAcceptThe') || 'Я приймаю'}{' '}
+              <Link to="/terms" target="_blank" className="text-orange-400 underline">
+                {t('termsOfService') || 'Умови використання'}
               </Link>{' '}
-              {t('and') || 'and'}{' '}
-              <Link
-                to="/privacy"
-                target="_blank"
-                className="text-orange-400 hover:text-orange-300 underline"
-              >
-                {t('privacyPolicy') || 'Privacy Policy'}
+              {t('and') || 'та'}{' '}
+              <Link to="/privacy" target="_blank" className="text-orange-400 underline">
+                {t('privacyPolicy') || 'Політика конфіденційності'}
               </Link>
             </span>
           </label>
 
-          <Button
-            type="submit"
-            disabled={loading || !acceptedTerms}
-            className="w-full"
-          >
-            {loading ? `${t('loading') || 'Loading'}...` : t('signup')}
+          <Button type="submit" disabled={loading || !acceptedTerms} className="w-full">
+            {loading ? `${t('loading') || 'Завантаження'}...` : t('signup') || 'Зареєструватися'}
           </Button>
         </form>
 
         <div className="mt-6 text-center">
           <p className="text-sm text-white/60">
-            {t('haveAccount') || 'Already have an account?'}{' '}
-            <Link to="/login" className="text-orange-400 hover:text-orange-300 font-medium">
-              {t('login')}
+            {t('haveAccount') || 'Вже маєте обліковий запис?'}{' '}
+            <Link to="/login" className="font-medium text-orange-400 hover:text-orange-300">
+              {t('login') || 'Увійти'}
             </Link>
           </p>
         </div>
