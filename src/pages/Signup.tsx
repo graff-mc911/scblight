@@ -46,11 +46,10 @@ export const Signup: React.FC = () => {
       return;
     }
 
-    if (!isValidEmail(normalizedEmail)) {
-      setError(`Email address "${normalizedEmail}" is invalid`);
-      return;
-    }
-
+   const normalizedEmail = email.trim().toLowerCase();
+    const { data, error: signUpError } = await supabase.auth.signUp({
+  email: normalizedEmail,
+  password,  
     if (!acceptedTerms) {
       setError(
         t('mustAcceptTerms') || 'You must accept the Terms of Service and Privacy Policy'
