@@ -40,16 +40,19 @@ export const Signup: React.FC = () => {
 
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedFullName = fullName.trim();
+    const { data, error: signUpError } = await supabase.auth.signUp({
+  email: normalizedEmail,
+  password,
 
     if (!normalizedFullName) {
       setError(t('fullName') || "Введіть повне ім'я");
       return;
     }
 
-   const normalizedEmail = email.trim().toLowerCase();
-    const { data, error: signUpError } = await supabase.auth.signUp({
-  email: normalizedEmail,
-  password,  
+  if (!isValidEmail(normalizedEmail)) {
+  setError(`Email address "${normalizedEmail}" is invalid`);
+  return;
+} 
     if (!acceptedTerms) {
       setError(
         t('mustAcceptTerms') || 'You must accept the Terms of Service and Privacy Policy'
