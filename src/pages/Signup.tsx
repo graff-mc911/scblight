@@ -125,8 +125,8 @@ export const Signup: React.FC = () => {
             </div>
           )}
 
-         <Input
-  type="text"
+  <Input
+  type="email"
   label={t('email')}
   value={email}
   onChange={(e) => setEmail(e.target.value)}
