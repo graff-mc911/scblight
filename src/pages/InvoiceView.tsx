@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -13,6 +13,7 @@ import {
   ZoomOut,
   Edit2,
   Eye,
+  Receipt,
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { InvoicePreview } from '../components/InvoicePreview';
@@ -31,7 +32,20 @@ type InvoiceAttachment = {
   created_at: string | null;
 };
 
-// Очищає ім'я файлу для безпечного збереження в Supabase Storage
+type ExpenseDocumentRow = {
+  id: string;
+  user_id?: string;
+  client_id?: string | null;
+  invoice_id?: string | null;
+  vendor_name?: string | null;
+  document_number?: string | null;
+  document_date?: string | null;
+  total_amount?: number | null;
+  currency?: string | null;
+  document_type?: string | null;
+  expense_category?: string | null;
+};
+
 const sanitizeFileName = (fileName: string) => {
   const lastDotIndex = fileName.lastIndexOf('.');
   const baseName = lastDotIndex > 0 ? fileName.slice(0, lastDotIndex) : fileName;
@@ -47,6 +61,13 @@ const sanitizeFileName = (fileName: string) => {
   return `${safeBaseName || 'file'}.${extension}`;
 };
 
+const formatMoney = (amount: number, currency = 'EUR') => {
+  return `${amount.toLocaleString('de-DE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} ${currency}`;
+};
+
 export const InvoiceView: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -60,6 +81,8 @@ export const InvoiceView: React.FC = () => {
 
   const [attachments, setAttachments] = useState<InvoiceAttachment[]>([]);
   const [uploadingFile, setUploadingFile] = useState(false);
+
+  const [invoiceExpenses, setInvoiceExpenses] = useState<ExpenseDocumentRow[]>([]);
 
   const [showSignatureModal, setShowSignatureModal] = useState(false);
 
@@ -165,6 +188,20 @@ export const InvoiceView: React.FC = () => {
         setAttachments([]);
       } else {
         setAttachments((attachmentsData || []) as InvoiceAttachment[]);
+      }
+
+      const { data: expensesData, error: expensesError } = await supabase
+        .from('expense_documents')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('invoice_id', id)
+        .order('document_date', { ascending: false });
+
+      if (expensesError) {
+        console.error('Помилка завантаження витрат інвойсу:', expensesError);
+        setInvoiceExpenses([]);
+      } else {
+        setInvoiceExpenses((expensesData || []) as ExpenseDocumentRow[]);
       }
 
       let resolvedPdfUrl = invoiceData.pdf_url || null;
@@ -386,6 +423,15 @@ export const InvoiceView: React.FC = () => {
     }
   };
 
+  const totalInvoiceAmount = Number(invoice?.gross_total || invoice?.total_gross || 0);
+  const totalInvoiceExpenses = useMemo(
+    () => invoiceExpenses.reduce((sum, expense) => sum + Number(expense.total_amount || 0), 0),
+    [invoiceExpenses]
+  );
+  const totalInvoiceProfit = totalInvoiceAmount - totalInvoiceExpenses;
+  const statsCurrency =
+    invoice?.currency || invoiceExpenses[0]?.currency || 'EUR';
+
   if (isLoading) {
     return (
       <div className="min-h-screen pt-20 px-4 max-w-6xl mx-auto">
@@ -485,6 +531,29 @@ export const InvoiceView: React.FC = () => {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-xl px-4 py-3">
+          <p className="text-white/40 text-xs mb-1">Сума інвойсу</p>
+          <p className="text-white font-semibold text-sm">
+            {formatMoney(totalInvoiceAmount, statsCurrency)}
+          </p>
+        </div>
+
+        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-xl px-4 py-3">
+          <p className="text-white/40 text-xs mb-1">Витрати по інвойсу</p>
+          <p className="text-red-400 font-semibold text-sm">
+            {formatMoney(totalInvoiceExpenses, statsCurrency)}
+          </p>
+        </div>
+
+        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-xl px-4 py-3">
+          <p className="text-white/40 text-xs mb-1">Маржа / прибуток</p>
+          <p className={`font-semibold text-sm ${totalInvoiceProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            {formatMoney(totalInvoiceProfit, statsCurrency)}
+          </p>
+        </div>
+      </div>
+
       <InvoicePreview
         invoice={invoiceData}
         client={client}
@@ -533,6 +602,52 @@ export const InvoiceView: React.FC = () => {
         </div>
       )}
 
+      {invoiceExpenses.length > 0 && (
+        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mt-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Receipt className="h-5 w-5 text-red-400" />
+            <h3 className="text-lg font-semibold text-white">Витрати по цьому інвойсу</h3>
+          </div>
+
+          <div className="space-y-3">
+            {invoiceExpenses.map((expense) => (
+              <button
+                key={expense.id}
+                type="button"
+                onClick={() => navigate(`/receipt/${expense.id}`)}
+                className="w-full flex items-center justify-between gap-3 bg-white/5 hover:bg-white/10 rounded-xl p-4 transition-all text-left"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center flex-shrink-0">
+                    <Receipt size={18} className="text-red-400" />
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="text-white font-medium break-words">
+                      {expense.vendor_name || 'Витрата'}
+                    </p>
+                    <p className="text-white/50 text-sm break-words">
+                      {expense.document_number || expense.expense_category || expense.document_type || 'expense'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right flex-shrink-0">
+                  <div className="text-xs text-white/40 mb-0.5">
+                    {expense.document_date
+                      ? new Date(expense.document_date).toLocaleDateString('uk-UA')
+                      : '—'}
+                  </div>
+                  <div className="font-semibold text-red-400 text-sm">
+                    {formatMoney(Number(expense.total_amount || 0), expense.currency || statsCurrency)}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mt-6">
         <div className="flex items-center justify-between gap-3 mb-4">
           <h3 className="text-lg font-semibold text-white">
@@ -561,7 +676,8 @@ export const InvoiceView: React.FC = () => {
             {attachments.map((attachment) => (
               <div
                 key={attachment.id}
-                className="flex items-center justify-between gap-3 bg-white/5 rounded-xl p-4"
+                className="flex items-center justify-between gap-3 bg-white/5 rounded-xl p-4 hover:bg-white/10 transition-all cursor-pointer"
+                onClick={() => window.open(attachment.file_url, '_blank')}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <FileText className="text-orange-400 flex-shrink-0" size={24} />
@@ -580,15 +696,19 @@ export const InvoiceView: React.FC = () => {
                     href={attachment.file_url}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
                     className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-blue-400 transition-all"
-                    title="Відкрити / завантажити"
+                    title="Відкрити оригінал"
                   >
                     <Download size={20} />
                   </a>
 
                   <button
                     type="button"
-                    onClick={() => void handleAttachmentDelete(attachment)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleAttachmentDelete(attachment);
+                    }}
                     className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-red-400 transition-all"
                     title="Видалити"
                   >
