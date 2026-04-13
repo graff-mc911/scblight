@@ -52,7 +52,7 @@ export const InvoiceView: React.FC = () => {
   // Стан прикріпленого файлу
   const [uploadingFile, setUploadingFile] = useState(false); // чи йде завантаження файлу
 const [attachments, setAttachments] = useState<any[]>([]);
-//const [uploadingFile, setUploadingFile] = useState(false); // URL прикріпленого файлу
+const [uploadingFile, setUploadingFile] = useState(false); // URL прикріпленого файлу
 
   // Стан модалки підпису
   const [showSignatureModal, setShowSignatureModal] = useState(false);
