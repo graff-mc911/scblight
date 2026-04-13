@@ -29,6 +29,11 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { offlineStore } from '../lib/offlineStore';
 
 /**
+ * Назва bucket у Supabase Storage для завантажених зовнішніх PDF.
+ */
+const UPLOADED_INVOICES_BUCKET = 'uploaded-invoices';
+
+/**
  * Тип пропсів для модалки завантаження зовнішнього рахунку.
  */
 interface UploadInvoiceModalProps {
@@ -296,10 +301,11 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
       console.log('FILE NAME:', fileName);
       console.log('FILE TYPE:', pdfFile.type);
       console.log('FILE SIZE:', pdfFile.size);
+      console.log('BUCKET:', UPLOADED_INVOICES_BUCKET);
 
       // 1. Завантаження PDF у storage bucket
       const { error: uploadError } = await supabase.storage
-        .from('uploaded-invoices')
+        .from(UPLOADED_INVOICES_BUCKET)
         .upload(fileName, pdfFile, {
           upsert: true,
           contentType: 'application/pdf',
@@ -313,7 +319,7 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
       // 2. Отримуємо публічне посилання на файл
       const {
         data: { publicUrl },
-      } = supabase.storage.from('uploaded-invoices').getPublicUrl(fileName);
+      } = supabase.storage.from(UPLOADED_INVOICES_BUCKET).getPublicUrl(fileName);
 
       if (!publicUrl) {
         throw new Error('Не вдалося отримати publicUrl PDF');
