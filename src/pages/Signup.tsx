@@ -6,41 +6,46 @@ import { Logo } from '../components/Logo';
 import { supabase } from '../lib/supabase';
 import { useLanguage } from '../contexts/LanguageContext';
 
-// Компонент сторінки реєстрації
+// Сторінка реєстрації користувача
 export const Signup: React.FC = () => {
-  const navigate = useNavigate(); // хук для навігації
-  const { t } = useLanguage(); // переклади
+  const navigate = useNavigate();
+  const { t } = useLanguage();
 
-  // Стан форми
-  const [fullName, setFullName] = useState(''); // повне ім'я
-  const [email, setEmail] = useState(''); // email
-  const [password, setPassword] = useState(''); // пароль
-  const [confirmPassword, setConfirmPassword] = useState(''); // підтвердження пароля
-  const [acceptedTerms, setAcceptedTerms] = useState(false); // чи прийняті умови
-  const [error, setError] = useState(''); // помилка
-  const [loading, setLoading] = useState(false); // стан завантаження
+  // Стани полів форми
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
-  // Перевірка: якщо користувач вже залогінений — редірект на головну
+  // Стани інтерфейсу
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Якщо користувач уже авторизований — перекидаємо на головну
   useEffect(() => {
     const checkSession = async () => {
       const { data } = await supabase.auth.getSession();
-      if (data.session) navigate('/');
+      if (data.session) {
+        navigate('/');
+      }
     };
+
     void checkSession();
   }, [navigate]);
 
-  // Обробник сабміту форми
+  // Обробка форми реєстрації
   const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault(); // відміняємо стандартну поведінку форми
-    setError(''); // очищаємо помилку
+    e.preventDefault();
+    setError('');
 
-    // Нормалізація даних
-    const normalizedFullName = fullName.trim(); // прибираємо пробіли
-    const normalizedEmail = email.trim().toLowerCase(); // email у нижній регістр
+    // Нормалізуємо дані перед відправкою
+    const normalizedFullName = fullName.trim();
+    const normalizedEmail = email.trim().toLowerCase();
 
-    // Валідація імені
+    // Перевірка імені
     if (!normalizedFullName) {
-      setError("Введіть повне ім'я");
+      setError(t('fullName') || "Введіть повне ім'я");
       return;
     }
 
@@ -53,7 +58,7 @@ export const Signup: React.FC = () => {
       return;
     }
 
-    // Перевірка співпадіння паролів
+    // Перевірка збігу паролів
     if (password !== confirmPassword) {
       setError(t('passwordMismatch') || 'Паролі не співпадають');
       return;
@@ -68,59 +73,51 @@ export const Signup: React.FC = () => {
       return;
     }
 
-    setLoading(true); // починаємо завантаження
+    setLoading(true);
 
     try {
-      // Запит на реєстрацію через Supabase
       const { error: signUpError } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
         options: {
           data: {
-            full_name: normalizedFullName, // зберігаємо ім’я в metadata
+            full_name: normalizedFullName,
           },
         },
       });
 
-      // Обробка помилки реєстрації
       if (signUpError) {
         setError(signUpError.message || 'Помилка реєстрації');
         return;
       }
 
-      // Успіх → редірект на логін
       navigate('/login');
     } catch (err: any) {
-      // Обробка неочікуваної помилки
       setError(err?.message || 'Помилка реєстрації');
     } finally {
-      setLoading(false); // завершуємо завантаження
+      setLoading(false);
     }
   };
 
-  // Клас для інпутів (щоб не дублювати)
+  // Загальні стилі для інпутів
   const inputClassName =
     'w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20';
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <Card className="w-full max-w-md p-8">
-        {/* Лого + заголовок */}
         <div className="mb-8 flex flex-col items-center">
           <Logo variant="glass" size="lg" className="mb-6" />
           <p className="text-sm text-white/60">{t('createAccount')}</p>
         </div>
 
-        {/* Форма */}
         <form onSubmit={handleSignup} className="space-y-5">
-          {/* Відображення помилки */}
           {error && (
             <div className="rounded-lg border border-red-500/30 bg-red-500/20 p-3">
               <p className="text-sm text-red-400">{error}</p>
             </div>
           )}
 
-          {/* Ім'я */}
           <div>
             <label className="mb-2 block text-sm text-white/70">
               {t('fullName') || "Повне ім'я"}
@@ -136,13 +133,12 @@ export const Signup: React.FC = () => {
             />
           </div>
 
-          {/* Email */}
           <div>
             <label className="mb-2 block text-sm text-white/70">
               {t('email') || 'Email'}
             </label>
             <input
-              type="email" // правильний тип
+              type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className={inputClassName}
@@ -152,7 +148,6 @@ export const Signup: React.FC = () => {
             />
           </div>
 
-          {/* Пароль */}
           <div>
             <label className="mb-2 block text-sm text-white/70">
               {t('password') || 'Пароль'}
@@ -168,7 +163,6 @@ export const Signup: React.FC = () => {
             />
           </div>
 
-          {/* Підтвердження пароля */}
           <div>
             <label className="mb-2 block text-sm text-white/70">
               {t('confirmPassword') || 'Підтвердіть пароль'}
@@ -184,13 +178,11 @@ export const Signup: React.FC = () => {
             />
           </div>
 
-          {/* Підказка по паролю */}
           <p className="text-xs text-white/40">
             {t('passwordRequirements') ||
               'Мінімум 8 символів, включаючи великі, малі літери та цифри'}
           </p>
 
-          {/* Чекбокс умов */}
           <label className="flex cursor-pointer items-start gap-3">
             <input
               type="checkbox"
@@ -210,7 +202,6 @@ export const Signup: React.FC = () => {
             </span>
           </label>
 
-          {/* Кнопка */}
           <Button type="submit" disabled={loading || !acceptedTerms} className="w-full">
             {loading
               ? `${t('loading') || 'Завантаження'}...`
@@ -218,7 +209,6 @@ export const Signup: React.FC = () => {
           </Button>
         </form>
 
-        {/* Посилання на логін */}
         <div className="mt-6 text-center">
           <p className="text-sm text-white/60">
             {t('haveAccount') || 'Вже маєте обліковий запис?'}{' '}
