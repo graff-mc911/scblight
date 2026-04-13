@@ -1,22 +1,58 @@
 import React, { useCallback, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Plus, FileText, ChevronRight, CheckCircle, Clock, AlertCircle, Send, PenTool } from 'lucide-react';
+import {
+  ArrowLeft,
+  Plus,
+  FileText,
+  ChevronRight,
+  CheckCircle,
+  Clock,
+  AlertCircle,
+  Send,
+  PenTool,
+} from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { format } from 'date-fns';
+import { motion } from 'framer-motion';
+
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { supabase } from '../lib/supabase';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { format } from 'date-fns';
 import { currencies } from '../lib/languages';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { motion } from 'framer-motion';
 
+// Тип одного інвойсу.
+// Тут описані основні поля, які ми використовуємо в цьому файлі.
+type InvoiceRow = {
+  id: string;
+  user_id?: string;
+  client_id?: string | null;
+  document_no?: string | null;
+  document_number?: string | null;
+  gross_total?: number | null;
+  total_gross?: number | null;
+  currency?: string | null;
+  status?: string | null;
+  date?: string | null;
+  signature_data_url?: string | null;
+  sent_at?: string | null;
+};
+
+// Мініатюра інвойсу.
+// Це просто декоративний блок, який візуально показує "документ".
 const InvoiceThumbnail: React.FC = () => (
   <div className="w-12 h-14 rounded-lg bg-white/10 border border-white/10 flex-shrink-0 overflow-hidden flex items-center justify-center">
     <div className="w-full h-full p-1 flex flex-col gap-0.5 justify-center">
       {[...Array(6)].map((_, i) => (
         <div
           key={i}
-          className={`h-px rounded-full ${i === 1 ? 'bg-white/40 w-3/4' : i === 2 ? 'bg-white/20 w-full' : 'bg-white/15 w-full'}`}
+          className={`h-px rounded-full ${
+            i === 1
+              ? 'bg-white/40 w-3/4'
+              : i === 2
+              ? 'bg-white/20 w-full'
+              : 'bg-white/15 w-full'
+          }`}
         />
       ))}
       <div className="h-2 mt-0.5 bg-white/5 rounded-sm w-full" />
@@ -27,7 +63,12 @@ const InvoiceThumbnail: React.FC = () => (
   </div>
 );
 
-const StatusBadge: React.FC<{ status: string; t: (key: string) => string }> = ({ status, t }) => {
+// Бейдж статусу інвойсу.
+// Показує різний колір і іконку залежно від статусу.
+const StatusBadge: React.FC<{
+  status: string;
+  t: (key: string) => string;
+}> = ({ status, t }) => {
   if (status === 'paid') {
     return (
       <span className="flex items-center gap-1 text-xs text-white/50">
@@ -36,6 +77,7 @@ const StatusBadge: React.FC<{ status: string; t: (key: string) => string }> = ({
       </span>
     );
   }
+
   if (status === 'sent') {
     return (
       <span className="flex items-center gap-1 text-xs text-blue-400/80">
@@ -44,6 +86,7 @@ const StatusBadge: React.FC<{ status: string; t: (key: string) => string }> = ({
       </span>
     );
   }
+
   if (status === 'overdue') {
     return (
       <span className="flex items-center gap-1 text-xs text-red-400/80">
@@ -52,6 +95,7 @@ const StatusBadge: React.FC<{ status: string; t: (key: string) => string }> = ({
       </span>
     );
   }
+
   return (
     <span className="flex items-center gap-1 text-xs text-white/40">
       <Clock size={12} />
@@ -60,48 +104,91 @@ const StatusBadge: React.FC<{ status: string; t: (key: string) => string }> = ({
   );
 };
 
+// Головний компонент сторінки інвойсів конкретного клієнта.
 export const ClientInvoices: React.FC = () => {
+  // Беремо id клієнта з URL.
   const { id: clientId } = useParams<{ id: string }>();
+
+  // Хук для переходів між сторінками.
   const navigate = useNavigate();
+
+  // Хук перекладів.
   const { t } = useLanguage();
+
+  // Хук повідомлень.
   const { showSuccess, showError } = useToastContext();
+
+  // React Query client потрібен для оновлення кешу після видалення.
   const queryClient = useQueryClient();
+
+  // Стан модального вікна підтвердження видалення.
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  // ID інвойсу, який користувач хоче видалити.
   const [invoiceToDelete, setInvoiceToDelete] = useState<string | null>(null);
 
+  // ---------------------------------------------------------
+  // 1. Отримання сесії користувача
+  // ---------------------------------------------------------
+  // Потрібно для того, щоб:
+  // - знати user_id
+  // - завантажувати лише свої дані
   const { data: session } = useQuery({
     queryKey: ['session'],
     queryFn: async () => {
-      const { data } = await supabase.auth.getSession();
+      const { data, error } = await supabase.auth.getSession();
+
+      if (error) throw error;
+
       return data.session;
     },
   });
 
+  // ---------------------------------------------------------
+  // 2. Завантаження клієнта
+  // ---------------------------------------------------------
+  // Отримуємо дані конкретного клієнта.
+  // Додаємо перевірку по user_id, щоб випадково не читати чужі дані.
   const { data: client } = useQuery({
-    queryKey: ['client', clientId],
+    queryKey: ['client', clientId, session?.user?.id],
     queryFn: async () => {
+      if (!clientId || !session?.user?.id) return null;
+
       const { data, error } = await supabase
         .from('clients')
         .select('*')
-        .eq('id', clientId || '')
+        .eq('id', clientId)
+        .eq('user_id', session.user.id)
         .maybeSingle();
+
       if (error) throw error;
+
       return data;
     },
-    enabled: !!clientId,
+    enabled: !!clientId && !!session?.user?.id,
   });
 
-  const { data: invoices = [], isLoading } = useQuery({
+  // ---------------------------------------------------------
+  // 3. Завантаження інвойсів цього клієнта
+  // ---------------------------------------------------------
+  // Беремо всі інвойси, у яких:
+  // - user_id = поточний користувач
+  // - client_id = поточний клієнт
+  const { data: invoices = [], isLoading } = useQuery<InvoiceRow[]>({
     queryKey: ['client-invoices', clientId, session?.user?.id],
     queryFn: async () => {
+      if (!clientId || !session?.user?.id) return [];
+
       const { data, error } = await supabase
         .from('invoices')
         .select('*')
-        .eq('user_id', session?.user?.id || '')
-        .eq('client_id', clientId || '')
+        .eq('user_id', session.user.id)
+        .eq('client_id', clientId)
         .order('created_at', { ascending: false });
+
       if (error) throw error;
-      return (data || []).map(inv => ({
+
+      return (data || []).map((inv) => ({
         ...inv,
         document_number: inv.document_no,
         gross_total: inv.total_gross,
@@ -110,38 +197,77 @@ export const ClientInvoices: React.FC = () => {
     enabled: !!session?.user?.id && !!clientId,
   });
 
+  // ---------------------------------------------------------
+  // 4. Форматування суми
+  // ---------------------------------------------------------
+  // Перетворює число у вигляд:
+  // 1.234,56 €
   const formatCurrency = useCallback((amount: number, currency: string) => {
     const curr = currencies.find((c) => c.code === currency);
-    return `${amount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${curr?.symbol || currency}`;
+
+    return `${amount.toLocaleString('de-DE', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} ${curr?.symbol || currency}`;
   }, []);
 
+  // ---------------------------------------------------------
+  // 5. Підтвердження видалення інвойсу
+  // ---------------------------------------------------------
+  // Видаляємо інвойс тільки поточного користувача.
   const handleDeleteConfirm = useCallback(async () => {
-    if (!invoiceToDelete) return;
+    if (!invoiceToDelete || !session?.user?.id) return;
+
     try {
-      const { error } = await supabase.from('invoices').delete().eq('id', invoiceToDelete);
+      const { error } = await supabase
+        .from('invoices')
+        .delete()
+        .eq('id', invoiceToDelete)
+        .eq('user_id', session.user.id);
+
       if (error) throw error;
-      showSuccess(t('invoiceDeleted') || 'Invoice deleted successfully');
-      queryClient.invalidateQueries({ queryKey: ['client-invoices'] });
-    } catch {
-      showError(t('deleteFailed') || 'Failed to delete invoice');
+
+      showSuccess(t('invoiceDeleted') || 'Інвойс видалено');
+
+      // Оновлюємо список інвойсів клієнта
+      await queryClient.invalidateQueries({
+        queryKey: ['client-invoices', clientId, session?.user?.id],
+      });
+
+      // Додатково оновлюємо загальний список інвойсів
+      await queryClient.invalidateQueries({
+        queryKey: ['invoices'],
+      });
+    } catch (error) {
+      console.error('Помилка видалення інвойсу:', error);
+      showError(t('deleteFailed') || 'Не вдалося видалити інвойс');
     } finally {
       setDeleteDialogOpen(false);
       setInvoiceToDelete(null);
     }
-  }, [invoiceToDelete, showSuccess, showError, t, queryClient]);
+  }, [invoiceToDelete, session?.user?.id, showSuccess, showError, t, queryClient, clientId]);
 
+  // ---------------------------------------------------------
+  // 6. Загальна оплачена сума
+  // ---------------------------------------------------------
   const totalPaid = invoices
-    .filter(i => i.status === 'paid')
-    .reduce((s, i) => s + Number(i.gross_total || 0), 0);
+    .filter((i) => i.status === 'paid')
+    .reduce((sum, i) => sum + Number(i.gross_total || 0), 0);
 
+  // ---------------------------------------------------------
+  // 7. Загальна неоплачена сума
+  // ---------------------------------------------------------
   const totalUnpaid = invoices
-    .filter(i => i.status !== 'paid')
-    .reduce((s, i) => s + Number(i.gross_total || 0), 0);
+    .filter((i) => i.status !== 'paid')
+    .reduce((sum, i) => sum + Number(i.gross_total || 0), 0);
 
   return (
     <div className="min-h-screen pt-16 pb-28 px-4 md:px-6 max-w-2xl mx-auto">
+      {/* Верхній блок сторінки */}
       <div className="pt-6 pb-4">
+        {/* Кнопка назад до списку клієнтів */}
         <button
+          type="button"
           onClick={() => navigate('/clients')}
           className="flex items-center gap-2 text-white/60 hover:text-white mb-4 transition-colors"
         >
@@ -149,34 +275,51 @@ export const ClientInvoices: React.FC = () => {
           <span className="text-sm">{t('clients')}</span>
         </button>
 
+        {/* Ім'я клієнта + кнопка створення нового інвойсу */}
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-white leading-tight">{client?.name || '...'}</h1>
+            <h1 className="text-2xl font-bold text-white leading-tight">
+              {client?.name || '...'}
+            </h1>
+
             {client?.address && (
               <p className="text-white/50 text-sm mt-1">{client.address}</p>
             )}
+
             {client?.client_number && (
-              <p className="text-white/40 text-xs mt-0.5">#{client.client_number}</p>
+              <p className="text-white/40 text-xs mt-0.5">
+                #{client.client_number}
+              </p>
             )}
           </div>
+
+          {/* Кнопка додати новий інвойс саме для цього клієнта */}
           <button
+            type="button"
             onClick={() => navigate(`/invoices/new?client_id=${clientId}`)}
             className="shrink-0 w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+            title={t('newInvoice') || 'Новий інвойс'}
           >
             <Plus className="h-5 w-5 text-white" />
           </button>
         </div>
 
+        {/* Блок статистики по сумам */}
         {invoices.length > 0 && (
           <div className="flex gap-3 mt-4">
             <div className="flex-1 bg-white/10 backdrop-blur-xl border border-white/10 rounded-xl px-4 py-3">
-              <p className="text-white/40 text-xs mb-1">{t('paid') || 'Bezahlt'}</p>
+              <p className="text-white/40 text-xs mb-1">
+                {t('paid') || 'Оплачено'}
+              </p>
               <p className="text-green-400 font-semibold text-sm">
                 {formatCurrency(totalPaid, invoices[0]?.currency || 'EUR')}
               </p>
             </div>
+
             <div className="flex-1 bg-white/10 backdrop-blur-xl border border-white/10 rounded-xl px-4 py-3">
-              <p className="text-white/40 text-xs mb-1">{t('unpaid') || 'Offen'}</p>
+              <p className="text-white/40 text-xs mb-1">
+                {t('unpaid') || 'Не оплачено'}
+              </p>
               <p className="text-red-400 font-semibold text-sm">
                 {formatCurrency(totalUnpaid, invoices[0]?.currency || 'EUR')}
               </p>
@@ -185,11 +328,16 @@ export const ClientInvoices: React.FC = () => {
         )}
       </div>
 
+      {/* Основний контейнер списку інвойсів */}
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-lg mt-2">
         {isLoading ? (
+          // Стан завантаження
           <div>
             {[1, 2, 3].map((i) => (
-              <div key={i} className="flex items-center gap-4 px-4 py-4 border-b border-white/5 animate-pulse last:border-0">
+              <div
+                key={i}
+                className="flex items-center gap-4 px-4 py-4 border-b border-white/5 animate-pulse last:border-0"
+              >
                 <div className="w-12 h-14 rounded-lg bg-white/10 flex-shrink-0" />
                 <div className="flex-1">
                   <div className="h-3 bg-white/10 rounded w-24 mb-2" />
@@ -204,19 +352,26 @@ export const ClientInvoices: React.FC = () => {
             ))}
           </div>
         ) : invoices.length === 0 ? (
+          // Якщо інвойсів ще немає
           <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
             <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4">
               <FileText className="h-8 w-8 text-white/30" />
             </div>
-            <p className="text-white/50 text-sm mb-5">{t('noInvoicesMessage')}</p>
+
+            <p className="text-white/50 text-sm mb-5">
+              {t('noInvoicesMessage')}
+            </p>
+
             <button
+              type="button"
               onClick={() => navigate(`/invoices/new?client_id=${clientId}`)}
               className="px-5 py-2.5 bg-orange-500 text-white text-sm font-semibold rounded-xl active:scale-95 transition-transform"
             >
-              {t('newInvoice') || 'Neue Rechnung'}
+              {t('newInvoice') || 'Новий інвойс'}
             </button>
           </div>
         ) : (
+          // Список інвойсів
           <div>
             {invoices.map((invoice, index) => (
               <motion.div
@@ -225,10 +380,13 @@ export const ClientInvoices: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.04 }}
               >
+                {/* Кнопка-картка інвойсу */}
                 <button
+                  type="button"
                   className="w-full flex items-center gap-4 px-4 py-4 hover:bg-white/5 active:bg-white/8 transition-all text-left"
                   onClick={() => navigate(`/invoices/${invoice.id}/view`)}
                   onContextMenu={(e) => {
+                    // Правий клік / довге меню — відкриває видалення
                     e.preventDefault();
                     setInvoiceToDelete(invoice.id);
                     setDeleteDialogOpen(true);
@@ -236,39 +394,55 @@ export const ClientInvoices: React.FC = () => {
                 >
                   <InvoiceThumbnail />
 
+                  {/* Центральний блок з номером, клієнтом і статусом */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 mb-0.5">
                       <span className="text-xs text-white/40">
                         {invoice.document_number || t('draft')}
                       </span>
+
+                      {/* Іконка підпису, якщо інвойс підписаний */}
                       {invoice.signature_data_url && (
                         <PenTool size={11} className="text-blue-400 shrink-0" />
                       )}
+
+                      {/* Іконка надсилання, якщо інвойс позначений як відправлений */}
                       {invoice.sent_at && (
                         <Send size={11} className="text-green-400 shrink-0" />
                       )}
                     </div>
+
                     <div className="font-semibold text-white text-base leading-tight truncate">
                       {client?.name || t('noClient')}
                     </div>
+
                     <div className="mt-1">
-                      <StatusBadge status={invoice.status} t={t} />
+                      <StatusBadge status={invoice.status || 'draft'} t={t} />
                     </div>
                   </div>
 
+                  {/* Правий блок: дата, сума, стрілка */}
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <div className="text-right">
                       <div className="text-xs text-white/40 mb-0.5">
-                        {invoice.date ? format(new Date(invoice.date), 'dd.MM.yyyy') : '—'}
+                        {invoice.date
+                          ? format(new Date(invoice.date), 'dd.MM.yyyy')
+                          : '—'}
                       </div>
+
                       <div className="font-semibold text-white text-base">
-                        {formatCurrency(Number(invoice.gross_total || 0), invoice.currency || 'EUR')}
+                        {formatCurrency(
+                          Number(invoice.gross_total || 0),
+                          invoice.currency || 'EUR'
+                        )}
                       </div>
                     </div>
+
                     <ChevronRight size={16} className="text-white/30" />
                   </div>
                 </button>
 
+                {/* Лінія між картками */}
                 {index < invoices.length - 1 && (
                   <div className="ml-20 border-b border-white/5" />
                 )}
@@ -278,12 +452,19 @@ export const ClientInvoices: React.FC = () => {
         )}
       </div>
 
+      {/* Діалог підтвердження видалення */}
       <ConfirmDialog
         open={deleteDialogOpen}
-        onClose={() => setDeleteDialogOpen(false)}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setInvoiceToDelete(null);
+        }}
         onConfirm={handleDeleteConfirm}
-        title={t('deleteInvoice') || 'Delete Invoice'}
-        description={t('deleteInvoiceConfirm') || 'Are you sure you want to delete this invoice? This action cannot be undone.'}
+        title={t('deleteInvoice') || 'Видалити інвойс'}
+        description={
+          t('deleteInvoiceConfirm') ||
+          'Ви впевнені, що хочете видалити цей інвойс? Цю дію не можна скасувати.'
+        }
       />
     </div>
   );
