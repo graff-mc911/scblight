@@ -21,61 +21,62 @@ import { supabase } from '../lib/supabase';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 
-// Компонент перегляду збереженого інвойсу.
-// Тут користувач може:
-// - переглянути інвойс
-// - подивитися PDF
-// - підписати інвойс
-// - прикріпити файл
-// - видалити прикріплений файл
-// - позначити інвойс як відправлений
-// - перейти до редагування
+// Тип одного вкладення інвойсу
+type InvoiceAttachment = {
+  id: string;
+  invoice_id: string;
+  user_id: string;
+  file_name: string | null;
+  file_url: string;
+  file_type: string | null;
+  created_at: string | null;
+};
+
+// Сторінка перегляду збереженого інвойсу
 export const InvoiceView: React.FC = () => {
-  // Беремо id інвойсу з адресного рядка
+  // ID інвойсу з адреси сторінки
   const { id } = useParams();
 
-  // Хук для переходів між сторінками
+  // Перехід між сторінками
   const navigate = useNavigate();
 
-  // Хук перекладу
+  // Переклади
   const { t } = useLanguage();
 
-  // Хук повідомлень
+  // Повідомлення
   const { showSuccess, showError } = useToastContext();
 
   // Основні стани сторінки
-  const [invoice, setInvoice] = useState<any>(null); // сам інвойс
-  const [client, setClient] = useState<any>(null); // клієнт інвойсу
-  const [companyProfile, setCompanyProfile] = useState<any>(null); // профіль компанії
-  const [isLoading, setIsLoading] = useState(true); // загальне завантаження сторінки
+  const [invoice, setInvoice] = useState<any>(null);
+  const [client, setClient] = useState<any>(null);
+  const [companyProfile, setCompanyProfile] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Стан прикріпленого файлу
-  const [uploadingFile, setUploadingFile] = useState(false); // чи йде завантаження файлу
-const [attachments, setAttachments] = useState<any[]>([]);
-const [uploadingFile, setUploadingFile] = useState(false); // URL прикріпленого файлу
+  // Список вкладень до інвойсу
+  const [attachments, setAttachments] = useState<InvoiceAttachment[]>([]);
+
+  // Стан завантаження нового файлу
+  const [uploadingFile, setUploadingFile] = useState(false);
 
   // Стан модалки підпису
   const [showSignatureModal, setShowSignatureModal] = useState(false);
 
-  // Стан модалки відправки на email
+  // Стан модалки "відправити"
   const [showEmailModal, setShowEmailModal] = useState(false);
-  const [emailTo, setEmailTo] = useState(''); // email одержувача
-  const [sendingEmail, setSendingEmail] = useState(false); // чи йде "відправка"
+  const [emailTo, setEmailTo] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
 
   // Стан PDF
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null); // URL PDF інвойсу
-  const [showFullScreenPDF, setShowFullScreenPDF] = useState(false); // повноекранний режим PDF
-  const [pdfZoom, setPdfZoom] = useState(100); // масштаб PDF у повноекранному режимі
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [showFullScreenPDF, setShowFullScreenPDF] = useState(false);
+  const [pdfZoom, setPdfZoom] = useState(100);
 
-  // Проста перевірка: мобільний екран чи ні
+  // Просте визначення мобільного екрана
   const isMobile = window.innerWidth < 768;
 
   // ---------------------------------------------------------
-  // Пошук PDF інвойсу в Supabase Storage
+  // Пошук PDF інвойсу в storage
   // ---------------------------------------------------------
-  // Функція шукає PDF у bucket `invoice-pdfs` у папці користувача.
-  // Якщо знаходить файл, який починається з `${invoiceId}-invoice`,
-  // повертає public URL цього PDF.
   const findPdfInStorage = useCallback(async (userId: string, invoiceId: string) => {
     const { data: files, error } = await supabase.storage
       .from('invoice-pdfs')
@@ -83,7 +84,10 @@ const [uploadingFile, setUploadingFile] = useState(false); // URL прикріп
 
     if (error || !files) return null;
 
-    const matchedPdf = files.find((file) => file.name.startsWith(`${invoiceId}-invoice`));
+    const matchedPdf = files.find((file) =>
+      file.name.startsWith(`${invoiceId}-invoice`)
+    );
+
     if (!matchedPdf) return null;
 
     const filePath = `${userId}/${matchedPdf.name}`;
@@ -96,16 +100,8 @@ const [uploadingFile, setUploadingFile] = useState(false); // URL прикріп
   }, []);
 
   // ---------------------------------------------------------
-  // Завантаження інвойсу, клієнта, профілю компанії і PDF
+  // Завантаження всіх даних сторінки
   // ---------------------------------------------------------
-  // Це головна функція сторінки.
-  // Вона:
-  // 1. перевіряє користувача
-  // 2. завантажує інвойс
-  // 3. завантажує позиції інвойсу
-  // 4. формує зручний об’єкт для показу
-  // 5. шукає PDF у storage, якщо pdf_url ще не записаний
-  // 6. завантажує клієнта і профіль компанії
   const fetchInvoice = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -114,9 +110,9 @@ const [uploadingFile, setUploadingFile] = useState(false); // URL прикріп
         data: { user },
       } = await supabase.auth.getUser();
 
-      if (!user) return;
+      if (!user || !id) return;
 
-      // Завантажуємо сам інвойс
+      // 1. Завантажуємо інвойс
       const { data: invoiceData, error: invoiceError } = await supabase
         .from('invoices')
         .select('*')
@@ -126,21 +122,20 @@ const [uploadingFile, setUploadingFile] = useState(false); // URL прикріп
 
       if (invoiceError) throw invoiceError;
 
-      // Якщо інвойс не знайдено — показуємо помилку і повертаємось до списку
       if (!invoiceData) {
-        showError(t('invoiceNotFound') || 'Invoice not found');
+        showError(t('invoiceNotFound') || 'Інвойс не знайдено');
         navigate('/invoices');
         return;
       }
 
-      // Завантажуємо всі рядки / позиції інвойсу
+      // 2. Завантажуємо позиції інвойсу
       const { data: itemsData } = await supabase
         .from('invoice_items')
         .select('*')
         .eq('invoice_id', id)
         .order('sort_order');
 
-      // Формуємо об’єкт інвойсу з нормальними назвами полів
+      // 3. Формуємо об’єкт інвойсу для зручного показу
       const invoiceWithItems = {
         ...invoiceData,
         document_number: invoiceData.document_no,
@@ -160,7 +155,7 @@ const [uploadingFile, setUploadingFile] = useState(false); // URL прикріп
         items:
           itemsData?.map((item) => ({
             quantity: Number(item.quantity),
-            quantityDisplay: item.quantity.toString(),
+            quantityDisplay: String(item.quantity),
             unit: item.unit,
             price: Number(item.price),
             material: item.material,
@@ -171,27 +166,30 @@ const [uploadingFile, setUploadingFile] = useState(false); // URL прикріп
 
       setInvoice(invoiceWithItems);
 
-      // Якщо в інвойсі вже є прикріплений файл — записуємо його в state
-   const { data: attachmentsData } = await supabase
-  .from('invoice_attachments')
-  .select('*')
-  .eq('invoice_id', id)
-  .eq('user_id', user.id)
-  .order('created_at', { ascending: false });
+      // 4. Завантажуємо всі вкладення інвойсу
+      const { data: attachmentsData, error: attachmentsError } = await supabase
+        .from('invoice_attachments')
+        .select('*')
+        .eq('invoice_id', id)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
-setAttachments(attachmentsData || []);
+      if (attachmentsError) {
+        console.error('Помилка завантаження вкладень:', attachmentsError);
+        setAttachments([]);
+      } else {
+        setAttachments((attachmentsData || []) as InvoiceAttachment[]);
+      }
 
-      // Спочатку пробуємо взяти pdf_url прямо з інвойсу
+      // 5. Завантажуємо PDF інвойсу
       let resolvedPdfUrl = invoiceData.pdf_url || null;
 
-      // Якщо pdf_url ще немає, але є id — пробуємо знайти PDF у storage
-      if (!resolvedPdfUrl && id) {
+      if (!resolvedPdfUrl) {
         const storagePdfUrl = await findPdfInStorage(user.id, id);
 
         if (storagePdfUrl) {
           resolvedPdfUrl = storagePdfUrl;
 
-          // Якщо PDF знайдено — одразу записуємо його URL в таблицю invoices
           await supabase
             .from('invoices')
             .update({ pdf_url: storagePdfUrl })
@@ -201,7 +199,7 @@ setAttachments(attachmentsData || []);
 
       setPdfUrl(resolvedPdfUrl);
 
-      // Якщо інвойс прив'язаний до клієнта — завантажуємо клієнта
+      // 6. Завантажуємо клієнта
       if (invoiceData.client_id) {
         const { data: clientData } = await supabase
           .from('clients')
@@ -214,7 +212,7 @@ setAttachments(attachmentsData || []);
         setClient(null);
       }
 
-      // Завантажуємо профіль компанії поточного користувача
+      // 7. Завантажуємо профіль компанії
       const { data: profileData } = await supabase
         .from('company_profile')
         .select('*')
@@ -224,157 +222,156 @@ setAttachments(attachmentsData || []);
       setCompanyProfile(profileData || null);
     } catch (error) {
       console.error(error);
-      showError(t('errorLoadingInvoice') || 'Error loading invoice');
+      showError(t('errorLoadingInvoice') || 'Помилка завантаження інвойсу');
     } finally {
       setIsLoading(false);
     }
   }, [findPdfInStorage, id, navigate, showError, t]);
 
-  // Коли сторінка відкрилась і є id — завантажуємо інвойс
+  // При відкритті сторінки завантажуємо інвойс
   useEffect(() => {
     if (id) {
-      fetchInvoice();
+      void fetchInvoice();
     }
   }, [id, fetchInvoice]);
 
   // ---------------------------------------------------------
-  // Завантаження прикріпленого файлу
+  // Завантаження нового файлу до інвойсу
   // ---------------------------------------------------------
-  // Користувач обирає файл з пристрою.
-  // Файл завантажується в storage, а його public URL
-  // записується в поле attached_file_url інвойсу.
-const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  if (!id) {
-    showError('Не знайдено ID рахунку');
-    return;
-  }
-
-  if (file.size > 10 * 1024 * 1024) {
-    showError(t('fileSizeLimit10mb') || 'Файл має бути менше 10 МБ');
-    return;
-  }
-
-  setUploadingFile(true);
-
-  try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      throw new Error('Користувач не авторизований');
+    if (!id) {
+      showError('Не знайдено ID інвойсу');
+      return;
     }
 
-    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'bin';
-    const filePath = `${user.id}/attachments/${id}-${Date.now()}-${file.name}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from('invoice-pdfs')
-      .upload(filePath, file, {
-        upsert: false,
-        contentType: file.type || undefined,
-      });
-
-    if (uploadError) {
-      throw uploadError;
+    if (file.size > 10 * 1024 * 1024) {
+      showError(t('fileSizeLimit10mb') || 'Файл має бути менше 10 МБ');
+      return;
     }
 
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from('invoice-pdfs').getPublicUrl(filePath);
+    setUploadingFile(true);
 
-    if (!publicUrl) {
-      throw new Error('Не вдалося отримати URL файлу');
-    }
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    const { error: insertError } = await supabase
-      .from('invoice_attachments')
-      .insert([
-        {
-          invoice_id: id,
-          user_id: user.id,
-          file_name: file.name,
-          file_url: publicUrl,
-          file_type: file.type || fileExt,
-        },
-      ]);
-
-    if (insertError) {
-      throw insertError;
-    }
-
-    showSuccess(t('fileUploaded') || 'Файл завантажено');
-    await fetchInvoice();
-  } catch (error: any) {
-    console.error('File upload error:', error);
-    showError(error?.message || t('failedUploadFile') || 'Не вдалося завантажити файл');
-  } finally {
-    setUploadingFile(false);
-    e.target.value = '';
-  }
-};
-
-  // ---------------------------------------------------------
-  // Видалення прикріпленого файлу
-  // ---------------------------------------------------------
-  // Функція:
-  // 1. видаляє файл із storage
-  // 2. очищає attached_file_url у таблиці invoices
-  // 3. прибирає файл зі стану сторінки
-const handleAttachedFileDelete = async (attachment: any) => {
-  if (!attachment?.file_url || !attachment?.id) return;
-
-  try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      throw new Error('Користувач не авторизований');
-    }
-
-    const url = new URL(attachment.file_url);
-    const pathParts = url.pathname.split('/storage/v1/object/public/invoice-pdfs/');
-    const filePath = pathParts[1];
-
-    if (filePath) {
-      const { error: deleteStorageError } = await supabase.storage
-        .from('invoice-pdfs')
-        .remove([filePath]);
-
-      if (deleteStorageError) {
-        throw deleteStorageError;
+      if (!user) {
+        throw new Error('Користувач не авторизований');
       }
+
+      // Унікальний шлях файлу в storage
+      const filePath = `${user.id}/attachments/${id}-${Date.now()}-${file.name}`;
+
+      // Завантажуємо файл у bucket invoice-pdfs
+      const { error: uploadError } = await supabase.storage
+        .from('invoice-pdfs')
+        .upload(filePath, file, {
+          upsert: false,
+          contentType: file.type || undefined,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      // Отримуємо public URL
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('invoice-pdfs').getPublicUrl(filePath);
+
+      if (!publicUrl) {
+        throw new Error('Не вдалося отримати URL файлу');
+      }
+
+      // Створюємо окремий запис у таблиці вкладень
+      const { error: insertError } = await supabase
+        .from('invoice_attachments')
+        .insert([
+          {
+            invoice_id: id,
+            user_id: user.id,
+            file_name: file.name,
+            file_url: publicUrl,
+            file_type: file.type || null,
+          },
+        ]);
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      showSuccess(t('fileUploaded') || 'Файл завантажено');
+      await fetchInvoice();
+    } catch (error: any) {
+      console.error('File upload error:', error);
+      showError(
+        error?.message || t('failedUploadFile') || 'Не вдалося завантажити файл'
+      );
+    } finally {
+      setUploadingFile(false);
+      e.target.value = '';
     }
+  };
 
-    const { error: deleteDbError } = await supabase
-      .from('invoice_attachments')
-      .delete()
-      .eq('id', attachment.id)
-      .eq('user_id', user.id);
+  // ---------------------------------------------------------
+  // Видалення одного вкладення
+  // ---------------------------------------------------------
+  const handleAttachmentDelete = async (attachment: InvoiceAttachment) => {
+    if (!attachment?.file_url || !attachment?.id) return;
 
-    if (deleteDbError) {
-      throw deleteDbError;
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error('Користувач не авторизований');
+      }
+
+      // Витягуємо шлях до файлу зі storage з public URL
+      const url = new URL(attachment.file_url);
+      const pathParts = url.pathname.split('/storage/v1/object/public/invoice-pdfs/');
+      const filePath = pathParts[1];
+
+      // Спочатку видаляємо файл зі storage
+      if (filePath) {
+        const { error: deleteStorageError } = await supabase.storage
+          .from('invoice-pdfs')
+          .remove([filePath]);
+
+        if (deleteStorageError) {
+          throw deleteStorageError;
+        }
+      }
+
+      // Потім видаляємо запис з таблиці invoice_attachments
+      const { error: deleteDbError } = await supabase
+        .from('invoice_attachments')
+        .delete()
+        .eq('id', attachment.id)
+        .eq('user_id', user.id);
+
+      if (deleteDbError) {
+        throw deleteDbError;
+      }
+
+      showSuccess(t('fileDeleted') || 'Файл видалено');
+      await fetchInvoice();
+    } catch (error: any) {
+      console.error('File delete error:', error);
+      showError(
+        error?.message || t('failedDeleteFile') || 'Не вдалося видалити файл'
+      );
     }
-
-    showSuccess(t('fileDeleted') || 'Файл видалено');
-    await fetchInvoice();
-  } catch (error: any) {
-    console.error('File delete error:', error);
-    showError(error?.message || t('failedDeleteFile') || 'Не вдалося видалити файл');
-  }
-};
+  };
 
   // ---------------------------------------------------------
   // Збереження підпису
   // ---------------------------------------------------------
-  // Підпис зберігається прямо в таблицю invoices:
-  // - signature_data_url
-  // - signed_by
-  // - signed_at
   const handleSaveSignature = async (signatureDataUrl: string, signerName: string) => {
     try {
       const { error } = await supabase
@@ -389,24 +386,19 @@ const handleAttachedFileDelete = async (attachment: any) => {
       if (error) throw error;
 
       setShowSignatureModal(false);
-      showSuccess(t('signatureSaved') || 'Signature saved successfully');
-      fetchInvoice();
+      showSuccess(t('signatureSaved') || 'Підпис збережено');
+      await fetchInvoice();
     } catch {
-      showError(t('failedSaveSignature') || 'Failed to save signature');
+      showError(t('failedSaveSignature') || 'Не вдалося зберегти підпис');
     }
   };
 
   // ---------------------------------------------------------
-  // "Відправка" інвойсу на email
+  // Позначення інвойсу як відправленого
   // ---------------------------------------------------------
-  // Тут не відбувається реальна відправка листа.
-  // Ми лише зберігаємо:
-  // - sent_at
-  // - sent_to
-  // Тобто фактично позначаємо інвойс як відправлений.
   const handleSendEmail = async () => {
     if (!emailTo.trim()) {
-      showError(t('enterEmailAddress') || 'Please enter email address');
+      showError(t('enterEmailAddress') || 'Введіть email');
       return;
     }
 
@@ -425,10 +417,10 @@ const handleAttachedFileDelete = async (attachment: any) => {
 
       setShowEmailModal(false);
       setEmailTo('');
-      showSuccess(t('invoiceSent') || 'Invoice marked as sent');
-      fetchInvoice();
+      showSuccess(t('invoiceSent') || 'Інвойс позначено як відправлений');
+      await fetchInvoice();
     } catch {
-      showError(t('failedSendInvoice') || 'Failed to send invoice');
+      showError(t('failedSendInvoice') || 'Не вдалося відправити інвойс');
     } finally {
       setSendingEmail(false);
     }
@@ -445,17 +437,12 @@ const handleAttachedFileDelete = async (attachment: any) => {
     );
   }
 
-  // Якщо інвойсу немає — нічого не рендеримо
+  // Якщо інвойс не знайдено
   if (!invoice) {
     return null;
   }
 
-  // Формуємо фінальний об’єкт для InvoicePreview
-  // Тут підмішуємо:
-  // - клієнта
-  // - профіль компанії
-  // - позиції
-  // - підпис
+  // Формуємо фінальний об’єкт для компонента прев’ю
   const invoiceData = {
     ...invoice,
     document_number: invoice.document_no || invoice.document_number,
@@ -485,7 +472,7 @@ const handleAttachedFileDelete = async (attachment: any) => {
           <ArrowLeft size={20} />
         </button>
 
-        {/* Верхня панель сторінки */}
+        {/* Верхня панель */}
         <div className="flex justify-between items-start gap-3 mb-6">
           <div className="min-w-0">
             <h2 className="text-2xl font-semibold text-white mb-1">
@@ -498,31 +485,28 @@ const handleAttachedFileDelete = async (attachment: any) => {
 
           {/* Кнопки дій */}
           <div className="flex gap-2 flex-wrap justify-end">
-            {/* Перегляд PDF у повноекранному режимі */}
             {pdfUrl && (
               <button
                 type="button"
                 onClick={() => setShowFullScreenPDF(true)}
                 className="p-2.5 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 transition-all active:scale-95"
-                title={t('viewFile') || 'View PDF'}
+                title={t('viewFile') || 'Переглянути PDF'}
               >
                 <Eye size={18} />
               </button>
             )}
 
-            {/* Кнопка підпису — показується тільки якщо ще немає підпису */}
             {!invoice.signature_data_url && (
               <button
                 type="button"
                 onClick={() => setShowSignatureModal(true)}
                 className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-blue-400 transition-all active:scale-95"
-                title={t('sign') || 'Sign'}
+                title={t('sign') || 'Підписати'}
               >
                 <PenTool size={18} />
               </button>
             )}
 
-            {/* Кнопка "відправити" */}
             <button
               type="button"
               onClick={() => {
@@ -530,17 +514,16 @@ const handleAttachedFileDelete = async (attachment: any) => {
                 setShowEmailModal(true);
               }}
               className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-green-400 transition-all active:scale-95"
-              title={t('send') || 'Send'}
+              title={t('send') || 'Відправити'}
             >
               <Send size={18} />
             </button>
 
-            {/* Перехід до редагування */}
             <button
               type="button"
               onClick={() => navigate(`/invoices/${id}`)}
               className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-orange-400 transition-all active:scale-95"
-              title={t('edit')}
+              title={t('edit') || 'Редагувати'}
             >
               <Edit2 size={18} />
             </button>
@@ -548,107 +531,127 @@ const handleAttachedFileDelete = async (attachment: any) => {
         </div>
       </div>
 
-      <>
-        {/* Візуальний перегляд інвойсу */}
-        <InvoicePreview
-          invoice={invoiceData}
-          client={client}
-          companyProfile={companyProfile}
-        />
+      {/* Візуальний перегляд інвойсу */}
+      <InvoicePreview
+        invoice={invoiceData}
+        client={client}
+        companyProfile={companyProfile}
+      />
 
-        {/* Блок PDF інвойсу */}
-        {pdfUrl && (
-          <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mb-6 mt-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">
-                {t('invoicePreviewTitle') || 'Invoice PDF'}
-              </h3>
+      {/* Блок PDF */}
+      {pdfUrl && (
+        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mb-6 mt-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-white">
+              {t('invoicePreviewTitle') || 'PDF інвойсу'}
+            </h3>
 
-              <div className="flex gap-2">
-                {/* Завантажити PDF */}
-                <a
-                  href={pdfUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-blue-400 transition-all"
-                >
-                  <Download size={20} />
-                </a>
-
-                {/* Відкрити PDF на весь екран */}
-                <button
-                  type="button"
-                  onClick={() => setShowFullScreenPDF(true)}
-                  className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-orange-400 transition-all"
-                >
-                  <Eye size={20} />
-                </button>
-              </div>
-            </div>
-
-            {/* На desktop вбудовано показуємо PDF в iframe */}
-            {!isMobile && (
-              <div className="rounded-xl overflow-hidden">
-                <iframe
-                  src={`${pdfUrl}#view=FitH`}
-                  className="w-full border-0"
-                  style={{ height: '800px' }}
-                  title="Invoice PDF"
-                />
-              </div>
-            )}
-          </div>
-        )}
-      </>
-
-      {/* Блок прикріпленого файлу */}
-      <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mt-6">
-        <h3 className="text-lg font-semibold text-white mb-4">
-          {t('attachedFile') || 'Attached File'}
-        </h3>
-
-        {attachedFile ? (
-          // Якщо файл уже прикріплений — показуємо картку з кнопками
-          <div className="flex items-center justify-between gap-3 bg-white/5 rounded-xl p-4">
-            <div className="flex items-center gap-3 min-w-0">
-              <FileText className="text-orange-400 flex-shrink-0" size={24} />
-              <div className="min-w-0">
-                <p className="text-white font-medium">
-                  {t('fileAttached') || 'File attached'}
-                </p>
-                <p className="text-white/60 text-sm break-words">
-                  {t('clickToDownload') || 'Click to download'}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-2 flex-shrink-0">
-              {/* Завантажити / відкрити прикріплений файл */}
+            <div className="flex gap-2">
               <a
-                href={attachedFile}
+                href={pdfUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-blue-400 transition-all"
+                title={t('download') || 'Завантажити'}
               >
                 <Download size={20} />
               </a>
 
-              {/* Видалити прикріплений файл */}
               <button
                 type="button"
-                onClick={handleAttachedFileDelete}
-                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-red-400 transition-all"
+                onClick={() => setShowFullScreenPDF(true)}
+                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-orange-400 transition-all"
+                title={t('view') || 'Переглянути'}
               >
-                <Trash2 size={20} />
+                <Eye size={20} />
               </button>
             </div>
           </div>
+
+          {!isMobile && (
+            <div className="rounded-xl overflow-hidden">
+              <iframe
+                src={`${pdfUrl}#view=FitH`}
+                className="w-full border-0"
+                style={{ height: '800px' }}
+                title="Invoice PDF"
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Блок вкладень */}
+      <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mt-6">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h3 className="text-lg font-semibold text-white">
+            {t('attachedFile') || 'Прикріплені файли'}
+          </h3>
+
+          <label className="inline-block">
+            <input
+              type="file"
+              onChange={handleFileUpload}
+              disabled={uploadingFile}
+              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+              className="hidden"
+              capture="environment"
+            />
+            <span className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-block">
+              {uploadingFile
+                ? t('uploading') || 'Завантаження...'
+                : 'Додати файл'}
+            </span>
+          </label>
+        </div>
+
+        {attachments.length > 0 ? (
+          <div className="space-y-3">
+            {attachments.map((attachment) => (
+              <div
+                key={attachment.id}
+                className="flex items-center justify-between gap-3 bg-white/5 rounded-xl p-4"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <FileText className="text-orange-400 flex-shrink-0" size={24} />
+                  <div className="min-w-0">
+                    <p className="text-white font-medium break-words">
+                      {attachment.file_name || 'Файл'}
+                    </p>
+                    <p className="text-white/60 text-sm break-words">
+                      {attachment.file_type || 'file'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 flex-shrink-0">
+                  <a
+                    href={attachment.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-blue-400 transition-all"
+                    title="Відкрити / завантажити"
+                  >
+                    <Download size={20} />
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleAttachmentDelete(attachment)}
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-red-400 transition-all"
+                    title="Видалити"
+                  >
+                    <Trash2 size={20} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
-          // Якщо прикріпленого файлу ще немає — показуємо зону завантаження
           <div className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center">
             <Upload className="mx-auto text-white/40 mb-3" size={32} />
             <p className="text-white/60 mb-4">
-              {t('uploadReceiptFile') || 'Upload file'}
+              Додайте файл до цього інвойсу
             </p>
 
             <label className="inline-block">
@@ -658,16 +661,15 @@ const handleAttachedFileDelete = async (attachment: any) => {
                 disabled={uploadingFile}
                 accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                 className="hidden"
+                capture="environment"
               />
               <span className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-block">
-                {uploadingFile
-                  ? t('uploading') || 'Uploading...'
-                  : t('selectFiles') || 'Select File'}
+                {uploadingFile ? 'Завантаження...' : 'Додати файл'}
               </span>
             </label>
 
             <p className="text-white/40 text-xs mt-2">
-              {t('fileSizeLimitInfo') || 'PDF, DOC, images up to 10MB'}
+              PDF, DOC, DOCX, JPG, PNG до 10 МБ
             </p>
           </div>
         )}
@@ -683,7 +685,7 @@ const handleAttachedFileDelete = async (attachment: any) => {
         />
       )}
 
-      {/* Модалка "відправки" інвойсу */}
+      {/* Модалка "відправити" */}
       {showEmailModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl shadow-2xl max-w-md w-full border border-white/10">
@@ -691,7 +693,7 @@ const handleAttachedFileDelete = async (attachment: any) => {
               <div className="flex items-center gap-3">
                 <Mail className="text-green-400" size={24} />
                 <h3 className="text-xl font-semibold text-white">
-                  {t('sendInvoice') || 'Send Invoice'}
+                  {t('sendInvoice') || 'Відправити інвойс'}
                 </h3>
               </div>
 
@@ -707,22 +709,21 @@ const handleAttachedFileDelete = async (attachment: any) => {
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-white/80 mb-2">
-                  {t('recipientEmail') || 'Recipient Email'}
+                  {t('recipientEmail') || 'Email отримувача'}
                 </label>
                 <input
                   type="email"
                   value={emailTo}
                   onChange={(e) => setEmailTo(e.target.value)}
-                  placeholder={t('enterEmail') || 'Enter email address'}
+                  placeholder={t('enterEmail') || 'Введіть email'}
                   className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500/50"
                 />
               </div>
 
-              {/* Якщо інвойс уже раніше "відправлявся" — показуємо інформацію */}
               {invoice.sent_at && (
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
                   <p className="text-sm text-blue-300">
-                    {t('previouslySent') || 'Previously sent to'}: {invoice.sent_to}
+                    {t('previouslySent') || 'Раніше відправлено на'}: {invoice.sent_to}
                   </p>
                   <p className="text-xs text-blue-300/60 mt-1">
                     {new Date(invoice.sent_at).toLocaleString('uk-UA')}
@@ -732,26 +733,24 @@ const handleAttachedFileDelete = async (attachment: any) => {
             </div>
 
             <div className="flex gap-3 p-6 border-t border-white/10">
-              {/* Скасувати */}
               <Button
                 onClick={() => setShowEmailModal(false)}
                 className="flex-1 bg-white/10 border border-white/10 text-white hover:bg-white/20"
               >
-                {t('cancel')}
+                {t('cancel') || 'Скасувати'}
               </Button>
 
-              {/* Підтвердити "відправку" */}
               <Button
                 onClick={handleSendEmail}
                 disabled={sendingEmail || !emailTo.trim()}
                 className="flex-1 bg-gradient-to-r from-green-500 to-green-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {sendingEmail ? (
-                  t('sending') || 'Sending...'
+                  t('sending') || 'Відправка...'
                 ) : (
                   <>
                     <Send size={18} className="mr-2" />
-                    {t('send') || 'Send'}
+                    {t('send') || 'Відправити'}
                   </>
                 )}
               </Button>
@@ -765,7 +764,6 @@ const handleAttachedFileDelete = async (attachment: any) => {
         <div className="fixed inset-0 bg-black z-[9999] flex flex-col">
           <div className="bg-slate-900 border-b border-white/10 p-3 md:p-4 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2 md:gap-4 min-w-0">
-              {/* Закрити повноекранний режим */}
               <button
                 type="button"
                 onClick={() => {
@@ -782,7 +780,6 @@ const handleAttachedFileDelete = async (attachment: any) => {
               </h3>
             </div>
 
-            {/* Панель масштабування доступна тільки не на мобільному */}
             {!isMobile && (
               <div className="flex items-center gap-1 md:gap-2">
                 <button
@@ -807,7 +804,6 @@ const handleAttachedFileDelete = async (attachment: any) => {
                   <ZoomIn className="text-white" size={18} />
                 </button>
 
-                {/* Окреме завантаження PDF */}
                 <a
                   href={pdfUrl}
                   target="_blank"
@@ -822,14 +818,13 @@ const handleAttachedFileDelete = async (attachment: any) => {
 
           <div className="flex-1 overflow-auto bg-slate-800">
             {isMobile ? (
-              // На мобільному не вбудовуємо PDF в iframe, а даємо кнопку відкрити
               <div className="flex flex-col items-center justify-center h-full p-6 gap-4">
                 <FileText className="text-orange-400" size={56} />
                 <p className="text-white font-semibold text-lg text-center">
                   {invoice.document_no || invoice.document_number}
                 </p>
                 <p className="text-white/60 text-sm text-center">
-                  {t('tapToOpen') || 'Tap the button below to open the PDF in your browser'}
+                  {t('tapToOpen') || 'Натисніть кнопку нижче, щоб відкрити PDF у браузері'}
                 </p>
                 <a
                   href={pdfUrl}
@@ -838,11 +833,10 @@ const handleAttachedFileDelete = async (attachment: any) => {
                   className="flex items-center gap-2 px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-semibold transition-all text-base"
                 >
                   <Download size={20} />
-                  {t('openPdf') || 'Open PDF'}
+                  {t('openPdf') || 'Відкрити PDF'}
                 </a>
               </div>
             ) : (
-              // На desktop показуємо PDF всередині сторінки
               <div className="p-4 flex justify-center">
                 <div
                   className="bg-white shadow-2xl"
