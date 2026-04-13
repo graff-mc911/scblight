@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -14,6 +14,7 @@ import {
   Edit2,
   Eye,
   Receipt,
+  ScanLine,
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { InvoicePreview } from '../components/InvoicePreview';
@@ -21,6 +22,9 @@ import { SignatureCanvas } from '../components/SignatureCanvas';
 import { supabase } from '../lib/supabase';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
+import { AnimatePresence } from 'framer-motion';
+import ReceiptScanReview from '../components/ReceiptScanReview';
+import { ScannedReceiptData } from '../lib/receiptOCR';
 
 type InvoiceAttachment = {
   id: string;
@@ -93,6 +97,11 @@ export const InvoiceView: React.FC = () => {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [showFullScreenPDF, setShowFullScreenPDF] = useState(false);
   const [pdfZoom, setPdfZoom] = useState(100);
+
+  // -------- OCR / Scan --------
+  const attachInputRef = useRef<HTMLInputElement>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const [scanFile, setScanFile] = useState<File | null>(null);
 
   const isMobile = window.innerWidth < 768;
 
@@ -254,6 +263,9 @@ export const InvoiceView: React.FC = () => {
     }
   }, [id, fetchInvoice]);
 
+  // ---------------------------------------------------------
+  // Звичайне вкладення файлу до інвойсу
+  // ---------------------------------------------------------
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -326,6 +338,48 @@ export const InvoiceView: React.FC = () => {
       setUploadingFile(false);
       e.target.value = '';
     }
+  };
+
+  // ---------------------------------------------------------
+  // Вибір файлу для OCR/розпізнавання
+  // ---------------------------------------------------------
+  const handleScanFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 20 * 1024 * 1024) {
+      showError('Файл занадто великий (макс. 20 МБ)');
+      e.target.value = '';
+      return;
+    }
+
+    setScanFile(file);
+    e.target.value = '';
+  };
+
+  // ---------------------------------------------------------
+  // Після OCR відкриваємо форму витрати,
+  // вже прив’язану до цього інвойсу і клієнта
+  // ---------------------------------------------------------
+  const handleScanConfirm = async (data: ScannedReceiptData, fileUrl: string) => {
+    setScanFile(null);
+
+    const params = new URLSearchParams({
+      issuer_name: data.store_name || '',
+      date: data.date || new Date().toISOString().split('T')[0],
+      amount_gross: String(data.total || ''),
+      amount_net: String(data.amount_net || ''),
+      vat_amount: String(data.vat_amount || ''),
+      payment_method: data.payment_method || 'Bar',
+      items: data.items || '',
+      file_url: fileUrl || '',
+      receipt_number: data.receipt_number || '',
+      link_mode: 'invoice',
+      client_id: client?.id || invoice?.client_id || '',
+      invoice_id: id || '',
+    });
+
+    navigate(`/receipt/new?${params.toString()}`);
   };
 
   const handleAttachmentDelete = async (attachment: InvoiceAttachment) => {
@@ -429,8 +483,7 @@ export const InvoiceView: React.FC = () => {
     [invoiceExpenses]
   );
   const totalInvoiceProfit = totalInvoiceAmount - totalInvoiceExpenses;
-  const statsCurrency =
-    invoice?.currency || invoiceExpenses[0]?.currency || 'EUR';
+  const statsCurrency = invoice?.currency || invoiceExpenses[0]?.currency || 'EUR';
 
   if (isLoading) {
     return (
@@ -649,26 +702,44 @@ export const InvoiceView: React.FC = () => {
       )}
 
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mt-6">
-        <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
           <h3 className="text-lg font-semibold text-white">
             {t('attachedFile') || 'Прикріплені файли'}
           </h3>
 
-          <label className="inline-block">
-            <input
-              type="file"
-              onChange={handleFileUpload}
-              disabled={uploadingFile}
-              accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-              className="hidden"
-              capture="environment"
-            />
-            <span className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-block">
-              {uploadingFile
-                ? t('uploading') || 'Завантаження...'
-                : 'Додати файл'}
-            </span>
-          </label>
+          <div className="flex gap-2 flex-wrap">
+            {/* Звичайне вкладення */}
+            <label className="inline-block">
+              <input
+                ref={attachInputRef}
+                type="file"
+                onChange={handleFileUpload}
+                disabled={uploadingFile}
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                className="hidden"
+                capture="environment"
+              />
+              <span className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-block">
+                {uploadingFile ? (t('uploading') || 'Завантаження...') : 'Додати файл'}
+              </span>
+            </label>
+
+            {/* OCR як у Lexware-логіці */}
+            <label className="inline-block">
+              <input
+                ref={scanInputRef}
+                type="file"
+                onChange={handleScanFileSelect}
+                accept="image/*,application/pdf"
+                className="hidden"
+                capture="environment"
+              />
+              <span className="bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-flex items-center gap-2">
+                <ScanLine size={16} />
+                Розпізнати чек
+              </span>
+            </label>
+          </div>
         </div>
 
         {attachments.length > 0 ? (
@@ -722,25 +793,41 @@ export const InvoiceView: React.FC = () => {
           <div className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center">
             <Upload className="mx-auto text-white/40 mb-3" size={32} />
             <p className="text-white/60 mb-4">
-              Додайте файл до цього інвойсу
+              Додайте файл або одразу розпізнайте чек
             </p>
 
-            <label className="inline-block">
-              <input
-                type="file"
-                onChange={handleFileUpload}
-                disabled={uploadingFile}
-                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                className="hidden"
-                capture="environment"
-              />
-              <span className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-block">
-                {uploadingFile ? 'Завантаження...' : 'Додати файл'}
-              </span>
-            </label>
+            <div className="flex gap-2 justify-center flex-wrap">
+              <label className="inline-block">
+                <input
+                  type="file"
+                  onChange={handleFileUpload}
+                  disabled={uploadingFile}
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  className="hidden"
+                  capture="environment"
+                />
+                <span className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-block">
+                  {uploadingFile ? 'Завантаження...' : 'Додати файл'}
+                </span>
+              </label>
+
+              <label className="inline-block">
+                <input
+                  type="file"
+                  onChange={handleScanFileSelect}
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  capture="environment"
+                />
+                <span className="bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-flex items-center gap-2">
+                  <ScanLine size={16} />
+                  Розпізнати чек
+                </span>
+              </label>
+            </div>
 
             <p className="text-white/40 text-xs mt-2">
-              PDF, DOC, DOCX, JPG, PNG до 10 МБ
+              PDF, JPG, PNG до 20 МБ
             </p>
           </div>
         )}
@@ -926,6 +1013,16 @@ export const InvoiceView: React.FC = () => {
           </div>
         </div>
       )}
+
+      <AnimatePresence>
+        {scanFile && (
+          <ReceiptScanReview
+            file={scanFile}
+            onClose={() => setScanFile(null)}
+            onConfirm={handleScanConfirm}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
