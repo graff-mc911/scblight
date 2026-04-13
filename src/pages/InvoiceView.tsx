@@ -172,7 +172,14 @@ const [uploadingFile, setUploadingFile] = useState(false); // URL прикріп
       setInvoice(invoiceWithItems);
 
       // Якщо в інвойсі вже є прикріплений файл — записуємо його в state
-      setAttachedFile(invoiceData.attached_file_url || null);
+   const { data: attachmentsData } = await supabase
+  .from('invoice_attachments')
+  .select('*')
+  .eq('invoice_id', id)
+  .eq('user_id', user.id)
+  .order('created_at', { ascending: false });
+
+setAttachments(attachmentsData || []);
 
       // Спочатку пробуємо взяти pdf_url прямо з інвойсу
       let resolvedPdfUrl = invoiceData.pdf_url || null;
