@@ -1,6 +1,16 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Receipt, ChevronRight, CheckCircle, Download, Trash2, FileText, Upload, X, ZoomIn } from 'lucide-react';
+import {
+  Receipt,
+  ChevronRight,
+  CheckCircle,
+  Download,
+  Trash2,
+  FileText,
+  Upload,
+  X,
+  ZoomIn,
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
@@ -12,30 +22,51 @@ import { downloadReceiptPDF } from '../lib/receiptPdfGenerator';
 import ReceiptScanReview from '../components/ReceiptScanReview';
 import { ScannedReceiptData } from '../lib/receiptOCR';
 
-interface ReceiptType {
+interface ExpenseDocumentType {
   id: string;
-  store_name: string;
-  date: string;
-  total: number;
-  items: string;
+  vendor_name: string;
+  document_date: string;
+  total_amount: number;
+  ocr_raw_text: string;
   payment_method: string;
-  receipt_number: string;
-  file_url: string;
+  document_number: string;
+  original_file_url: string;
   created_at: string;
+  currency: string;
+  document_type: string;
+  expense_category: string;
+  client_id: string | null;
+  invoice_id: string | null;
+  amount_net?: number | null;
+  vat_rate?: number | null;
+  vat_amount?: number | null;
+  vat_enabled?: boolean | null;
+  notes?: string | null;
 }
 
-const ReceiptThumbnail: React.FC<{ fileUrl?: string; onView?: () => void }> = ({ fileUrl, onView }) => {
+const ReceiptThumbnail: React.FC<{
+  fileUrl?: string;
+  onView?: () => void;
+}> = ({ fileUrl, onView }) => {
   const [imgError, setImgError] = useState(false);
 
   if (fileUrl && !imgError) {
     const isImage = /\.(jpg|jpeg|png|gif|webp|heic|heif)(\?|$)/i.test(fileUrl);
+
     if (isImage) {
       return (
         <div
-          className={`w-12 h-14 rounded-lg bg-white/10 border border-white/10 flex-shrink-0 overflow-hidden relative group ${onView ? 'cursor-pointer' : ''}`}
+          className={`w-12 h-14 rounded-lg bg-white/10 border border-white/10 flex-shrink-0 overflow-hidden relative group ${
+            onView ? 'cursor-pointer' : ''
+          }`}
           onClick={onView}
         >
-          <img src={fileUrl} alt="" className="w-full h-full object-cover" onError={() => setImgError(true)} />
+          <img
+            src={fileUrl}
+            alt=""
+            className="w-full h-full object-cover"
+            onError={() => setImgError(true)}
+          />
           {onView && (
             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
               <ZoomIn size={14} className="text-white" />
@@ -44,6 +75,7 @@ const ReceiptThumbnail: React.FC<{ fileUrl?: string; onView?: () => void }> = ({
         </div>
       );
     }
+
     return (
       <div className="w-12 h-14 rounded-lg bg-white/10 border border-white/10 flex-shrink-0 overflow-hidden flex items-center justify-center">
         <Receipt size={20} className="text-white/40" />
@@ -57,7 +89,13 @@ const ReceiptThumbnail: React.FC<{ fileUrl?: string; onView?: () => void }> = ({
         {[...Array(6)].map((_, i) => (
           <div
             key={i}
-            className={`h-px rounded-full ${i === 1 ? 'bg-white/40 w-3/4' : i === 2 ? 'bg-white/20 w-full' : 'bg-white/15 w-full'}`}
+            className={`h-px rounded-full ${
+              i === 1
+                ? 'bg-white/40 w-3/4'
+                : i === 2
+                ? 'bg-white/20 w-full'
+                : 'bg-white/15 w-full'
+            }`}
           />
         ))}
         <div className="h-2 mt-0.5 bg-white/5 rounded-sm w-full" />
@@ -69,12 +107,19 @@ const ReceiptThumbnail: React.FC<{ fileUrl?: string; onView?: () => void }> = ({
   );
 };
 
-const PaidBadge: React.FC<{ method: string }> = ({ method }) => {
-  if (!method) return null;
+const PaidBadge: React.FC<{ method: string; category?: string; documentType?: string }> = ({
+  method,
+  category,
+  documentType,
+}) => {
+  const parts = [method, category, documentType].filter(Boolean);
+
+  if (parts.length === 0) return null;
+
   return (
     <span className="flex items-center gap-1 text-xs text-white/50">
       <CheckCircle size={12} className="text-white/40" />
-      {method}
+      {parts.join(' • ')}
     </span>
   );
 };
@@ -85,11 +130,15 @@ export default function Receipts() {
   const { showSuccess, showError } = useToastContext();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [scanFile, setScanFile] = useState<File | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [receiptToDelete, setReceiptToDelete] = useState<string | null>(null);
+  const [expenseToDelete, setExpenseToDelete] = useState<string | null>(null);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
 
+  // ---------------------------------------------------------
+  // 1. Сесія користувача
+  // ---------------------------------------------------------
   const { data: session } = useQuery({
     queryKey: ['session'],
     queryFn: async () => {
@@ -98,130 +147,162 @@ export default function Receipts() {
     },
   });
 
-  const { data: receipts = [], isLoading } = useQuery({
-    queryKey: ['receipts', session?.user?.id],
+  // ---------------------------------------------------------
+  // 2. Завантаження всіх документів витрат
+  // ---------------------------------------------------------
+  const { data: expenses = [], isLoading } = useQuery({
+    queryKey: ['expense_documents', session?.user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('receipts')
+        .from('expense_documents')
         .select('*')
         .eq('user_id', session?.user?.id || '')
-        .order('date', { ascending: false });
+        .order('document_date', { ascending: false });
+
       if (error) throw error;
-      return (data || []) as ReceiptType[];
+
+      return (data || []) as ExpenseDocumentType[];
     },
     enabled: !!session?.user?.id,
   });
 
+  // ---------------------------------------------------------
+  // 3. Формат суми
+  // ---------------------------------------------------------
   const formatCurrency = useCallback((amount: number, currency?: string) => {
-    return new Intl.NumberFormat('de-DE', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount) + ' ' + (currency || '€');
+    return (
+      new Intl.NumberFormat('de-DE', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(amount) +
+      ' ' +
+      (currency || 'EUR')
+    );
   }, []);
 
+  // ---------------------------------------------------------
+  // 4. Видалення документа витрат
+  // ---------------------------------------------------------
   const handleDeleteConfirm = useCallback(async () => {
-    if (!receiptToDelete) return;
+    if (!expenseToDelete) return;
+
     try {
-      const { error } = await supabase.from('receipts').delete().eq('id', receiptToDelete);
+      const { error } = await supabase
+        .from('expense_documents')
+        .delete()
+        .eq('id', expenseToDelete);
+
       if (error) throw error;
-      showSuccess(t('receiptDeleted') || 'Receipt deleted successfully');
-      queryClient.invalidateQueries({ queryKey: ['receipts'] });
+
+      showSuccess('Документ витрат видалено');
+      queryClient.invalidateQueries({ queryKey: ['expense_documents'] });
     } catch {
-      showError(t('deleteFailed') || 'Failed to delete receipt');
+      showError('Не вдалося видалити документ витрат');
     } finally {
       setDeleteDialogOpen(false);
-      setReceiptToDelete(null);
+      setExpenseToDelete(null);
     }
-  }, [receiptToDelete, showSuccess, showError, t, queryClient]);
+  }, [expenseToDelete, showSuccess, showError, queryClient]);
 
-  const handleUploadFromDevice = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    if (file.size > 20 * 1024 * 1024) { showError('Datei zu groß (max. 20 MB)'); return; }
-    setScanFile(file);
-  }, [showError]);
+  // ---------------------------------------------------------
+  // 5. Завантаження файлу з пристрою для OCR
+  // ---------------------------------------------------------
+  const handleUploadFromDevice = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
 
-  const handleScanConfirm = useCallback(async (data: ScannedReceiptData, fileUrl: string) => {
-    setScanFile(null);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { navigate('/unlock'); return; }
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
 
-      const gross = parseFloat(data.total) || 0;
-      const receiptData = {
-        user_id: user.id,
-        store_name: data.store_name || '',
+      if (file.size > 20 * 1024 * 1024) {
+        showError('Файл занадто великий (макс. 20 МБ)');
+        return;
+      }
+
+      setScanFile(file);
+    },
+    [showError]
+  );
+
+  // ---------------------------------------------------------
+  // 6. Після OCR переходимо в форму створення документа витрат
+  // ---------------------------------------------------------
+  // Замість прямого insert одразу переходимо на ReceiptForm,
+  // де користувач ще вибере:
+  // - тип документа
+  // - без прив’язки / до клієнта / до інвойсу
+  const handleScanConfirm = useCallback(
+    async (data: ScannedReceiptData, fileUrl: string) => {
+      setScanFile(null);
+
+      const params = new URLSearchParams({
         issuer_name: data.store_name || '',
         date: data.date || new Date().toISOString().split('T')[0],
-        total: gross,
-        amount_gross: gross,
-        amount_net: parseFloat(data.amount_net) || 0,
-        vat_rate: parseFloat(data.vat_rate) || 0,
-        vat_amount: parseFloat(data.vat_amount) || 0,
-        vat_enabled: data.vat_enabled,
-        currency: data.currency || 'EUR',
-        items: data.items || '',
+        amount_gross: String(data.total || ''),
+        amount_net: String(data.amount_net || ''),
+        vat_amount: String(data.vat_amount || ''),
         payment_method: data.payment_method || 'Bar',
-        receipt_number: data.receipt_number || '',
+        items: data.items || '',
         file_url: fileUrl || '',
-        updated_at: new Date().toISOString(),
-      };
+        receipt_number: data.receipt_number || '',
+      });
 
-      const { data: saved, error } = await supabase
-        .from('receipts')
-        .insert([receiptData])
-        .select()
-        .maybeSingle();
-
-      if (error) throw error;
-
-      queryClient.invalidateQueries({ queryKey: ['receipts'] });
-
-      if (saved?.id) {
-        navigate(`/receipt/${saved.id}`);
-      } else {
-        navigate('/receipts');
-      }
-    } catch {
-      showError('Beleg konnte nicht gespeichert werden');
-      navigate('/receipts');
-    }
-  }, [navigate, queryClient, showError]);
+      navigate(`/receipt/new?${params.toString()}`);
+    },
+    [navigate]
+  );
 
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-2xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-2xl font-semibold text-white">{t('allReceipts') || t('receipts')}</h2>
-          <p className="text-white/60 text-sm mt-1">{t('manageReceipts') || 'Manage your receipts'}</p>
+          <h2 className="text-2xl font-semibold text-white">
+            Документи витрат
+          </h2>
+          <p className="text-white/60 text-sm mt-1">
+            Чеки, рахунки постачальників, рахунки субпідрядників
+          </p>
         </div>
 
         <div className="flex gap-2">
+          {/* Кнопка OCR / завантаження файлу */}
           <button
             onClick={() => fileInputRef.current?.click()}
             className="p-2.5 rounded-xl bg-white/8 border border-white/10 text-white/60 hover:bg-white/15 hover:text-white/90 transition-all active:scale-95"
-            title="Foto vom Gerät hochladen"
+            title="Завантажити фото або PDF"
           >
             <Upload size={18} />
           </button>
+
+          {/* Кнопка ручного створення */}
           <button
-            onClick={() => navigate('/pdf-creator')}
+            onClick={() => navigate('/receipt/new')}
             className="flex items-center gap-2 px-3 py-2 rounded-xl bg-orange-500/15 border border-orange-500/30 text-orange-400 hover:bg-orange-500/25 transition-all active:scale-95 text-sm font-medium"
           >
             <FileText size={16} />
-            {t('createPdfBtn')}
+            Новий
           </button>
         </div>
       </div>
 
-      <input ref={fileInputRef} type="file" accept="image/*,application/pdf" onChange={handleUploadFromDevice} className="hidden" />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,application/pdf"
+        onChange={handleUploadFromDevice}
+        className="hidden"
+      />
 
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-lg">
         {isLoading ? (
           <div>
             {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="flex items-center gap-4 px-4 py-4 border-b border-white/5 animate-pulse last:border-0">
+              <div
+                key={i}
+                className="flex items-center gap-4 px-4 py-4 border-b border-white/5 animate-pulse last:border-0"
+              >
                 <div className="w-12 h-14 rounded-lg bg-white/10 flex-shrink-0" />
                 <div className="flex-1">
                   <div className="h-3 bg-white/10 rounded w-24 mb-2" />
@@ -235,26 +316,33 @@ export default function Receipts() {
               </div>
             ))}
           </div>
-        ) : receipts.length === 0 ? (
+        ) : expenses.length === 0 ? (
           <div className="text-center py-16 px-4">
             <div className="w-16 h-16 bg-orange-500/20 rounded-xl flex items-center justify-center mx-auto mb-4">
               <Receipt size={32} className="text-orange-400" />
             </div>
-            <h3 className="text-lg font-semibold text-white mb-2">{t('receiptsNotFound') || 'No receipts yet'}</h3>
-            <p className="text-white/60 mb-6 text-sm">{t('addFirstReceipt') || 'Scan or upload your first receipt to get started'}</p>
+
+            <h3 className="text-lg font-semibold text-white mb-2">
+              Документів витрат ще немає
+            </h3>
+
+            <p className="text-white/60 mb-6 text-sm">
+              Завантаж чек, PDF або створіть документ вручну
+            </p>
+
             <button
-              onClick={() => navigate('/pdf-creator')}
+              onClick={() => navigate('/receipt/new')}
               className="bg-orange-500/15 border border-orange-500/30 text-orange-400 hover:bg-orange-500/25 px-6 py-2.5 rounded-xl font-medium transition-all active:scale-95 flex items-center gap-2 mx-auto"
             >
               <FileText size={16} />
-              {t('createPdfBtn')}
+              Створити документ
             </button>
           </div>
         ) : (
           <div>
-            {receipts.map((receipt, index) => (
+            {expenses.map((expense, index) => (
               <motion.div
-                key={receipt.id}
+                key={expense.id}
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.04 }}
@@ -262,66 +350,108 @@ export default function Receipts() {
                 <div className="flex items-center w-full group">
                   <div className="pl-4">
                     <ReceiptThumbnail
-                      fileUrl={receipt.file_url}
-                      onView={/\.(jpg|jpeg|png|gif|webp|heic|heif)(\?|$)/i.test(receipt.file_url || '') ? () => setViewerUrl(receipt.file_url) : undefined}
+                      fileUrl={expense.original_file_url}
+                      onView={
+                        /\.(jpg|jpeg|png|gif|webp|heic|heif)(\?|$)/i.test(
+                          expense.original_file_url || ''
+                        )
+                          ? () => setViewerUrl(expense.original_file_url)
+                          : undefined
+                      }
                     />
                   </div>
+
                   <button
                     className="flex-1 min-w-0 flex items-center gap-4 px-3 py-4 hover:bg-white/5 active:bg-white/8 transition-all text-left"
-                    onClick={() => navigate(`/receipt/${receipt.id}`)}
+                    onClick={() => navigate(`/receipt/${expense.id}`)}
                   >
                     <div style={{ display: 'none' }} />
 
                     <div className="flex-1 min-w-0">
                       <div className="text-xs text-white/40 mb-0.5">
-                        {receipt.receipt_number ? `Ausgabe ${receipt.receipt_number}` : '—'}
+                        {expense.document_number
+                          ? `Документ ${expense.document_number}`
+                          : '—'}
                       </div>
+
                       <div className="font-semibold text-white text-base leading-tight truncate">
-                        {receipt.store_name || '—'}
+                        {expense.vendor_name || '—'}
                       </div>
+
                       <div className="mt-1">
-                        <PaidBadge method={receipt.payment_method} />
+                        <PaidBadge
+                          method={expense.payment_method}
+                          category={expense.expense_category}
+                          documentType={expense.document_type}
+                        />
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <div className="text-right">
                         <div className="text-xs text-white/40 mb-0.5">
-                          {receipt.date ? format(new Date(receipt.date), 'dd.MM.yyyy') : '—'}
+                          {expense.document_date
+                            ? format(new Date(expense.document_date), 'dd.MM.yyyy')
+                            : '—'}
                         </div>
+
                         <div className="font-semibold text-white text-base">
-                          {formatCurrency(Number(receipt.total || 0))}
+                          {formatCurrency(
+                            Number(expense.total_amount || 0),
+                            expense.currency || 'EUR'
+                          )}
                         </div>
                       </div>
+
                       <ChevronRight size={16} className="text-white/30" />
                     </div>
                   </button>
 
+                  {/* Завантажити PDF документа */}
                   <button
                     className="mr-1 p-2 rounded-lg bg-white/10 hover:bg-orange-500/20 border border-white/10 hover:border-orange-500/30 text-white/50 hover:text-orange-400 transition-all active:scale-95 flex-shrink-0"
                     title={t('saveAsPdf') || 'Save as PDF'}
                     onClick={async (e) => {
                       e.stopPropagation();
-                      await downloadReceiptPDF(receipt);
+
+                      await downloadReceiptPDF({
+                        id: expense.id,
+                        store_name: expense.vendor_name,
+                        date: expense.document_date,
+                        total: Number(expense.total_amount || 0),
+                        items: expense.ocr_raw_text || '',
+                        payment_method: expense.payment_method || '',
+                        receipt_number: expense.document_number || '',
+                        file_url: expense.original_file_url || '',
+                        issuer_name: expense.vendor_name || '',
+                        amount_net: Number(expense.amount_net || 0),
+                        vat_rate: Number(expense.vat_rate || 0),
+                        vat_amount: Number(expense.vat_amount || 0),
+                        amount_gross: Number(expense.total_amount || 0),
+                        vat_enabled: !!expense.vat_enabled,
+                        currency: expense.currency || 'EUR',
+                        signature_data: '',
+                      });
                     }}
                   >
                     <Download size={14} />
                   </button>
 
+                  {/* Видалення */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setReceiptToDelete(receipt.id);
+                      setExpenseToDelete(expense.id);
                       setDeleteDialogOpen(true);
                     }}
                     className="mr-3 pl-1 pr-2 py-4 text-white/30 hover:text-red-400 transition-colors active:scale-90 md:opacity-0 md:group-hover:opacity-100"
-                    title={t('delete')}
+                    title={t('delete') || 'Delete'}
                   >
                     <Trash2 size={16} />
                   </button>
                 </div>
 
-                {index < receipts.length - 1 && (
+                {index < expenses.length - 1 && (
                   <div className="ml-20 border-b border-white/5" />
                 )}
               </motion.div>
@@ -332,10 +462,13 @@ export default function Receipts() {
 
       <ConfirmDialog
         open={deleteDialogOpen}
-        onClose={() => { setDeleteDialogOpen(false); setReceiptToDelete(null); }}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setExpenseToDelete(null);
+        }}
         onConfirm={handleDeleteConfirm}
-        title={t('deleteReceipt') || 'Delete Receipt'}
-        description={t('deleteReceiptConfirm') || 'Are you sure you want to delete this receipt? This action cannot be undone.'}
+        title="Видалити документ витрат"
+        description="Ви впевнені, що хочете видалити цей документ? Цю дію не можна скасувати."
       />
 
       <AnimatePresence>
@@ -347,18 +480,40 @@ export default function Receipts() {
             className="fixed inset-0 z-[70] bg-black flex flex-col"
             onClick={() => setViewerUrl(null)}
           >
-            <div className="flex items-center justify-between px-4 py-3 bg-black/90 border-b border-white/5" onClick={e => e.stopPropagation()}>
-              <button onClick={() => setViewerUrl(null)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all">
+            <div
+              className="flex items-center justify-between px-4 py-3 bg-black/90 border-b border-white/5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setViewerUrl(null)}
+                className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all"
+              >
                 <X size={20} className="text-white" />
               </button>
-              <span className="text-white/70 text-sm font-medium">Original-Beleg</span>
+
+              <span className="text-white/70 text-sm font-medium">
+                Оригінальний документ
+              </span>
+
               <div className="w-10" />
             </div>
-            <div className="flex-1 overflow-auto p-4 flex items-start justify-center" onClick={e => e.stopPropagation()}>
-              <img src={viewerUrl} alt="Original receipt" className="max-w-full rounded-lg shadow-2xl" style={{ minWidth: '100%', objectFit: 'contain' }} />
+
+            <div
+              className="flex-1 overflow-auto p-4 flex items-start justify-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={viewerUrl}
+                alt="Original receipt"
+                className="max-w-full rounded-lg shadow-2xl"
+                style={{ minWidth: '100%', objectFit: 'contain' }}
+              />
             </div>
+
             <div className="p-3 bg-black/90 border-t border-white/5">
-              <p className="text-white/30 text-xs text-center">Antippen zum Schließen</p>
+              <p className="text-white/30 text-xs text-center">
+                Натисніть, щоб закрити
+              </p>
             </div>
           </motion.div>
         )}
