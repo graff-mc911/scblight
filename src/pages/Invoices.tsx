@@ -380,22 +380,20 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
       // 3. Формуємо payload для таблиці invoices
       const parsedAmount = parsedAmountCheck;
 
-      const payload = {
-        user_id: userId,
-        client_name: issuer || pdfFile.name.replace(/\.pdf$/i, ''),
-        date: invoiceDate,
-        status: 'paid',
-        source: 'uploaded',
-        uploaded_pdf_url: publicUrl,
-        pdf_url: publicUrl,
-        uploaded_amount: parsedAmount,
-        total_net: parsedAmount,
-        total_gross: parsedAmount,
-        currency: 'EUR',
-        document_type: 'expense',
-        document_no: `EXT-${Date.now().toString().slice(-6)}`,
-      };
-
+    const payload = {
+  user_id: userId,
+  client_name: issuer || pdfFile.name.replace(/\.pdf$/i, ''),
+  date: invoiceDate,
+  status: 'paid',
+  uploaded_pdf_url: publicUrl,
+  pdf_url: publicUrl,
+  uploaded_amount: parsedAmount,
+  total_net: parsedAmount,
+  total_gross: parsedAmount,
+  currency: 'EUR',
+  document_type: 'expense',
+  document_no: `EXT-${Date.now().toString().slice(-6)}`,
+};
       console.log('INVOICE PAYLOAD:', payload);
 
       // 4. Записуємо рахунок у таблицю invoices
