@@ -1,118 +1,277 @@
 import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Users, Search, CreditCard as Edit2, Trash2, Eye } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { supabase } from '../lib/supabase';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { motion } from 'framer-motion';
 import { offlineStore } from '../lib/offlineStore';
+
+// Тип одного клієнта.
+// Це допомагає уникати помилок у полях і робить код зрозумілішим.
+type Client = {
+  id: string;
+  user_id?: string;
+  client_number?: string | null;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+};
+
+// Головний компонент сторінки клієнтів.
+// Тут:
+// - показується список клієнтів
+// - працює пошук
+// - є кнопка створення нового клієнта
+// - є кнопки перегляду, редагування та видалення
 export const Clients: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const { showSuccess, showError } = useToastContext();
-  const [search, setSearch] = useState('');
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [clientToDelete, setClientToDelete] = useState<{ id: string; name: string } | null>(null);
   const queryClient = useQueryClient();
 
+  // Локальний стан поля пошуку.
+  const [search, setSearch] = useState('');
+
+  // Стан модального вікна підтвердження видалення.
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  // Тут зберігаємо клієнта, якого користувач хоче видалити.
+  const [clientToDelete, setClientToDelete] = useState<{ id: string; name: string } | null>(null);
+
+  // ---------------------------------------------------------
+  // 1. Отримання поточної сесії користувача
+  // ---------------------------------------------------------
+  // Потрібно для того, щоб:
+  // - знати user_id
+  // - завантажувати тільки своїх клієнтів
+  // - безпечно видаляти тільки свої записи
   const { data: session } = useQuery({
     queryKey: ['session'],
     queryFn: async () => {
-      const { data } = await supabase.auth.getSession();
+      const { data, error } = await supabase.auth.getSession();
+
+      if (error) {
+        throw error;
+      }
+
       return data.session;
     },
   });
 
-  const { data: clients = [], isLoading } = useQuery({
+  // ---------------------------------------------------------
+  // 2. Завантаження списку клієнтів
+  // ---------------------------------------------------------
+  // Логіка така:
+  // - якщо немає інтернету -> беремо дані з offlineStore
+  // - якщо інтернет є -> тягнемо з Supabase
+  // - якщо Supabase дав помилку -> теж пробуємо offlineStore
+  // - якщо Supabase віддав дані успішно -> кешуємо їх локально
+  const { data: clients = [], isLoading } = useQuery<Client[]>({
     queryKey: ['clients', session?.user?.id],
     queryFn: async () => {
       const userId = session?.user?.id || '';
+
+      if (!userId) return [];
+
+      // Якщо немає інтернету — повертаємо локально збережені клієнти.
       if (!navigator.onLine) {
         return offlineStore.getClients(userId);
       }
+
       const { data, error } = await supabase
         .from('clients')
         .select('*')
         .eq('user_id', userId)
         .order('name', { ascending: true });
+
+      // Якщо є помилка з мережею / базою —
+      // пробуємо показати локально збережені дані.
       if (error) {
+        console.error('Помилка завантаження клієнтів:', error);
         return offlineStore.getClients(userId);
       }
-      const rows = data || [];
+
+      const rows = (data as Client[]) || [];
+
+      // Оновлюємо локальний кеш клієнтів.
       await offlineStore.saveClients(rows);
+
       return rows;
     },
     enabled: !!session?.user?.id,
   });
 
+  // ---------------------------------------------------------
+  // 3. Видалення клієнта
+  // ---------------------------------------------------------
+  // Видалення робимо через useMutation.
+  // Після успіху:
+  // - оновлюємо список клієнтів
+  // - закриваємо ConfirmDialog
+  // - очищаємо clientToDelete
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('clients').delete().eq('id', id);
+      const userId = session?.user?.id;
+
+      if (!userId) {
+        throw new Error('Користувач не авторизований');
+      }
+
+      const { error } = await supabase
+        .from('clients')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', userId);
+
       if (error) throw error;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['clients'] });
-      showSuccess(t('clientDeleted') || 'Client deleted successfully');
+
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['clients'] });
+
+      showSuccess(t('clientDeleted') || 'Контакт видалено');
+
       setDeleteDialogOpen(false);
       setClientToDelete(null);
     },
-    onError: () => {
-      showError(t('errorDeletingClient') || 'Failed to delete client');
+
+    onError: (error: any) => {
+      console.error('Помилка видалення клієнта:', error);
+      showError(error?.message || t('errorDeletingClient') || 'Не вдалося видалити контакт');
     },
   });
 
-  const handleDeleteClick = useCallback((e: React.MouseEvent, id: string, name: string) => {
-    e.stopPropagation();
-    setClientToDelete({ id, name });
-    setDeleteDialogOpen(true);
-  }, []);
+  // ---------------------------------------------------------
+  // 4. Відкриття діалогу підтвердження видалення
+  // ---------------------------------------------------------
+  // stopPropagation потрібен, щоб клік по кнопці смітника
+  // не запускав одночасно клік по всій картці.
+  const handleDeleteClick = useCallback(
+    (e: React.MouseEvent, id: string, name: string) => {
+      e.stopPropagation();
+      setClientToDelete({ id, name });
+      setDeleteDialogOpen(true);
+    },
+    []
+  );
 
+  // ---------------------------------------------------------
+  // 5. Підтвердження видалення
+  // ---------------------------------------------------------
   const handleDeleteConfirm = useCallback(() => {
     if (clientToDelete) {
       deleteMutation.mutate(clientToDelete.id);
     }
   }, [clientToDelete, deleteMutation]);
 
-  const filteredClients = clients.filter((client) =>
-    client.name?.toLowerCase().includes(search.toLowerCase()) ||
-    client.email?.toLowerCase().includes(search.toLowerCase()) ||
-    client.address?.toLowerCase().includes(search.toLowerCase()) ||
-    client.client_number?.toString().includes(search)
+  // ---------------------------------------------------------
+  // 6. Перехід на сторінку перегляду контакту
+  // ---------------------------------------------------------
+  // Тут навігація веде саме на сторінку контакту, а не в інвойси.
+  const handleViewClient = useCallback(
+    (e: React.MouseEvent, clientId: string) => {
+      e.stopPropagation();
+      navigate(`/clients/${clientId}`);
+    },
+    [navigate]
   );
+
+  // ---------------------------------------------------------
+  // 7. Перехід на сторінку редагування контакту
+  // ---------------------------------------------------------
+  // ВАЖЛИВО:
+  // цей маршрут має співпадати з твоїм Router.
+  // Якщо у тебе в роутері форма редагування сидить на /clients/:id/edit,
+  // тоді цей варіант правильний.
+  const handleEditClient = useCallback(
+    (e: React.MouseEvent, clientId: string) => {
+      e.stopPropagation();
+      navigate(`/clients/${clientId}/edit`);
+    },
+    [navigate]
+  );
+
+  // ---------------------------------------------------------
+  // 8. Клік по всій картці
+  // ---------------------------------------------------------
+  // Робимо поведінку логічною:
+  // якщо користувач натиснув не на кнопку, а на саму картку,
+  // відкривається перегляд контакту.
+  const handleCardClick = useCallback(
+    (clientId: string) => {
+      navigate(`/clients/${clientId}`);
+    },
+    [navigate]
+  );
+
+  // ---------------------------------------------------------
+  // 9. Фільтрація списку клієнтів по пошуку
+  // ---------------------------------------------------------
+  // Шукаємо по:
+  // - імені
+  // - email
+  // - адресі
+  // - номеру клієнта
+  const filteredClients = clients.filter((client) => {
+    const searchValue = search.toLowerCase().trim();
+
+    return (
+      client.name?.toLowerCase().includes(searchValue) ||
+      client.email?.toLowerCase().includes(searchValue) ||
+      client.address?.toLowerCase().includes(searchValue) ||
+      client.client_number?.toLowerCase().includes(searchValue)
+    );
+  });
 
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-6xl mx-auto">
+      {/* Верхня панель сторінки */}
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-2xl font-semibold text-white">{t('clients')}</h2>
-          <p className="text-white/60 text-sm mt-1">{t('manageClients') || 'Manage your clients'}</p>
+          <h2 className="text-2xl font-semibold text-white">
+            {t('clients') || 'Клієнти'}
+          </h2>
+          <p className="text-white/60 text-sm mt-1">
+            {t('manageClients') || 'Керуйте своїми клієнтами'}
+          </p>
         </div>
 
+        {/* Кнопка створення нового клієнта */}
         <div className="flex gap-2">
           <button
+            type="button"
             onClick={() => navigate('/clients/new')}
             className="p-2.5 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 transition-all active:scale-95"
-            title={t('addClient') || 'New Client'}
+            title={t('addClient') || 'Новий клієнт'}
           >
             <Plus size={16} />
           </button>
         </div>
       </div>
 
+      {/* Основний блок списку клієнтів */}
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-lg">
+        {/* Поле пошуку */}
         <div className="relative mb-4">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+          <Search
+            size={15}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"
+          />
           <input
             type="text"
-            placeholder={t('searchClients') || 'Name, address, number...'}
+            placeholder={t('searchClients') || 'Пошук по імені, адресі, номеру...'}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/20 transition-colors"
           />
         </div>
 
+        {/* Стан завантаження */}
         {isLoading ? (
           <div className="space-y-3">
             {[1, 2, 3, 4].map((i) => (
@@ -123,32 +282,43 @@ export const Clients: React.FC = () => {
             ))}
           </div>
         ) : filteredClients.length === 0 ? (
+          // Якщо клієнтів немає
           <div className="text-center py-16">
             <div className="w-16 h-16 bg-orange-500/20 rounded-xl flex items-center justify-center mx-auto mb-4">
               <Users size={32} className="text-orange-400" />
             </div>
+
             <h3 className="text-lg font-semibold text-white mb-2">
-              {search ? (t('noSearchResults') || 'No results found') : (t('noClients') || 'No clients yet')}
+              {search
+                ? t('noSearchResults') || 'Нічого не знайдено'
+                : t('noClients') || 'Клієнтів ще немає'}
             </h3>
+
             <p className="text-white/60 mb-6 text-sm">
-              {search ? (t('tryDifferentSearch') || 'Try a different search term') : (t('addFirstClient') || 'Add your first client to get started')}
+              {search
+                ? t('tryDifferentSearch') || 'Спробуйте інший пошуковий запит'
+                : t('addFirstClient') || 'Додайте першого клієнта'}
             </p>
+
             {!search && (
               <button
+                type="button"
                 onClick={() => navigate('/clients/new')}
                 className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-6 py-2.5 rounded-xl font-medium transition-all active:scale-95"
               >
-                {t('addClient') || 'Add Client'}
+                {t('addClient') || 'Додати клієнта'}
               </button>
             )}
           </div>
         ) : (
+          // Таблиця / список клієнтів
           <div className="space-y-3">
+            {/* Заголовки колонок для desktop */}
             <div className="hidden md:grid grid-cols-[2fr_1.5fr_1fr_auto] gap-4 px-4 py-2 text-xs font-medium text-white/50 uppercase">
-              <div>{t('name') || 'Name'}</div>
-              <div>{t('address') || 'Address'}</div>
-              <div>{t('clientNumber') || 'Number'}</div>
-              <div className="text-right pr-2">{t('actions')}</div>
+              <div>{t('name') || "Ім'я"}</div>
+              <div>{t('address') || 'Адреса'}</div>
+              <div>{t('clientNumber') || 'Номер'}</div>
+              <div className="text-right pr-2">{t('actions') || 'Дії'}</div>
             </div>
 
             {filteredClients.map((client, index) => (
@@ -158,42 +328,59 @@ export const Clients: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
                 className="grid grid-cols-1 md:grid-cols-[2fr_1.5fr_1fr_auto] gap-3 md:gap-4 px-4 py-3 rounded-xl hover:bg-white/5 transition-all cursor-pointer"
-                onClick={() => navigate(`/clients/${client.id}/invoices`)}
+                onClick={() => handleCardClick(client.id)}
               >
+                {/* Ім'я + email */}
                 <div>
-                  <span className="font-medium text-white">{client.name}</span>
+                  <span className="font-medium text-white">
+                    {client.name || '—'}
+                  </span>
+
                   {client.email && (
-                    <div className="text-sm text-white/50 mt-0.5">{client.email}</div>
+                    <div className="text-sm text-white/50 mt-0.5">
+                      {client.email}
+                    </div>
                   )}
                 </div>
 
+                {/* Адреса */}
                 <div className="text-white/60 text-sm truncate">
                   {client.address || '—'}
                 </div>
 
+                {/* Номер клієнта */}
                 <div className="text-white/60 text-sm">
                   {client.client_number || '—'}
                 </div>
 
+                {/* Кнопки дій */}
                 <div className="flex items-center gap-2 justify-end">
+                  {/* Перегляд контакту */}
                   <button
-                    onClick={(e) => { e.stopPropagation(); navigate(`/clients/${client.id}/invoices`); }}
+                    type="button"
+                    onClick={(e) => handleViewClient(e, client.id)}
                     className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-blue-400 transition-all active:scale-95"
-                    title={t('view')}
+                    title={t('view') || 'Переглянути'}
                   >
                     <Eye size={16} />
                   </button>
+
+                  {/* Редагування контакту */}
                   <button
-                    onClick={(e) => { e.stopPropagation(); navigate(`/clients/${client.id}`); }}
+                    type="button"
+                    onClick={(e) => handleEditClient(e, client.id)}
                     className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-orange-400 transition-all active:scale-95"
-                    title={t('edit')}
+                    title={t('edit') || 'Редагувати'}
                   >
                     <Edit2 size={16} />
                   </button>
+
+                  {/* Видалення контакту */}
                   <button
-                    onClick={(e) => handleDeleteClick(e, client.id, client.name)}
+                    type="button"
+                    onClick={(e) => handleDeleteClick(e, client.id, client.name || 'Без назви')}
                     className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-red-400 transition-all active:scale-95"
-                    title={t('delete')}
+                    title={t('delete') || 'Видалити'}
                   >
                     <Trash2 size={16} />
                   </button>
@@ -204,12 +391,16 @@ export const Clients: React.FC = () => {
         )}
       </div>
 
+      {/* Діалог підтвердження видалення */}
       <ConfirmDialog
         open={deleteDialogOpen}
-        onClose={() => { setDeleteDialogOpen(false); setClientToDelete(null); }}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setClientToDelete(null);
+        }}
         onConfirm={handleDeleteConfirm}
-        title={t('deleteClient') || 'Delete Client'}
-        description={`${t('confirmDeleteClient') || 'Are you sure you want to delete'} "${clientToDelete?.name}"? ${t('actionCannotBeUndone') || 'This action cannot be undone.'}`}
+        title={t('deleteClient') || 'Видалити контакт'}
+        description={`${t('confirmDeleteClient') || 'Ви справді хочете видалити'} "${clientToDelete?.name}"? ${t('actionCannotBeUndone') || 'Цю дію не можна скасувати.'}`}
       />
     </div>
   );
