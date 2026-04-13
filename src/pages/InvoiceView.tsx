@@ -50,9 +50,9 @@ export const InvoiceView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true); // загальне завантаження сторінки
 
   // Стан прикріпленого файлу
- // const [uploadingFile, setUploadingFile] = useState(false); // чи йде завантаження файлу
+  const [uploadingFile, setUploadingFile] = useState(false); // чи йде завантаження файлу
 const [attachments, setAttachments] = useState<any[]>([]);
-const [uploadingFile, setUploadingFile] = useState(false); // URL прикріпленого файлу
+//const [uploadingFile, setUploadingFile] = useState(false); // URL прикріпленого файлу
 
   // Стан модалки підпису
   const [showSignatureModal, setShowSignatureModal] = useState(false);
