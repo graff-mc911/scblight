@@ -220,4 +220,4 @@ export const Signup: React.FC = () => {
       </Card>
     </div>
   );
-};npm run dev
+};
