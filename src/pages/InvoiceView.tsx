@@ -324,53 +324,49 @@ const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
   // 1. видаляє файл із storage
   // 2. очищає attached_file_url у таблиці invoices
   // 3. прибирає файл зі стану сторінки
-  const handleAttachedFileDelete = async () => {
-    if (!attachedFile || !id) return;
+const handleAttachedFileDelete = async (attachment: any) => {
+  if (!attachment?.file_url || !attachment?.id) return;
 
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-      if (!user) {
-        throw new Error('Користувач не авторизований');
-      }
+    if (!user) {
+      throw new Error('Користувач не авторизований');
+    }
 
-      // Витягуємо шлях до файлу з public URL
-      const url = new URL(attachedFile);
-      const pathParts = url.pathname.split('/storage/v1/object/public/invoice-pdfs/');
-      const filePath = pathParts[1];
+    const url = new URL(attachment.file_url);
+    const pathParts = url.pathname.split('/storage/v1/object/public/invoice-pdfs/');
+    const filePath = pathParts[1];
 
-      if (!filePath) {
-        throw new Error('Не вдалося визначити шлях до файлу');
-      }
-
-      // Видаляємо файл з storage
-      const { error: deleteError } = await supabase.storage
+    if (filePath) {
+      const { error: deleteStorageError } = await supabase.storage
         .from('invoice-pdfs')
         .remove([filePath]);
 
-      if (deleteError) {
-        throw deleteError;
+      if (deleteStorageError) {
+        throw deleteStorageError;
       }
-
-      // Очищаємо поле attached_file_url у таблиці invoices
-      const { error: updateError } = await supabase
-        .from('invoices')
-        .update({ attached_file_url: null })
-        .eq('id', id);
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      setAttachedFile(null);
-      showSuccess(t('fileDeleted') || 'File deleted successfully');
-    } catch (error: any) {
-      console.error('File delete error:', error);
-      showError(error?.message || t('failedDeleteFile') || 'Failed to delete file');
     }
-  };
+
+    const { error: deleteDbError } = await supabase
+      .from('invoice_attachments')
+      .delete()
+      .eq('id', attachment.id)
+      .eq('user_id', user.id);
+
+    if (deleteDbError) {
+      throw deleteDbError;
+    }
+
+    showSuccess(t('fileDeleted') || 'Файл видалено');
+    await fetchInvoice();
+  } catch (error: any) {
+    console.error('File delete error:', error);
+    showError(error?.message || t('failedDeleteFile') || 'Не вдалося видалити файл');
+  }
+};
 
   // ---------------------------------------------------------
   // Збереження підпису
