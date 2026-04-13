@@ -31,7 +31,7 @@ import { offlineStore } from '../lib/offlineStore';
 /**
  * Назва bucket у Supabase Storage для завантажених зовнішніх PDF.
  */
-const UPLOADED_INVOICES_BUCKET = 'uploaded-invoices';
+const UPLOADED_INVOICES_BUCKET = 'invoice-pdfs';
 
 /**
  * Тип пропсів для модалки завантаження зовнішнього рахунку.
