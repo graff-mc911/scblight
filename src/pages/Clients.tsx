@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Users, Search, CreditCard as Edit2, Trash2, Eye } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -11,7 +11,7 @@ import { supabase } from '../lib/supabase';
 import { offlineStore } from '../lib/offlineStore';
 
 // Тип одного клієнта.
-// Це допомагає уникати помилок у полях і робить код зрозумілішим.
+// Описує, які поля ми очікуємо отримати з таблиці clients.
 type Client = {
   id: string;
   user_id?: string;
@@ -22,19 +22,14 @@ type Client = {
   address?: string | null;
 };
 
-// Головний компонент сторінки клієнтів.
-// Тут:
-// - показується список клієнтів
-// - працює пошук
-// - є кнопка створення нового клієнта
-// - є кнопки перегляду, редагування та видалення
+// Головна сторінка списку клієнтів.
 export const Clients: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const { showSuccess, showError } = useToastContext();
   const queryClient = useQueryClient();
 
-  // Локальний стан поля пошуку.
+  // Стан тексту пошуку.
   const [search, setSearch] = useState('');
 
   // Стан модального вікна підтвердження видалення.
@@ -44,12 +39,12 @@ export const Clients: React.FC = () => {
   const [clientToDelete, setClientToDelete] = useState<{ id: string; name: string } | null>(null);
 
   // ---------------------------------------------------------
-  // 1. Отримання поточної сесії користувача
+  // 1. Отримання поточної сесії
   // ---------------------------------------------------------
-  // Потрібно для того, щоб:
-  // - знати user_id
-  // - завантажувати тільки своїх клієнтів
-  // - безпечно видаляти тільки свої записи
+  // Потрібно, щоб:
+  // - знати ID поточного користувача
+  // - завантажувати лише його клієнтів
+  // - видаляти лише його записи
   const { data: session } = useQuery({
     queryKey: ['session'],
     queryFn: async () => {
@@ -66,11 +61,10 @@ export const Clients: React.FC = () => {
   // ---------------------------------------------------------
   // 2. Завантаження списку клієнтів
   // ---------------------------------------------------------
-  // Логіка така:
-  // - якщо немає інтернету -> беремо дані з offlineStore
-  // - якщо інтернет є -> тягнемо з Supabase
-  // - якщо Supabase дав помилку -> теж пробуємо offlineStore
-  // - якщо Supabase віддав дані успішно -> кешуємо їх локально
+  // Логіка:
+  // - якщо офлайн -> беремо з локального сховища
+  // - якщо онлайн -> беремо з Supabase
+  // - якщо Supabase повернув помилку -> fallback на локальне сховище
   const { data: clients = [], isLoading } = useQuery<Client[]>({
     queryKey: ['clients', session?.user?.id],
     queryFn: async () => {
@@ -78,7 +72,6 @@ export const Clients: React.FC = () => {
 
       if (!userId) return [];
 
-      // Якщо немає інтернету — повертаємо локально збережені клієнти.
       if (!navigator.onLine) {
         return offlineStore.getClients(userId);
       }
@@ -89,8 +82,6 @@ export const Clients: React.FC = () => {
         .eq('user_id', userId)
         .order('name', { ascending: true });
 
-      // Якщо є помилка з мережею / базою —
-      // пробуємо показати локально збережені дані.
       if (error) {
         console.error('Помилка завантаження клієнтів:', error);
         return offlineStore.getClients(userId);
@@ -98,7 +89,6 @@ export const Clients: React.FC = () => {
 
       const rows = (data as Client[]) || [];
 
-      // Оновлюємо локальний кеш клієнтів.
       await offlineStore.saveClients(rows);
 
       return rows;
@@ -109,11 +99,7 @@ export const Clients: React.FC = () => {
   // ---------------------------------------------------------
   // 3. Видалення клієнта
   // ---------------------------------------------------------
-  // Видалення робимо через useMutation.
-  // Після успіху:
-  // - оновлюємо список клієнтів
-  // - закриваємо ConfirmDialog
-  // - очищаємо clientToDelete
+  // Видаляємо тільки той запис, який належить поточному користувачу.
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const userId = session?.user?.id;
@@ -147,10 +133,9 @@ export const Clients: React.FC = () => {
   });
 
   // ---------------------------------------------------------
-  // 4. Відкриття діалогу підтвердження видалення
+  // 4. Відкриття діалогу видалення
   // ---------------------------------------------------------
-  // stopPropagation потрібен, щоб клік по кнопці смітника
-  // не запускав одночасно клік по всій картці.
+  // stopPropagation потрібен, щоб не спрацьовував клік по всій картці.
   const handleDeleteClick = useCallback(
     (e: React.MouseEvent, id: string, name: string) => {
       e.stopPropagation();
@@ -170,24 +155,22 @@ export const Clients: React.FC = () => {
   }, [clientToDelete, deleteMutation]);
 
   // ---------------------------------------------------------
-  // 6. Перехід на сторінку перегляду контакту
+  // 6. Перегляд контакту
   // ---------------------------------------------------------
-  // Тут навігація веде саме на сторінку контакту, а не в інвойси.
+  // БЕЗПЕЧНИЙ варіант:
+  // ведемо на вже існуючий маршрут редагування,
+  // щоб кнопка "око" точно не викидала на головну.
   const handleViewClient = useCallback(
     (e: React.MouseEvent, clientId: string) => {
       e.stopPropagation();
-      navigate(`/clients/${clientId}`);
+      navigate(`/clients/${clientId}/edit`);
     },
     [navigate]
   );
 
   // ---------------------------------------------------------
-  // 7. Перехід на сторінку редагування контакту
+  // 7. Редагування контакту
   // ---------------------------------------------------------
-  // ВАЖЛИВО:
-  // цей маршрут має співпадати з твоїм Router.
-  // Якщо у тебе в роутері форма редагування сидить на /clients/:id/edit,
-  // тоді цей варіант правильний.
   const handleEditClient = useCallback(
     (e: React.MouseEvent, clientId: string) => {
       e.stopPropagation();
@@ -197,40 +180,37 @@ export const Clients: React.FC = () => {
   );
 
   // ---------------------------------------------------------
-  // 8. Клік по всій картці
+  // 8. Клік по картці
   // ---------------------------------------------------------
-  // Робимо поведінку логічною:
-  // якщо користувач натиснув не на кнопку, а на саму картку,
-  // відкривається перегляд контакту.
+  // Теж веде на вже існуючий маршрут, щоб нічого не ламалося.
   const handleCardClick = useCallback(
     (clientId: string) => {
-      navigate(`/clients/${clientId}`);
+      navigate(`/clients/${clientId}/edit`);
     },
     [navigate]
   );
 
   // ---------------------------------------------------------
-  // 9. Фільтрація списку клієнтів по пошуку
+  // 9. Фільтрація клієнтів
   // ---------------------------------------------------------
-  // Шукаємо по:
-  // - імені
-  // - email
-  // - адресі
-  // - номеру клієнта
-  const filteredClients = clients.filter((client) => {
+  // useMemo тут не обов'язковий, але зручний:
+  // список не буде перераховуватись зайвий раз без потреби.
+  const filteredClients = useMemo(() => {
     const searchValue = search.toLowerCase().trim();
 
-    return (
-      client.name?.toLowerCase().includes(searchValue) ||
-      client.email?.toLowerCase().includes(searchValue) ||
-      client.address?.toLowerCase().includes(searchValue) ||
-      client.client_number?.toLowerCase().includes(searchValue)
-    );
-  });
+    return clients.filter((client) => {
+      return (
+        client.name?.toLowerCase().includes(searchValue) ||
+        client.email?.toLowerCase().includes(searchValue) ||
+        client.address?.toLowerCase().includes(searchValue) ||
+        client.client_number?.toLowerCase().includes(searchValue)
+      );
+    });
+  }, [clients, search]);
 
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-6xl mx-auto">
-      {/* Верхня панель сторінки */}
+      {/* Верх сторінки */}
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="text-2xl font-semibold text-white">
@@ -254,7 +234,7 @@ export const Clients: React.FC = () => {
         </div>
       </div>
 
-      {/* Основний блок списку клієнтів */}
+      {/* Блок списку */}
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-lg">
         {/* Поле пошуку */}
         <div className="relative mb-4">
@@ -282,7 +262,7 @@ export const Clients: React.FC = () => {
             ))}
           </div>
         ) : filteredClients.length === 0 ? (
-          // Якщо клієнтів немає
+          // Порожній стан
           <div className="text-center py-16">
             <div className="w-16 h-16 bg-orange-500/20 rounded-xl flex items-center justify-center mx-auto mb-4">
               <Users size={32} className="text-orange-400" />
@@ -311,7 +291,7 @@ export const Clients: React.FC = () => {
             )}
           </div>
         ) : (
-          // Таблиця / список клієнтів
+          // Список клієнтів
           <div className="space-y-3">
             {/* Заголовки колонок для desktop */}
             <div className="hidden md:grid grid-cols-[2fr_1.5fr_1fr_auto] gap-4 px-4 py-2 text-xs font-medium text-white/50 uppercase">
@@ -330,7 +310,7 @@ export const Clients: React.FC = () => {
                 className="grid grid-cols-1 md:grid-cols-[2fr_1.5fr_1fr_auto] gap-3 md:gap-4 px-4 py-3 rounded-xl hover:bg-white/5 transition-all cursor-pointer"
                 onClick={() => handleCardClick(client.id)}
               >
-                {/* Ім'я + email */}
+                {/* Блок імені та email */}
                 <div>
                   <span className="font-medium text-white">
                     {client.name || '—'}
@@ -355,7 +335,7 @@ export const Clients: React.FC = () => {
 
                 {/* Кнопки дій */}
                 <div className="flex items-center gap-2 justify-end">
-                  {/* Перегляд контакту */}
+                  {/* Перегляд */}
                   <button
                     type="button"
                     onClick={(e) => handleViewClient(e, client.id)}
@@ -365,7 +345,7 @@ export const Clients: React.FC = () => {
                     <Eye size={16} />
                   </button>
 
-                  {/* Редагування контакту */}
+                  {/* Редагування */}
                   <button
                     type="button"
                     onClick={(e) => handleEditClient(e, client.id)}
@@ -375,10 +355,12 @@ export const Clients: React.FC = () => {
                     <Edit2 size={16} />
                   </button>
 
-                  {/* Видалення контакту */}
+                  {/* Видалення */}
                   <button
                     type="button"
-                    onClick={(e) => handleDeleteClick(e, client.id, client.name || 'Без назви')}
+                    onClick={(e) =>
+                      handleDeleteClick(e, client.id, client.name || 'Без назви')
+                    }
                     className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-red-400 transition-all active:scale-95"
                     title={t('delete') || 'Видалити'}
                   >
@@ -391,7 +373,7 @@ export const Clients: React.FC = () => {
         )}
       </div>
 
-      {/* Діалог підтвердження видалення */}
+      {/* Підтвердження видалення */}
       <ConfirmDialog
         open={deleteDialogOpen}
         onClose={() => {
