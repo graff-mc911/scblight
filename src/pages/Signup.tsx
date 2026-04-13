@@ -21,11 +21,8 @@ export const Signup: React.FC = () => {
   useEffect(() => {
     const checkSession = async () => {
       const { data } = await supabase.auth.getSession();
-      if (data.session) {
-        navigate('/');
-      }
+      if (data.session) navigate('/');
     };
-
     void checkSession();
   }, [navigate]);
 
@@ -62,7 +59,7 @@ export const Signup: React.FC = () => {
     setLoading(true);
 
     try {
-      const { data, error: signUpError } = await supabase.auth.signUp({
+      const { error: signUpError } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
         options: {
@@ -77,11 +74,7 @@ export const Signup: React.FC = () => {
         return;
       }
 
-      if (data.session) {
-        navigate('/');
-      } else {
-        navigate('/login');
-      }
+      navigate('/login');
     } catch (err: any) {
       setError(err?.message || 'Failed to sign up');
     } finally {
