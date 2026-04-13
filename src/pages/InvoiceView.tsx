@@ -16,12 +16,61 @@ import {
   Receipt,
   ScanLine,
 } from 'lucide-react';
+import { Button } from '../components/ui/Button';
+import { InvoicePreview } from '../components/InvoicePreview';
+import { SignatureCanvas } from '../components/SignatureCanvas';
 import { supabase } from '../lib/supabase';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { AnimatePresence } from 'framer-motion';
 import ReceiptScanReview from '../components/ReceiptScanReview';
 import { ScannedReceiptData } from '../lib/receiptOCR';
+
+type InvoiceAttachment = {
+  id: string;
+  invoice_id: string;
+  user_id: string;
+  file_name: string | null;
+  file_url: string;
+  file_type: string | null;
+  created_at: string | null;
+};
+
+type ExpenseDocumentRow = {
+  id: string;
+  user_id?: string;
+  client_id?: string | null;
+  invoice_id?: string | null;
+  vendor_name?: string | null;
+  document_number?: string | null;
+  document_date?: string | null;
+  total_amount?: number | null;
+  currency?: string | null;
+  document_type?: string | null;
+  expense_category?: string | null;
+};
+
+const sanitizeFileName = (fileName: string) => {
+  const lastDotIndex = fileName.lastIndexOf('.');
+  const baseName = lastDotIndex > 0 ? fileName.slice(0, lastDotIndex) : fileName;
+  const extension = lastDotIndex > 0 ? fileName.slice(lastDotIndex + 1).toLowerCase() : 'bin';
+
+  const safeBaseName = baseName
+    .normalize('NFKD')
+    .replace(/[^\w.-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80);
+
+  return `${safeBaseName || 'file'}.${extension}`;
+};
+
+const formatMoney = (amount: number, currency = 'EUR') => {
+  return `${amount.toLocaleString('de-DE', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} ${currency}`;
+};
 
 export const InvoiceView: React.FC = () => {
   const { id } = useParams();
@@ -30,168 +79,962 @@ export const InvoiceView: React.FC = () => {
   const { showSuccess, showError } = useToastContext();
 
   const [invoice, setInvoice] = useState<any>(null);
-  const [expenses, setExpenses] = useState<any[]>([]);
+  const [client, setClient] = useState<any>(null);
+  const [companyProfile, setCompanyProfile] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const [scanFile, setScanFile] = useState<File | null>(null);
-  const scanInputRef = useRef<HTMLInputElement>(null);
+  const [attachments, setAttachments] = useState<InvoiceAttachment[]>([]);
+  const [uploadingFile, setUploadingFile] = useState(false);
 
-  // ==============================
-  // ЗАГРУЗКА ДАНИХ
-  // ==============================
+  const [invoiceExpenses, setInvoiceExpenses] = useState<ExpenseDocumentRow[]>([]);
+
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailTo, setEmailTo] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
+
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [showFullScreenPDF, setShowFullScreenPDF] = useState(false);
+  const [pdfZoom, setPdfZoom] = useState(100);
+
+  const attachInputRef = useRef<HTMLInputElement>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const [scanFile, setScanFile] = useState<File | null>(null);
+
+  const isMobile = window.innerWidth < 768;
+
+  const findPdfInStorage = useCallback(async (userId: string, invoiceId: string) => {
+    const { data: files, error } = await supabase.storage
+      .from('invoice-pdfs')
+      .list(userId);
+
+    if (error || !files) return null;
+
+    const matchedPdf = files.find((file) => file.name.startsWith(`${invoiceId}-invoice`));
+    if (!matchedPdf) return null;
+
+    const filePath = `${userId}/${matchedPdf.name}`;
+
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from('invoice-pdfs').getPublicUrl(filePath);
+
+    return publicUrl || null;
+  }, []);
+
   const fetchInvoice = useCallback(async () => {
     try {
       setIsLoading(true);
 
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user || !id) return;
 
-      // Інвойс
-      const { data: invoiceData } = await supabase
+      const { data: invoiceData, error: invoiceError } = await supabase
         .from('invoices')
         .select('*')
         .eq('id', id)
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
-      setInvoice(invoiceData);
+      if (invoiceError) throw invoiceError;
 
-      // Витрати
-      const { data: expensesData } = await supabase
-        .from('expense_documents')
+      if (!invoiceData) {
+        showError(t('invoiceNotFound') || 'Інвойс не знайдено');
+        navigate('/invoices');
+        return;
+      }
+
+      const { data: itemsData } = await supabase
+        .from('invoice_items')
+        .select('*')
+        .eq('invoice_id', id)
+        .order('sort_order');
+
+      const invoiceWithItems = {
+        ...invoiceData,
+        document_number: invoiceData.document_no,
+        client_number: invoiceData.client_number,
+        work_period_start: invoiceData.work_period_start,
+        work_period_end: invoiceData.work_period_end,
+        vat_enabled: invoiceData.tax_percent > 0,
+        vat_rate: invoiceData.tax_percent || 0,
+        vat_amount: invoiceData.tax_amount,
+        net_total: invoiceData.total_net,
+        gross_total: invoiceData.total_gross,
+        project_area: invoiceData.total_project_area,
+        object_address: invoiceData.object_address,
+        signature_data_url: invoiceData.signature_data_url,
+        signed_by: invoiceData.signed_by,
+        signed_at: invoiceData.signed_at,
+        items:
+          itemsData?.map((item) => ({
+            quantity: Number(item.quantity),
+            quantityDisplay: String(item.quantity),
+            unit: item.unit,
+            price: Number(item.price),
+            material: item.material,
+            description: item.description || '',
+            total: Number(item.total),
+          })) || [],
+      };
+
+      setInvoice(invoiceWithItems);
+
+      const { data: attachmentsData, error: attachmentsError } = await supabase
+        .from('invoice_attachments')
         .select('*')
         .eq('invoice_id', id)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      setExpenses(expensesData || []);
-    } catch (e) {
-      showError('Помилка завантаження');
+      if (attachmentsError) {
+        console.error('Помилка завантаження вкладень:', attachmentsError);
+        setAttachments([]);
+      } else {
+        setAttachments((attachmentsData || []) as InvoiceAttachment[]);
+      }
+
+      const { data: expensesData, error: expensesError } = await supabase
+        .from('expense_documents')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('invoice_id', id)
+        .order('document_date', { ascending: false });
+
+      if (expensesError) {
+        console.error('Помилка завантаження витрат інвойсу:', expensesError);
+        setInvoiceExpenses([]);
+      } else {
+        setInvoiceExpenses((expensesData || []) as ExpenseDocumentRow[]);
+      }
+
+      let resolvedPdfUrl = invoiceData.pdf_url || invoiceData.uploaded_pdf_url || null;
+
+      if (!resolvedPdfUrl) {
+        const storagePdfUrl = await findPdfInStorage(user.id, id);
+
+        if (storagePdfUrl) {
+          resolvedPdfUrl = storagePdfUrl;
+
+          await supabase
+            .from('invoices')
+            .update({ pdf_url: storagePdfUrl })
+            .eq('id', id);
+        }
+      }
+
+      setPdfUrl(resolvedPdfUrl);
+
+      if (invoiceData.client_id) {
+        const { data: clientData } = await supabase
+          .from('clients')
+          .select('*')
+          .eq('id', invoiceData.client_id)
+          .maybeSingle();
+
+        setClient(clientData);
+      } else {
+        setClient(null);
+      }
+
+      const { data: profileData } = await supabase
+        .from('company_profile')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      setCompanyProfile(profileData || null);
+    } catch (error) {
+      console.error(error);
+      showError(t('errorLoadingInvoice') || 'Помилка завантаження інвойсу');
     } finally {
       setIsLoading(false);
     }
-  }, [id]);
+  }, [findPdfInStorage, id, navigate, showError, t]);
 
   useEffect(() => {
-    fetchInvoice();
-  }, [fetchInvoice]);
+    if (id) {
+      void fetchInvoice();
+    }
+  }, [id, fetchInvoice]);
 
-  // ==============================
-  // OCR → ВИТРАТА (ГОЛОВНЕ)
-  // ==============================
-  const handleScanConfirm = async (data: ScannedReceiptData, fileUrl: string) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!id) {
+      showError('Не знайдено ID інвойсу');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      showError(t('fileSizeLimit10mb') || 'Файл має бути менше 10 МБ');
+      return;
+    }
+
+    setUploadingFile(true);
+
     try {
-      setScanFile(null);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !id) return;
+      if (!user) {
+        throw new Error('Користувач не авторизований');
+      }
 
-      const amount = Number(data.total || 0);
+      const safeFileName = sanitizeFileName(file.name);
+      const filePath = `${user.id}/attachments/${id}-${Date.now()}-${safeFileName}`;
 
-      const { error } = await supabase.from('expense_documents').insert({
-        user_id: user.id,
-        invoice_id: id,
+      const { error: uploadError } = await supabase.storage
+        .from('invoice-pdfs')
+        .upload(filePath, file, {
+          upsert: false,
+          contentType: file.type || undefined,
+        });
 
-        vendor_name: data.store_name || 'Receipt',
-        document_number: data.receipt_number || null,
-        document_date: data.date || new Date().toISOString(),
+      if (uploadError) {
+        throw uploadError;
+      }
 
-        total_amount: amount,
-        amount_net: Number(data.amount_net || amount),
-        vat_amount: Number(data.vat_amount || 0),
-        vat_rate: Number(data.vat_rate || 0),
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('invoice-pdfs').getPublicUrl(filePath);
 
-        currency: 'EUR',
-        payment_method: data.payment_method || 'cash',
-        document_type: 'receipt',
-        expense_category: 'materials',
+      if (!publicUrl) {
+        throw new Error('Не вдалося отримати URL файлу');
+      }
 
-        original_file_url: fileUrl,
-        notes: data.items || null,
-      });
+      const { error: insertError } = await supabase
+        .from('invoice_attachments')
+        .insert([
+          {
+            invoice_id: id,
+            user_id: user.id,
+            file_name: file.name,
+            file_url: publicUrl,
+            file_type: file.type || null,
+          },
+        ]);
 
-      if (error) throw error;
+      if (insertError) {
+        throw insertError;
+      }
 
-      showSuccess('Чек додано');
+      showSuccess(t('fileUploaded') || 'Файл завантажено');
       await fetchInvoice();
-    } catch (e: any) {
-      showError(e.message || 'OCR помилка');
+    } catch (error: any) {
+      console.error('File upload error:', error);
+      showError(error?.message || t('failedUploadFile') || 'Не вдалося завантажити файл');
+    } finally {
+      setUploadingFile(false);
+      e.target.value = '';
     }
   };
 
-  // ==============================
-  // ВИБІР ФАЙЛУ
-  // ==============================
   const handleScanFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 20 * 1024 * 1024) {
+      showError('Файл занадто великий (макс. 20 МБ)');
+      e.target.value = '';
+      return;
+    }
+
     setScanFile(file);
+    e.target.value = '';
   };
 
-  // ==============================
-  // РОЗРАХУНКИ
-  // ==============================
-  const total = Number(invoice?.total_gross || 0);
+  const handleScanConfirm = async (data: ScannedReceiptData, fileUrl: string) => {
+    try {
+      setScanFile(null);
 
-  const totalExpenses = useMemo(() => {
-    return expenses.reduce((sum, e) => sum + Number(e.total_amount || 0), 0);
-  }, [expenses]);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-  const profit = total - totalExpenses;
+      if (!user) {
+        throw new Error('Користувач не авторизований');
+      }
 
-  // ==============================
-  // UI
-  // ==============================
+      if (!id) {
+        throw new Error('Не знайдено ID інвойсу');
+      }
+
+      const amount = Number(data.total || 0);
+      const amountNet = Number(data.amount_net || amount);
+      const vatAmount = Number(data.vat_amount || 0);
+      const vatRate = Number((data as any).vat_rate || 0);
+
+      const { error } = await supabase.from('expense_documents').insert({
+        user_id: user.id,
+        client_id: client?.id || invoice?.client_id || null,
+        invoice_id: id,
+        vendor_name: data.store_name || 'Receipt',
+        document_number: data.receipt_number || null,
+        document_date: data.date || new Date().toISOString().split('T')[0],
+        total_amount: amount,
+        amount_net: amountNet,
+        vat_amount: vatAmount,
+        vat_rate: vatRate,
+        currency: 'EUR',
+        payment_method: data.payment_method || 'cash',
+        document_type: 'receipt',
+        expense_category: 'materials',
+        original_file_url: fileUrl,
+        notes: data.items || null,
+      });
+
+      if (error) {
+        console.error('EXPENSE SAVE ERROR:', error);
+        throw error;
+      }
+
+      showSuccess('Чек додано як витрату');
+      await fetchInvoice();
+    } catch (err: any) {
+      console.error('SCAN ERROR:', err);
+      showError(err?.message || 'Помилка OCR');
+    }
+  };
+
+  const handleAttachmentDelete = async (attachment: InvoiceAttachment) => {
+    if (!attachment?.file_url || !attachment?.id) return;
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error('Користувач не авторизований');
+      }
+
+      const url = new URL(attachment.file_url);
+      const pathParts = url.pathname.split('/storage/v1/object/public/invoice-pdfs/');
+      const filePath = pathParts[1];
+
+      if (filePath) {
+        const { error: deleteStorageError } = await supabase.storage
+          .from('invoice-pdfs')
+          .remove([filePath]);
+
+        if (deleteStorageError) {
+          throw deleteStorageError;
+        }
+      }
+
+      const { error: deleteDbError } = await supabase
+        .from('invoice_attachments')
+        .delete()
+        .eq('id', attachment.id)
+        .eq('user_id', user.id);
+
+      if (deleteDbError) {
+        throw deleteDbError;
+      }
+
+      showSuccess(t('fileDeleted') || 'Файл видалено');
+      await fetchInvoice();
+    } catch (error: any) {
+      console.error('File delete error:', error);
+      showError(error?.message || t('failedDeleteFile') || 'Не вдалося видалити файл');
+    }
+  };
+
+  const handleSaveSignature = async (signatureDataUrl: string, signerName: string) => {
+    try {
+      const { error } = await supabase
+        .from('invoices')
+        .update({
+          signature_data_url: signatureDataUrl,
+          signed_by: signerName,
+          signed_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setShowSignatureModal(false);
+      showSuccess(t('signatureSaved') || 'Підпис збережено');
+      await fetchInvoice();
+    } catch {
+      showError(t('failedSaveSignature') || 'Не вдалося зберегти підпис');
+    }
+  };
+
+  const handleSendEmail = async () => {
+    if (!emailTo.trim()) {
+      showError(t('enterEmailAddress') || 'Введіть email');
+      return;
+    }
+
+    setSendingEmail(true);
+
+    try {
+      const { error } = await supabase
+        .from('invoices')
+        .update({
+          sent_at: new Date().toISOString(),
+          sent_to: emailTo.trim(),
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setShowEmailModal(false);
+      setEmailTo('');
+      showSuccess(t('invoiceSent') || 'Інвойс позначено як відправлений');
+      await fetchInvoice();
+    } catch {
+      showError(t('failedSendInvoice') || 'Не вдалося відправити інвойс');
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  const totalInvoiceAmount = Number(invoice?.gross_total || invoice?.total_gross || 0);
+  const totalInvoiceExpenses = useMemo(() => {
+    if (!invoiceExpenses) return 0;
+    return invoiceExpenses.reduce((sum, expense) => sum + Number(expense?.total_amount || 0), 0);
+  }, [invoiceExpenses]);
+  const totalInvoiceProfit = totalInvoiceAmount - totalInvoiceExpenses;
+  const statsCurrency = invoice?.currency || invoiceExpenses[0]?.currency || 'EUR';
+
   if (isLoading) {
-    return <div className="text-white p-10">Loading...</div>;
+    return (
+      <div className="min-h-screen pt-20 px-4 max-w-6xl mx-auto">
+        <div className="flex items-center justify-center py-16">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500" />
+        </div>
+      </div>
+    );
   }
 
   if (!invoice) {
-    return <div className="text-white p-10">Not found</div>;
+    return null;
   }
 
-  return (
-    <div className="p-6 text-white">
+  const invoiceData = {
+    ...invoice,
+    document_number: invoice.document_no || invoice.document_number,
+    gross_total: invoice.total_gross || invoice.gross_total,
+    net_total: invoice.total_net || invoice.net_total,
+    items: invoice.items || [],
+    client_name: client?.name || invoice.client_name,
+    client_address: client?.address || invoice.client_address,
+    client_email: client?.email,
+    client_phone: client?.phone,
+    client_tax_number: client?.tax_number,
+    signature_data_url: invoice.signature_data_url,
+    signed_by: invoice.signed_by,
+    signed_at: invoice.signed_at,
+  };
 
-      {/* HEADER */}
-      <div className="flex justify-between mb-6">
-        <button onClick={() => navigate('/invoices')}>
-          <ArrowLeft />
+  return (
+    <div className="min-h-screen pt-20 pb-10 px-3 md:px-6 max-w-6xl mx-auto overflow-x-hidden">
+      <div className="mb-6">
+        <button
+          type="button"
+          onClick={() => navigate('/invoices')}
+          className="flex items-center justify-center p-2 bg-white/10 backdrop-blur-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/20 rounded-xl mb-4 transition-all active:scale-95"
+          title={t('back')}
+        >
+          <ArrowLeft size={20} />
         </button>
 
-        <div className="flex gap-2">
-          <button onClick={() => scanInputRef.current?.click()}>
-            <ScanLine />
-          </button>
+        <div className="flex justify-between items-start gap-3 mb-6">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-semibold text-white mb-1">
+              {t('invoicePreviewTitle')}
+            </h2>
+            <p className="text-white/60 text-sm break-words">
+              {invoice.document_no || invoice.document_number}
+            </p>
+          </div>
+
+          <div className="flex gap-2 flex-wrap justify-end">
+            {pdfUrl && (
+              <button
+                type="button"
+                onClick={() => setShowFullScreenPDF(true)}
+                className="p-2.5 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 transition-all active:scale-95"
+                title={t('viewFile') || 'Переглянути PDF'}
+              >
+                <Eye size={18} />
+              </button>
+            )}
+
+            {!invoice.signature_data_url && (
+              <button
+                type="button"
+                onClick={() => setShowSignatureModal(true)}
+                className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-blue-400 transition-all active:scale-95"
+                title={t('sign') || 'Підписати'}
+              >
+                <PenTool size={18} />
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setEmailTo(client?.email || '');
+                setShowEmailModal(true);
+              }}
+              className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-green-400 transition-all active:scale-95"
+              title={t('send') || 'Відправити'}
+            >
+              <Send size={18} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate(`/invoices/${id}`)}
+              className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-orange-400 transition-all active:scale-95"
+              title={t('edit') || 'Редагувати'}
+            >
+              <Edit2 size={18} />
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* СТАТИ */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <div>Сума: {total} €</div>
-        <div>Витрати: {totalExpenses} €</div>
-        <div>Прибуток: {profit} €</div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-xl px-4 py-3">
+          <p className="text-white/40 text-xs mb-1">Сума інвойсу</p>
+          <p className="text-white font-semibold text-sm">
+            {formatMoney(totalInvoiceAmount, statsCurrency)}
+          </p>
+        </div>
+
+        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-xl px-4 py-3">
+          <p className="text-white/40 text-xs mb-1">Витрати по інвойсу</p>
+          <p className="text-red-400 font-semibold text-sm">
+            {formatMoney(totalInvoiceExpenses, statsCurrency)}
+          </p>
+        </div>
+
+        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-xl px-4 py-3">
+          <p className="text-white/40 text-xs mb-1">Маржа / прибуток</p>
+          <p className={`font-semibold text-sm ${totalInvoiceProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            {formatMoney(totalInvoiceProfit, statsCurrency)}
+          </p>
+        </div>
       </div>
 
-      {/* ВИТРАТИ */}
-      <div className="space-y-3">
-        {expenses.map((e) => (
-          <div key={e.id} className="bg-white/10 p-3 rounded">
-            {e.vendor_name} — {e.total_amount} €
-          </div>
-        ))}
-      </div>
-
-      {/* INPUT */}
-      <input
-        ref={scanInputRef}
-        type="file"
-        onChange={handleScanFileSelect}
-        className="hidden"
+      <InvoicePreview
+        invoice={invoiceData}
+        client={client}
+        companyProfile={companyProfile}
       />
 
-      {/* OCR MODAL */}
+      {pdfUrl && (
+        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mb-6 mt-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-white">
+              {t('invoicePreviewTitle') || 'PDF інвойсу'}
+            </h3>
+
+            <div className="flex gap-2">
+              <a
+                href={pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-blue-400 transition-all"
+                title={t('download') || 'Завантажити'}
+              >
+                <Download size={20} />
+              </a>
+
+              <button
+                type="button"
+                onClick={() => setShowFullScreenPDF(true)}
+                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-orange-400 transition-all"
+                title={t('view') || 'Переглянути'}
+              >
+                <Eye size={20} />
+              </button>
+            </div>
+          </div>
+
+          {!isMobile && (
+            <div className="rounded-xl overflow-hidden">
+              <iframe
+                src={`${pdfUrl}#view=FitH`}
+                className="w-full border-0"
+                style={{ height: '800px' }}
+                title="Invoice PDF"
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {invoiceExpenses.length > 0 && (
+        <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mt-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Receipt className="h-5 w-5 text-red-400" />
+            <h3 className="text-lg font-semibold text-white">
+              Витрати по цьому інвойсу ({invoiceExpenses.length})
+            </h3>
+          </div>
+
+          <div className="space-y-3">
+            {invoiceExpenses.map((expense) => (
+              <button
+                key={expense.id}
+                type="button"
+                onClick={() => navigate(`/receipt/${expense.id}`)}
+                className="w-full flex items-center justify-between gap-3 bg-white/5 hover:bg-white/10 rounded-xl p-4 transition-all text-left"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center flex-shrink-0">
+                    <Receipt size={18} className="text-red-400" />
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="text-white font-medium break-words">
+                      {expense.vendor_name || 'Витрата'}
+                    </p>
+                    <p className="text-white/50 text-sm break-words">
+                      {expense.document_number || expense.expense_category || expense.document_type || 'expense'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right flex-shrink-0">
+                  <div className="text-xs text-white/40 mb-0.5">
+                    {expense.document_date
+                      ? new Date(expense.document_date).toLocaleDateString('uk-UA')
+                      : '—'}
+                  </div>
+                  <div className="font-semibold text-red-400 text-sm">
+                    {formatMoney(Number(expense.total_amount || 0), expense.currency || statsCurrency)}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mt-6">
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <h3 className="text-lg font-semibold text-white">
+            {t('attachedFile') || 'Прикріплені файли'}
+          </h3>
+
+          <div className="flex gap-2 flex-wrap">
+            <label className="inline-block">
+              <input
+                ref={attachInputRef}
+                type="file"
+                onChange={handleFileUpload}
+                disabled={uploadingFile}
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                className="hidden"
+                capture="environment"
+              />
+              <span className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-block">
+                {uploadingFile ? (t('uploading') || 'Завантаження...') : 'Додати файл'}
+              </span>
+            </label>
+
+            <label className="inline-block">
+              <input
+                ref={scanInputRef}
+                type="file"
+                onChange={handleScanFileSelect}
+                accept="image/*,application/pdf"
+                className="hidden"
+                capture="environment"
+              />
+              <span className="bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-flex items-center gap-2">
+                <ScanLine size={16} />
+                Розпізнати чек
+              </span>
+            </label>
+          </div>
+        </div>
+
+        {attachments.length > 0 ? (
+          <div className="space-y-3">
+            {attachments.map((attachment) => (
+              <div
+                key={attachment.id}
+                className="flex items-center justify-between gap-3 bg-white/5 rounded-xl p-4 hover:bg-white/10 transition-all cursor-pointer"
+                onClick={() => window.open(attachment.file_url, '_blank')}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <FileText className="text-orange-400 flex-shrink-0" size={24} />
+                  <div className="min-w-0">
+                    <p className="text-white font-medium break-words">
+                      {attachment.file_name || 'Файл'}
+                    </p>
+                    <p className="text-white/60 text-sm break-words">
+                      {attachment.file_type || 'file'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 flex-shrink-0">
+                  <a
+                    href={attachment.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-blue-400 transition-all"
+                    title="Відкрити оригінал"
+                  >
+                    <Download size={20} />
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleAttachmentDelete(attachment);
+                    }}
+                    className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-red-400 transition-all"
+                    title="Видалити"
+                  >
+                    <Trash2 size={20} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center">
+            <Upload className="mx-auto text-white/40 mb-3" size={32} />
+            <p className="text-white/60 mb-4">
+              Додайте файл або одразу розпізнайте чек
+            </p>
+
+            <div className="flex gap-2 justify-center flex-wrap">
+              <label className="inline-block">
+                <input
+                  type="file"
+                  onChange={handleFileUpload}
+                  disabled={uploadingFile}
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                  className="hidden"
+                  capture="environment"
+                />
+                <span className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-block">
+                  {uploadingFile ? 'Завантаження...' : 'Додати файл'}
+                </span>
+              </label>
+
+              <label className="inline-block">
+                <input
+                  type="file"
+                  onChange={handleScanFileSelect}
+                  accept="image/*,application/pdf"
+                  className="hidden"
+                  capture="environment"
+                />
+                <span className="bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-flex items-center gap-2">
+                  <ScanLine size={16} />
+                  Розпізнати чек
+                </span>
+              </label>
+            </div>
+
+            <p className="text-white/40 text-xs mt-2">
+              PDF, JPG, PNG до 20 МБ
+            </p>
+          </div>
+        )}
+      </div>
+
+      {showSignatureModal && (
+        <SignatureCanvas
+          onSave={handleSaveSignature}
+          onClose={() => setShowSignatureModal(false)}
+          existingSignature={invoice.signature_data_url}
+          existingSignerName={invoice.signed_by}
+        />
+      )}
+
+      {showEmailModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl shadow-2xl max-w-md w-full border border-white/10">
+            <div className="flex items-center justify-between p-6 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <Mail className="text-green-400" size={24} />
+                <h3 className="text-xl font-semibold text-white">
+                  {t('sendInvoice') || 'Відправити інвойс'}
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowEmailModal(false)}
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+              >
+                <ArrowLeft className="text-white" size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-white/80 mb-2">
+                  {t('recipientEmail') || 'Email отримувача'}
+                </label>
+                <input
+                  type="email"
+                  value={emailTo}
+                  onChange={(e) => setEmailTo(e.target.value)}
+                  placeholder={t('enterEmail') || 'Введіть email'}
+                  className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500/50"
+                />
+              </div>
+
+              {invoice.sent_at && (
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+                  <p className="text-sm text-blue-300">
+                    {t('previouslySent') || 'Раніше відправлено на'}: {invoice.sent_to}
+                  </p>
+                  <p className="text-xs text-blue-300/60 mt-1">
+                    {new Date(invoice.sent_at).toLocaleString('uk-UA')}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 p-6 border-t border-white/10">
+              <Button
+                onClick={() => setShowEmailModal(false)}
+                className="flex-1 bg-white/10 border border-white/10 text-white hover:bg-white/20"
+              >
+                {t('cancel') || 'Скасувати'}
+              </Button>
+
+              <Button
+                onClick={handleSendEmail}
+                disabled={sendingEmail || !emailTo.trim()}
+                className="flex-1 bg-gradient-to-r from-green-500 to-green-600 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {sendingEmail ? (
+                  t('sending') || 'Відправка...'
+                ) : (
+                  <>
+                    <Send size={18} className="mr-2" />
+                    {t('send') || 'Відправити'}
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showFullScreenPDF && pdfUrl && (
+        <div className="fixed inset-0 bg-black z-[9999] flex flex-col">
+          <div className="bg-slate-900 border-b border-white/10 p-3 md:p-4 flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-2 md:gap-4 min-w-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowFullScreenPDF(false);
+                  setPdfZoom(100);
+                }}
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+              >
+                <ArrowLeft className="text-white" size={20} />
+              </button>
+
+              <h3 className="text-sm md:text-lg font-semibold text-white truncate">
+                {invoice.document_no || invoice.document_number}
+              </h3>
+            </div>
+
+            {!isMobile && (
+              <div className="flex items-center gap-1 md:gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPdfZoom((prev) => Math.max(50, prev - 10))}
+                  disabled={pdfZoom <= 50}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ZoomOut className="text-white" size={18} />
+                </button>
+
+                <span className="text-white font-medium text-sm min-w-[60px] text-center">
+                  {pdfZoom}%
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setPdfZoom((prev) => Math.min(200, prev + 10))}
+                  disabled={pdfZoom >= 200}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ZoomIn className="text-white" size={18} />
+                </button>
+
+                <a
+                  href={pdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                >
+                  <Download className="text-white" size={18} />
+                </a>
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-auto bg-slate-800">
+            {isMobile ? (
+              <div className="flex flex-col items-center justify-center h-full p-6 gap-4">
+                <FileText className="text-orange-400" size={56} />
+                <p className="text-white font-semibold text-lg text-center">
+                  {invoice.document_no || invoice.document_number}
+                </p>
+                <p className="text-white/60 text-sm text-center">
+                  {t('tapToOpen') || 'Натисніть кнопку нижче, щоб відкрити PDF у браузері'}
+                </p>
+                <a
+                  href={pdfUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-semibold transition-all text-base"
+                >
+                  <Download size={20} />
+                  {t('openPdf') || 'Відкрити PDF'}
+                </a>
+              </div>
+            ) : (
+              <div className="p-4 flex justify-center">
+                <div
+                  className="bg-white shadow-2xl"
+                  style={{
+                    transform: `scale(${pdfZoom / 100})`,
+                    transformOrigin: 'top center',
+                    width: '210mm',
+                  }}
+                >
+                  <iframe
+                    src={`${pdfUrl}#view=FitH`}
+                    className="w-full border-0"
+                    style={{ height: 'calc(100vh - 90px)', minHeight: '600px' }}
+                    title="Invoice PDF Fullscreen"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <AnimatePresence>
         {scanFile && (
           <ReceiptScanReview
