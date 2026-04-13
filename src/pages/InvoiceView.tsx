@@ -21,28 +21,60 @@ import { supabase } from '../lib/supabase';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 
+// Компонент перегляду збереженого інвойсу.
+// Тут користувач може:
+// - переглянути інвойс
+// - подивитися PDF
+// - підписати інвойс
+// - прикріпити файл
+// - видалити прикріплений файл
+// - позначити інвойс як відправлений
+// - перейти до редагування
 export const InvoiceView: React.FC = () => {
+  // Беремо id інвойсу з адресного рядка
   const { id } = useParams();
+
+  // Хук для переходів між сторінками
   const navigate = useNavigate();
+
+  // Хук перекладу
   const { t } = useLanguage();
+
+  // Хук повідомлень
   const { showSuccess, showError } = useToastContext();
 
-  const [invoice, setInvoice] = useState<any>(null);
-  const [client, setClient] = useState<any>(null);
-  const [companyProfile, setCompanyProfile] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [uploadingFile, setUploadingFile] = useState(false);
-  const [attachedFile, setAttachedFile] = useState<string | null>(null);
-  const [showSignatureModal, setShowSignatureModal] = useState(false);
-  const [showEmailModal, setShowEmailModal] = useState(false);
-  const [emailTo, setEmailTo] = useState('');
-  const [sendingEmail, setSendingEmail] = useState(false);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [showFullScreenPDF, setShowFullScreenPDF] = useState(false);
-  const [pdfZoom, setPdfZoom] = useState(100);
+  // Основні стани сторінки
+  const [invoice, setInvoice] = useState<any>(null); // сам інвойс
+  const [client, setClient] = useState<any>(null); // клієнт інвойсу
+  const [companyProfile, setCompanyProfile] = useState<any>(null); // профіль компанії
+  const [isLoading, setIsLoading] = useState(true); // загальне завантаження сторінки
 
+  // Стан прикріпленого файлу
+  const [uploadingFile, setUploadingFile] = useState(false); // чи йде завантаження файлу
+  const [attachedFile, setAttachedFile] = useState<string | null>(null); // URL прикріпленого файлу
+
+  // Стан модалки підпису
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+
+  // Стан модалки відправки на email
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailTo, setEmailTo] = useState(''); // email одержувача
+  const [sendingEmail, setSendingEmail] = useState(false); // чи йде "відправка"
+
+  // Стан PDF
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null); // URL PDF інвойсу
+  const [showFullScreenPDF, setShowFullScreenPDF] = useState(false); // повноекранний режим PDF
+  const [pdfZoom, setPdfZoom] = useState(100); // масштаб PDF у повноекранному режимі
+
+  // Проста перевірка: мобільний екран чи ні
   const isMobile = window.innerWidth < 768;
 
+  // ---------------------------------------------------------
+  // Пошук PDF інвойсу в Supabase Storage
+  // ---------------------------------------------------------
+  // Функція шукає PDF у bucket `invoice-pdfs` у папці користувача.
+  // Якщо знаходить файл, який починається з `${invoiceId}-invoice`,
+  // повертає public URL цього PDF.
   const findPdfInStorage = useCallback(async (userId: string, invoiceId: string) => {
     const { data: files, error } = await supabase.storage
       .from('invoice-pdfs')
@@ -54,6 +86,7 @@ export const InvoiceView: React.FC = () => {
     if (!matchedPdf) return null;
 
     const filePath = `${userId}/${matchedPdf.name}`;
+
     const {
       data: { publicUrl },
     } = supabase.storage.from('invoice-pdfs').getPublicUrl(filePath);
@@ -61,6 +94,17 @@ export const InvoiceView: React.FC = () => {
     return publicUrl || null;
   }, []);
 
+  // ---------------------------------------------------------
+  // Завантаження інвойсу, клієнта, профілю компанії і PDF
+  // ---------------------------------------------------------
+  // Це головна функція сторінки.
+  // Вона:
+  // 1. перевіряє користувача
+  // 2. завантажує інвойс
+  // 3. завантажує позиції інвойсу
+  // 4. формує зручний об’єкт для показу
+  // 5. шукає PDF у storage, якщо pdf_url ще не записаний
+  // 6. завантажує клієнта і профіль компанії
   const fetchInvoice = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -71,6 +115,7 @@ export const InvoiceView: React.FC = () => {
 
       if (!user) return;
 
+      // Завантажуємо сам інвойс
       const { data: invoiceData, error: invoiceError } = await supabase
         .from('invoices')
         .select('*')
@@ -80,18 +125,21 @@ export const InvoiceView: React.FC = () => {
 
       if (invoiceError) throw invoiceError;
 
+      // Якщо інвойс не знайдено — показуємо помилку і повертаємось до списку
       if (!invoiceData) {
         showError(t('invoiceNotFound') || 'Invoice not found');
         navigate('/invoices');
         return;
       }
 
+      // Завантажуємо всі рядки / позиції інвойсу
       const { data: itemsData } = await supabase
         .from('invoice_items')
         .select('*')
         .eq('invoice_id', id)
         .order('sort_order');
 
+      // Формуємо об’єкт інвойсу з нормальними назвами полів
       const invoiceWithItems = {
         ...invoiceData,
         document_number: invoiceData.document_no,
@@ -121,16 +169,21 @@ export const InvoiceView: React.FC = () => {
       };
 
       setInvoice(invoiceWithItems);
+
+      // Якщо в інвойсі вже є прикріплений файл — записуємо його в state
       setAttachedFile(invoiceData.attached_file_url || null);
 
+      // Спочатку пробуємо взяти pdf_url прямо з інвойсу
       let resolvedPdfUrl = invoiceData.pdf_url || null;
 
+      // Якщо pdf_url ще немає, але є id — пробуємо знайти PDF у storage
       if (!resolvedPdfUrl && id) {
         const storagePdfUrl = await findPdfInStorage(user.id, id);
 
         if (storagePdfUrl) {
           resolvedPdfUrl = storagePdfUrl;
 
+          // Якщо PDF знайдено — одразу записуємо його URL в таблицю invoices
           await supabase
             .from('invoices')
             .update({ pdf_url: storagePdfUrl })
@@ -140,6 +193,7 @@ export const InvoiceView: React.FC = () => {
 
       setPdfUrl(resolvedPdfUrl);
 
+      // Якщо інвойс прив'язаний до клієнта — завантажуємо клієнта
       if (invoiceData.client_id) {
         const { data: clientData } = await supabase
           .from('clients')
@@ -152,6 +206,7 @@ export const InvoiceView: React.FC = () => {
         setClient(null);
       }
 
+      // Завантажуємо профіль компанії поточного користувача
       const { data: profileData } = await supabase
         .from('company_profile')
         .select('*')
@@ -167,12 +222,19 @@ export const InvoiceView: React.FC = () => {
     }
   }, [findPdfInStorage, id, navigate, showError, t]);
 
+  // Коли сторінка відкрилась і є id — завантажуємо інвойс
   useEffect(() => {
     if (id) {
       fetchInvoice();
     }
   }, [id, fetchInvoice]);
 
+  // ---------------------------------------------------------
+  // Завантаження прикріпленого файлу
+  // ---------------------------------------------------------
+  // Користувач обирає файл з пристрою.
+  // Файл завантажується в storage, а його public URL
+  // записується в поле attached_file_url інвойсу.
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -182,6 +244,7 @@ export const InvoiceView: React.FC = () => {
       return;
     }
 
+    // Обмеження розміру файлу 10 МБ
     if (file.size > 10 * 1024 * 1024) {
       showError(t('fileSizeLimit10mb') || 'File size must be less than 10MB');
       return;
@@ -198,9 +261,11 @@ export const InvoiceView: React.FC = () => {
         throw new Error('Користувач не авторизований');
       }
 
+      // Формуємо унікальний шлях до файлу
       const fileExt = file.name.split('.').pop()?.toLowerCase() || 'bin';
       const filePath = `${user.id}/attachments/${id}-${Date.now()}.${fileExt}`;
 
+      // Завантажуємо файл у bucket invoice-pdfs
       const { error: uploadError } = await supabase.storage
         .from('invoice-pdfs')
         .upload(filePath, file, {
@@ -212,6 +277,7 @@ export const InvoiceView: React.FC = () => {
         throw uploadError;
       }
 
+      // Отримуємо public URL
       const {
         data: { publicUrl },
       } = supabase.storage.from('invoice-pdfs').getPublicUrl(filePath);
@@ -220,6 +286,7 @@ export const InvoiceView: React.FC = () => {
         throw new Error('Не вдалося отримати public URL файлу');
       }
 
+      // Записуємо URL у таблицю invoices
       const { error: updateError } = await supabase
         .from('invoices')
         .update({ attached_file_url: publicUrl })
@@ -240,6 +307,13 @@ export const InvoiceView: React.FC = () => {
     }
   };
 
+  // ---------------------------------------------------------
+  // Видалення прикріпленого файлу
+  // ---------------------------------------------------------
+  // Функція:
+  // 1. видаляє файл із storage
+  // 2. очищає attached_file_url у таблиці invoices
+  // 3. прибирає файл зі стану сторінки
   const handleAttachedFileDelete = async () => {
     if (!attachedFile || !id) return;
 
@@ -252,6 +326,7 @@ export const InvoiceView: React.FC = () => {
         throw new Error('Користувач не авторизований');
       }
 
+      // Витягуємо шлях до файлу з public URL
       const url = new URL(attachedFile);
       const pathParts = url.pathname.split('/storage/v1/object/public/invoice-pdfs/');
       const filePath = pathParts[1];
@@ -260,6 +335,7 @@ export const InvoiceView: React.FC = () => {
         throw new Error('Не вдалося визначити шлях до файлу');
       }
 
+      // Видаляємо файл з storage
       const { error: deleteError } = await supabase.storage
         .from('invoice-pdfs')
         .remove([filePath]);
@@ -268,6 +344,7 @@ export const InvoiceView: React.FC = () => {
         throw deleteError;
       }
 
+      // Очищаємо поле attached_file_url у таблиці invoices
       const { error: updateError } = await supabase
         .from('invoices')
         .update({ attached_file_url: null })
@@ -285,6 +362,13 @@ export const InvoiceView: React.FC = () => {
     }
   };
 
+  // ---------------------------------------------------------
+  // Збереження підпису
+  // ---------------------------------------------------------
+  // Підпис зберігається прямо в таблицю invoices:
+  // - signature_data_url
+  // - signed_by
+  // - signed_at
   const handleSaveSignature = async (signatureDataUrl: string, signerName: string) => {
     try {
       const { error } = await supabase
@@ -306,6 +390,14 @@ export const InvoiceView: React.FC = () => {
     }
   };
 
+  // ---------------------------------------------------------
+  // "Відправка" інвойсу на email
+  // ---------------------------------------------------------
+  // Тут не відбувається реальна відправка листа.
+  // Ми лише зберігаємо:
+  // - sent_at
+  // - sent_to
+  // Тобто фактично позначаємо інвойс як відправлений.
   const handleSendEmail = async () => {
     if (!emailTo.trim()) {
       showError(t('enterEmailAddress') || 'Please enter email address');
@@ -336,6 +428,7 @@ export const InvoiceView: React.FC = () => {
     }
   };
 
+  // Стан завантаження
   if (isLoading) {
     return (
       <div className="min-h-screen pt-20 px-4 max-w-6xl mx-auto">
@@ -346,10 +439,17 @@ export const InvoiceView: React.FC = () => {
     );
   }
 
+  // Якщо інвойсу немає — нічого не рендеримо
   if (!invoice) {
     return null;
   }
 
+  // Формуємо фінальний об’єкт для InvoicePreview
+  // Тут підмішуємо:
+  // - клієнта
+  // - профіль компанії
+  // - позиції
+  // - підпис
   const invoiceData = {
     ...invoice,
     document_number: invoice.document_no || invoice.document_number,
@@ -369,6 +469,7 @@ export const InvoiceView: React.FC = () => {
   return (
     <div className="min-h-screen pt-20 pb-10 px-3 md:px-6 max-w-6xl mx-auto overflow-x-hidden">
       <div className="mb-6">
+        {/* Кнопка назад */}
         <button
           type="button"
           onClick={() => navigate('/invoices')}
@@ -378,6 +479,7 @@ export const InvoiceView: React.FC = () => {
           <ArrowLeft size={20} />
         </button>
 
+        {/* Верхня панель сторінки */}
         <div className="flex justify-between items-start gap-3 mb-6">
           <div className="min-w-0">
             <h2 className="text-2xl font-semibold text-white mb-1">
@@ -388,7 +490,9 @@ export const InvoiceView: React.FC = () => {
             </p>
           </div>
 
+          {/* Кнопки дій */}
           <div className="flex gap-2 flex-wrap justify-end">
+            {/* Перегляд PDF у повноекранному режимі */}
             {pdfUrl && (
               <button
                 type="button"
@@ -400,6 +504,7 @@ export const InvoiceView: React.FC = () => {
               </button>
             )}
 
+            {/* Кнопка підпису — показується тільки якщо ще немає підпису */}
             {!invoice.signature_data_url && (
               <button
                 type="button"
@@ -411,6 +516,7 @@ export const InvoiceView: React.FC = () => {
               </button>
             )}
 
+            {/* Кнопка "відправити" */}
             <button
               type="button"
               onClick={() => {
@@ -423,6 +529,7 @@ export const InvoiceView: React.FC = () => {
               <Send size={18} />
             </button>
 
+            {/* Перехід до редагування */}
             <button
               type="button"
               onClick={() => navigate(`/invoices/${id}`)}
@@ -436,12 +543,14 @@ export const InvoiceView: React.FC = () => {
       </div>
 
       <>
+        {/* Візуальний перегляд інвойсу */}
         <InvoicePreview
           invoice={invoiceData}
           client={client}
           companyProfile={companyProfile}
         />
 
+        {/* Блок PDF інвойсу */}
         {pdfUrl && (
           <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mb-6 mt-6">
             <div className="flex items-center justify-between mb-4">
@@ -450,6 +559,7 @@ export const InvoiceView: React.FC = () => {
               </h3>
 
               <div className="flex gap-2">
+                {/* Завантажити PDF */}
                 <a
                   href={pdfUrl}
                   target="_blank"
@@ -459,6 +569,7 @@ export const InvoiceView: React.FC = () => {
                   <Download size={20} />
                 </a>
 
+                {/* Відкрити PDF на весь екран */}
                 <button
                   type="button"
                   onClick={() => setShowFullScreenPDF(true)}
@@ -469,6 +580,7 @@ export const InvoiceView: React.FC = () => {
               </div>
             </div>
 
+            {/* На desktop вбудовано показуємо PDF в iframe */}
             {!isMobile && (
               <div className="rounded-xl overflow-hidden">
                 <iframe
@@ -483,12 +595,14 @@ export const InvoiceView: React.FC = () => {
         )}
       </>
 
+      {/* Блок прикріпленого файлу */}
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mt-6">
         <h3 className="text-lg font-semibold text-white mb-4">
           {t('attachedFile') || 'Attached File'}
         </h3>
 
         {attachedFile ? (
+          // Якщо файл уже прикріплений — показуємо картку з кнопками
           <div className="flex items-center justify-between gap-3 bg-white/5 rounded-xl p-4">
             <div className="flex items-center gap-3 min-w-0">
               <FileText className="text-orange-400 flex-shrink-0" size={24} />
@@ -503,6 +617,7 @@ export const InvoiceView: React.FC = () => {
             </div>
 
             <div className="flex gap-2 flex-shrink-0">
+              {/* Завантажити / відкрити прикріплений файл */}
               <a
                 href={attachedFile}
                 target="_blank"
@@ -512,9 +627,10 @@ export const InvoiceView: React.FC = () => {
                 <Download size={20} />
               </a>
 
+              {/* Видалити прикріплений файл */}
               <button
                 type="button"
-               onClick={handleAttachedFileDelete}
+                onClick={handleAttachedFileDelete}
                 className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-red-400 transition-all"
               >
                 <Trash2 size={20} />
@@ -522,6 +638,7 @@ export const InvoiceView: React.FC = () => {
             </div>
           </div>
         ) : (
+          // Якщо прикріпленого файлу ще немає — показуємо зону завантаження
           <div className="border-2 border-dashed border-white/20 rounded-xl p-8 text-center">
             <Upload className="mx-auto text-white/40 mb-3" size={32} />
             <p className="text-white/60 mb-4">
@@ -550,6 +667,7 @@ export const InvoiceView: React.FC = () => {
         )}
       </div>
 
+      {/* Модалка підпису */}
       {showSignatureModal && (
         <SignatureCanvas
           onSave={handleSaveSignature}
@@ -559,6 +677,7 @@ export const InvoiceView: React.FC = () => {
         />
       )}
 
+      {/* Модалка "відправки" інвойсу */}
       {showEmailModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl shadow-2xl max-w-md w-full border border-white/10">
@@ -593,6 +712,7 @@ export const InvoiceView: React.FC = () => {
                 />
               </div>
 
+              {/* Якщо інвойс уже раніше "відправлявся" — показуємо інформацію */}
               {invoice.sent_at && (
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
                   <p className="text-sm text-blue-300">
@@ -606,6 +726,7 @@ export const InvoiceView: React.FC = () => {
             </div>
 
             <div className="flex gap-3 p-6 border-t border-white/10">
+              {/* Скасувати */}
               <Button
                 onClick={() => setShowEmailModal(false)}
                 className="flex-1 bg-white/10 border border-white/10 text-white hover:bg-white/20"
@@ -613,6 +734,7 @@ export const InvoiceView: React.FC = () => {
                 {t('cancel')}
               </Button>
 
+              {/* Підтвердити "відправку" */}
               <Button
                 onClick={handleSendEmail}
                 disabled={sendingEmail || !emailTo.trim()}
@@ -632,10 +754,12 @@ export const InvoiceView: React.FC = () => {
         </div>
       )}
 
+      {/* Повноекранний перегляд PDF */}
       {showFullScreenPDF && pdfUrl && (
         <div className="fixed inset-0 bg-black z-[9999] flex flex-col">
           <div className="bg-slate-900 border-b border-white/10 p-3 md:p-4 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2 md:gap-4 min-w-0">
+              {/* Закрити повноекранний режим */}
               <button
                 type="button"
                 onClick={() => {
@@ -652,6 +776,7 @@ export const InvoiceView: React.FC = () => {
               </h3>
             </div>
 
+            {/* Панель масштабування доступна тільки не на мобільному */}
             {!isMobile && (
               <div className="flex items-center gap-1 md:gap-2">
                 <button
@@ -676,6 +801,7 @@ export const InvoiceView: React.FC = () => {
                   <ZoomIn className="text-white" size={18} />
                 </button>
 
+                {/* Окреме завантаження PDF */}
                 <a
                   href={pdfUrl}
                   target="_blank"
@@ -690,6 +816,7 @@ export const InvoiceView: React.FC = () => {
 
           <div className="flex-1 overflow-auto bg-slate-800">
             {isMobile ? (
+              // На мобільному не вбудовуємо PDF в iframe, а даємо кнопку відкрити
               <div className="flex flex-col items-center justify-center h-full p-6 gap-4">
                 <FileText className="text-orange-400" size={56} />
                 <p className="text-white font-semibold text-lg text-center">
@@ -709,6 +836,7 @@ export const InvoiceView: React.FC = () => {
                 </a>
               </div>
             ) : (
+              // На desktop показуємо PDF всередині сторінки
               <div className="p-4 flex justify-center">
                 <div
                   className="bg-white shadow-2xl"
