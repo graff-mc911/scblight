@@ -1,6 +1,21 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FileText, Download, ChevronRight, CheckCircle, Clock, AlertCircle, Send, Trash2, Upload, ExternalLink, Pencil, Sparkles } from 'lucide-react';
+import {
+  Plus,
+  FileText,
+  Download,
+  ChevronRight,
+  CheckCircle,
+  Clock,
+  AlertCircle,
+  Send,
+  Trash2,
+  Upload,
+  ExternalLink,
+  Pencil,
+  Sparkles,
+} from 'lucide-react';
+import jsPDF from 'jspdf';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { supabase } from '../lib/supabase';
@@ -13,14 +28,16 @@ import { exportInvoicesToCSV } from '../lib/exportData';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { offlineStore } from '../lib/offlineStore';
 
-const InvoiceThumbnail: React.FC<{ invoice: Record<string, unknown> }> = ({ invoice }) => {
+const InvoiceThumbnail: React.FC<{ invoice: Record<string, unknown> }> = () => {
   return (
     <div className="w-12 h-14 rounded-lg bg-white/10 border border-white/10 flex-shrink-0 overflow-hidden flex items-center justify-center">
       <div className="w-full h-full p-1 flex flex-col gap-0.5 justify-center">
         {[...Array(6)].map((_, i) => (
           <div
             key={i}
-            className={`h-px rounded-full ${i === 1 ? 'bg-white/40 w-3/4' : i === 2 ? 'bg-white/20 w-full' : 'bg-white/15 w-full'}`}
+            className={`h-px rounded-full ${
+              i === 1 ? 'bg-white/40 w-3/4' : i === 2 ? 'bg-white/20 w-full' : 'bg-white/15 w-full'
+            }`}
           />
         ))}
         <div className="h-2 mt-0.5 bg-white/5 rounded-sm w-full" />
@@ -41,6 +58,7 @@ const StatusBadge: React.FC<{ status: string; t: (key: string) => string }> = ({
       </span>
     );
   }
+
   if (status === 'sent') {
     return (
       <span className="flex items-center gap-1 text-xs text-blue-400/80">
@@ -49,6 +67,7 @@ const StatusBadge: React.FC<{ status: string; t: (key: string) => string }> = ({
       </span>
     );
   }
+
   if (status === 'overdue') {
     return (
       <span className="flex items-center gap-1 text-xs text-red-400/80">
@@ -57,6 +76,7 @@ const StatusBadge: React.FC<{ status: string; t: (key: string) => string }> = ({
       </span>
     );
   }
+
   return (
     <span className="flex items-center gap-1 text-xs text-white/40">
       <Clock size={12} />
@@ -71,10 +91,58 @@ interface UploadInvoiceModalProps {
   onSuccess: () => void;
 }
 
+/**
+ * Якщо користувач вибрав фото, перетворюємо його в PDF.
+ * Якщо вже PDF — повертаємо без змін.
+ */
+const convertFileToPdf = async (file: File): Promise<File> => {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+
+  if (isPdf) {
+    return file;
+  }
+
+  const isImage = file.type.startsWith('image/');
+  if (!isImage) {
+    throw new Error('Підтримуються тільки PDF або зображення');
+  }
+
+  const imageUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = imageUrl;
+  });
+
+  const pdf = new jsPDF({
+    orientation: img.width > img.height ? 'landscape' : 'portrait',
+    unit: 'px',
+    format: [img.width, img.height],
+  });
+
+  const format = file.type.includes('png') ? 'PNG' : 'JPEG';
+  pdf.addImage(imageUrl, format, 0, 0, img.width, img.height);
+
+  const blob = pdf.output('blob');
+  const safeName = file.name.replace(/\.[^.]+$/, '');
+
+  return new File([blob], `${safeName}.pdf`, {
+    type: 'application/pdf',
+  });
+};
+
 const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId, onSuccess }) => {
   const { t } = useLanguage();
   const { showSuccess, showError } = useToastContext();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [amount, setAmount] = useState('');
   const [issuer, setIssuer] = useState('');
@@ -84,58 +152,106 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
   const [parsedFields, setParsedFields] = useState<{ company?: boolean; amount?: boolean; date?: boolean }>({});
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 20 * 1024 * 1024) { showError('Файл занадто великий (макс. 20 МБ)'); return; }
-    setSelectedFile(file);
+    const rawFile = e.target.files?.[0];
+    if (!rawFile) return;
+
+    if (rawFile.size > 20 * 1024 * 1024) {
+      showError('Файл занадто великий (макс. 20 МБ)');
+      return;
+    }
+
     setParsing(true);
     setParsedFields({});
+
     try {
-      const parsed = await extractInvoiceDataFromPDF(file);
+      const pdfFile = await convertFileToPdf(rawFile);
+      setSelectedFile(pdfFile);
+
+      const parsed = await extractInvoiceDataFromPDF(pdfFile);
       const detected: { company?: boolean; amount?: boolean; date?: boolean } = {};
-      if (parsed.company) { setIssuer(parsed.company); detected.company = true; }
-      else {
-        const cleanName = file.name.replace(/\.pdf$/i, '').replace(/[_]/g, ' ').trim();
+
+      if (parsed.company) {
+        setIssuer(parsed.company);
+        detected.company = true;
+      } else {
+        const cleanName = pdfFile.name.replace(/\.pdf$/i, '').replace(/[_]/g, ' ').trim();
         setIssuer(cleanName);
       }
-      if (parsed.totalAmount) { setAmount(parsed.totalAmount.replace('.', ',')); detected.amount = true; }
-      if (parsed.invoiceDate) { setInvoiceDate(parsed.invoiceDate); detected.date = true; }
+
+      if (parsed.totalAmount) {
+        setAmount(parsed.totalAmount.replace('.', ','));
+        detected.amount = true;
+      }
+
+      if (parsed.invoiceDate) {
+        setInvoiceDate(parsed.invoiceDate);
+        detected.date = true;
+      }
+
       setParsedFields(detected);
-    } catch {
-      const cleanName = file.name.replace(/\.pdf$/i, '').replace(/[_]/g, ' ').trim();
+    } catch (error) {
+      console.error('Помилка обробки файлу:', error);
+
+      const cleanName = rawFile.name.replace(/\.[^.]+$/i, '').replace(/[_]/g, ' ').trim();
       setIssuer(cleanName);
+
+      showError('Не вдалося повністю розпізнати файл');
     } finally {
       setParsing(false);
     }
   };
 
   const handleSubmit = async () => {
-    if (!selectedFile) { showError(t('selectFile') || 'Будь ласка, оберіть PDF файл'); return; }
+    if (!selectedFile) {
+      showError(t('selectFile') || 'Будь ласка, оберіть PDF файл');
+      return;
+    }
+
     const parsedAmountCheck = amount.trim() ? parseFloat(amount.trim().replace(',', '.')) : 0;
-    if (isNaN(parsedAmountCheck)) { showError(t('enterAmount') || 'Введіть суму'); return; }
+
+    if (isNaN(parsedAmountCheck)) {
+      showError(t('enterAmount') || 'Введіть суму');
+      return;
+    }
+
     setUploading(true);
+
     try {
-      const fileName = `${userId}/${Date.now()}_${selectedFile.name}`;
+      const pdfFile = await convertFileToPdf(selectedFile);
+      const safeFileName = pdfFile.name.replace(/[^\w.\-]+/g, '_');
+      const fileName = `${userId}/${Date.now()}_${safeFileName}`;
+
       const { error: uploadError } = await supabase.storage
         .from('uploaded-invoices')
-        .upload(fileName, selectedFile, { upsert: true, contentType: 'application/pdf' });
+        .upload(fileName, pdfFile, {
+          upsert: true,
+          contentType: 'application/pdf',
+        });
+
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage.from('uploaded-invoices').getPublicUrl(fileName);
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('uploaded-invoices').getPublicUrl(fileName);
 
       const parsedAmount = parsedAmountCheck;
+
       const { error: dbError } = await supabase.from('invoices').insert({
         user_id: userId,
-        client_name: issuer || selectedFile.name.replace(/\.pdf$/i, ''),
+        client_name: issuer || pdfFile.name.replace(/\.pdf$/i, ''),
         date: invoiceDate,
         status: 'paid',
         source: 'uploaded',
         uploaded_pdf_url: publicUrl,
+        pdf_url: publicUrl,
         uploaded_amount: parsedAmount,
+        total_net: parsedAmount,
         total_gross: parsedAmount,
         currency: 'EUR',
+        document_type: 'expense',
         document_no: `EXT-${Date.now().toString().slice(-6)}`,
       });
+
       if (dbError) throw dbError;
 
       showSuccess(t('invoiceUploaded') || 'Рахунок завантажено');
@@ -150,30 +266,52 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <motion.div
         initial={{ y: 80, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 80, opacity: 0 }}
         transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         className="w-full max-w-lg bg-[#1a1a1a] border border-white/10 rounded-t-3xl p-6 pb-10 space-y-5"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-white font-semibold text-base">{t('uploadExternalInvoice') || 'Завантажити чужий рахунок'}</h3>
-          <button onClick={onClose} className="text-white/40 hover:text-white/70 transition-colors text-xl leading-none">✕</button>
+          <h3 className="text-white font-semibold text-base">
+            {t('uploadExternalInvoice') || 'Завантажити чужий рахунок'}
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-white/40 hover:text-white/70 transition-colors text-xl leading-none"
+          >
+            ✕
+          </button>
         </div>
 
         <button
           onClick={() => fileInputRef.current?.click()}
-          className={`w-full flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 border-dashed transition-all ${selectedFile ? 'border-teal-500/50 bg-teal-500/5' : 'border-white/15 bg-white/3 hover:border-white/25 hover:bg-white/5'}`}
+          className={`w-full flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 border-dashed transition-all ${
+            selectedFile
+              ? 'border-teal-500/50 bg-teal-500/5'
+              : 'border-white/15 bg-white/3 hover:border-white/25 hover:bg-white/5'
+          }`}
         >
           {selectedFile ? (
             <>
               <div className="w-10 h-10 rounded-xl bg-teal-500/20 flex items-center justify-center">
-                {parsing ? <Clock size={20} className="text-teal-400 animate-spin" /> : <FileText size={20} className="text-teal-400" />}
+                {parsing ? (
+                  <Clock size={20} className="text-teal-400 animate-spin" />
+                ) : (
+                  <FileText size={20} className="text-teal-400" />
+                )}
               </div>
-              <p className="text-teal-300 text-sm font-medium text-center truncate max-w-full px-2">{selectedFile.name}</p>
+
+              <p className="text-teal-300 text-sm font-medium text-center truncate max-w-full px-2">
+                {selectedFile.name}
+              </p>
+
               {parsing ? (
                 <p className="text-teal-400/60 text-xs flex items-center gap-1.5">
                   <Sparkles size={11} />
@@ -188,54 +326,95 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
               <div className="w-10 h-10 rounded-xl bg-white/8 flex items-center justify-center">
                 <Upload size={20} className="text-white/50" />
               </div>
-              <p className="text-white/60 text-sm">{t('selectPdfFile') || 'Оберіть PDF файл'}</p>
-              <p className="text-white/25 text-xs">до 20 МБ</p>
+              <p className="text-white/60 text-sm">
+                {t('selectPdfFile') || 'Оберіть PDF або фото документа'}
+              </p>
+              <p className="text-white/25 text-xs">PDF або фото до 20 МБ</p>
             </>
           )}
         </button>
-        <input ref={fileInputRef} type="file" accept="application/pdf" onChange={handleFileChange} className="hidden" />
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/pdf,image/*"
+          onChange={handleFileChange}
+          className="hidden"
+        />
 
         {Object.keys(parsedFields).length > 0 && (
           <div className="flex items-center gap-2 px-1">
             <Sparkles size={12} className="text-teal-400 flex-shrink-0" />
             <p className="text-teal-400/80 text-xs">
               {t('autoDetected') || 'Автоматично розпізнано'}:
-              {parsedFields.company && <span className="ml-1 px-1.5 py-0.5 bg-teal-500/15 rounded text-teal-300">{t('company') || 'фірма'}</span>}
-              {parsedFields.amount && <span className="ml-1 px-1.5 py-0.5 bg-teal-500/15 rounded text-teal-300">{t('amount') || 'сума'}</span>}
-              {parsedFields.date && <span className="ml-1 px-1.5 py-0.5 bg-teal-500/15 rounded text-teal-300">{t('date') || 'дата'}</span>}
+              {parsedFields.company && (
+                <span className="ml-1 px-1.5 py-0.5 bg-teal-500/15 rounded text-teal-300">
+                  {t('company') || 'фірма'}
+                </span>
+              )}
+              {parsedFields.amount && (
+                <span className="ml-1 px-1.5 py-0.5 bg-teal-500/15 rounded text-teal-300">
+                  {t('amount') || 'сума'}
+                </span>
+              )}
+              {parsedFields.date && (
+                <span className="ml-1 px-1.5 py-0.5 bg-teal-500/15 rounded text-teal-300">
+                  {t('date') || 'дата'}
+                </span>
+              )}
             </p>
           </div>
         )}
 
         <div className="space-y-3">
-          <div className={`bg-white/5 border rounded-xl px-4 py-3 transition-colors ${parsedFields.company ? 'border-teal-500/30' : 'border-white/8'}`}>
-            <p className="text-white/35 text-[11px] uppercase tracking-wider mb-1">{t('issuerName') || 'Від кого (постачальник)'}</p>
+          <div
+            className={`bg-white/5 border rounded-xl px-4 py-3 transition-colors ${
+              parsedFields.company ? 'border-teal-500/30' : 'border-white/8'
+            }`}
+          >
+            <p className="text-white/35 text-[11px] uppercase tracking-wider mb-1">
+              {t('issuerName') || 'Назва / Фірма'}
+            </p>
             <input
               type="text"
               value={issuer}
-              onChange={e => setIssuer(e.target.value)}
+              onChange={(e) => setIssuer(e.target.value)}
               placeholder={t('issuerPlaceholder') || 'Назва компанії або постачальника'}
               className="w-full bg-transparent text-white text-sm outline-none placeholder-white/20"
             />
           </div>
+
           <div className="flex gap-3">
-            <div className={`flex-1 bg-white/5 border rounded-xl px-4 py-3 transition-colors ${parsedFields.amount ? 'border-teal-500/30' : 'border-white/8'}`}>
-              <p className="text-white/35 text-[11px] uppercase tracking-wider mb-1">{t('amount') || 'Сума (€)'}</p>
+            <div
+              className={`flex-1 bg-white/5 border rounded-xl px-4 py-3 transition-colors ${
+                parsedFields.amount ? 'border-teal-500/30' : 'border-white/8'
+              }`}
+            >
+              <p className="text-white/35 text-[11px] uppercase tracking-wider mb-1">
+                {t('amount') || 'Сума'}
+              </p>
               <input
                 type="text"
                 inputMode="decimal"
                 value={amount}
-                onChange={e => setAmount(e.target.value)}
+                onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.00"
                 className="w-full bg-transparent text-white text-sm outline-none placeholder-white/20"
               />
             </div>
-            <div className={`flex-1 bg-white/5 border rounded-xl px-4 py-3 transition-colors ${parsedFields.date ? 'border-teal-500/30' : 'border-white/8'}`}>
-              <p className="text-white/35 text-[11px] uppercase tracking-wider mb-1">{t('date') || 'Дата'}</p>
+
+            <div
+              className={`flex-1 bg-white/5 border rounded-xl px-4 py-3 transition-colors ${
+                parsedFields.date ? 'border-teal-500/30' : 'border-white/8'
+              }`}
+            >
+              <p className="text-white/35 text-[11px] uppercase tracking-wider mb-1">
+                {t('date') || 'Дата'}
+              </p>
               <input
                 type="date"
                 value={invoiceDate}
-                onChange={e => setInvoiceDate(e.target.value)}
+                onChange={(e) => setInvoiceDate(e.target.value)}
                 className="w-full bg-transparent text-white text-sm outline-none"
               />
             </div>
@@ -247,7 +426,17 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
           disabled={uploading || !selectedFile || parsing}
           className="w-full py-3.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-sm font-semibold transition-all active:scale-98 disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          {uploading ? <><Clock size={16} className="animate-spin" /> {t('uploading') || 'Завантаження...'}</> : <><Upload size={16} /> {t('uploadInvoice') || 'Завантажити рахунок'}</>}
+          {uploading ? (
+            <>
+              <Clock size={16} className="animate-spin" />
+              {t('uploading') || 'Завантаження...'}
+            </>
+          ) : (
+            <>
+              <Upload size={16} />
+              {t('uploadInvoice') || 'Завантажити рахунок'}
+            </>
+          )}
         </button>
       </motion.div>
     </div>
@@ -260,9 +449,14 @@ interface EditUploadedInvoiceModalProps {
   onSuccess: () => void;
 }
 
-const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({ invoice, onClose, onSuccess }) => {
+const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({
+  invoice,
+  onClose,
+  onSuccess,
+}) => {
   const { t } = useLanguage();
   const { showSuccess, showError } = useToastContext();
+
   const [issuer, setIssuer] = useState((invoice.client_name as string) || '');
   const [amount, setAmount] = useState(
     invoice.uploaded_amount != null
@@ -278,16 +472,28 @@ const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({ inv
 
   const handleSave = async () => {
     const parsedAmount = amount.trim() ? parseFloat(amount.trim().replace(',', '.')) : 0;
-    if (isNaN(parsedAmount)) { showError(t('enterAmount') || 'Введіть суму'); return; }
+
+    if (isNaN(parsedAmount)) {
+      showError(t('enterAmount') || 'Введіть суму');
+      return;
+    }
+
     setSaving(true);
+
     try {
-      const { error } = await supabase.from('invoices').update({
-        client_name: issuer.trim() || (invoice.client_name as string),
-        uploaded_amount: parsedAmount,
-        total_gross: parsedAmount,
-        date: invoiceDate,
-      }).eq('id', invoice.id as string);
+      const { error } = await supabase
+        .from('invoices')
+        .update({
+          client_name: issuer.trim() || (invoice.client_name as string),
+          uploaded_amount: parsedAmount,
+          total_net: parsedAmount,
+          total_gross: parsedAmount,
+          date: invoiceDate,
+        })
+        .eq('id', invoice.id as string);
+
       if (error) throw error;
+
       showSuccess(t('saved') || 'Збережено');
       onSuccess();
       onClose();
@@ -299,18 +505,28 @@ const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({ inv
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <motion.div
         initial={{ y: 80, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 80, opacity: 0 }}
         transition={{ type: 'spring', damping: 28, stiffness: 300 }}
         className="w-full max-w-lg bg-[#1a1a1a] border border-white/10 rounded-t-3xl p-6 pb-10 space-y-5"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-white font-semibold text-base">{t('editExternalInvoice') || 'Редагувати рахунок'}</h3>
-          <button onClick={onClose} className="text-white/40 hover:text-white/70 transition-colors text-xl leading-none">✕</button>
+          <h3 className="text-white font-semibold text-base">
+            {t('editExternalInvoice') || 'Редагувати рахунок'}
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-white/40 hover:text-white/70 transition-colors text-xl leading-none"
+          >
+            ✕
+          </button>
         </div>
 
         <div className="bg-white/5 border border-white/8 rounded-xl px-4 py-2.5 flex items-center gap-3">
@@ -320,34 +536,42 @@ const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({ inv
 
         <div className="space-y-3">
           <div className="bg-white/5 border border-white/8 rounded-xl px-4 py-3">
-            <p className="text-white/35 text-[11px] uppercase tracking-wider mb-1">{t('issuerName') || 'Від кого (постачальник)'}</p>
+            <p className="text-white/35 text-[11px] uppercase tracking-wider mb-1">
+              {t('issuerName') || 'Від кого (постачальник)'}
+            </p>
             <input
               type="text"
               value={issuer}
-              onChange={e => setIssuer(e.target.value)}
+              onChange={(e) => setIssuer(e.target.value)}
               placeholder={t('issuerPlaceholder') || 'Назва компанії або постачальника'}
               className="w-full bg-transparent text-white text-sm outline-none placeholder-white/20"
               autoFocus
             />
           </div>
+
           <div className="flex gap-3">
             <div className="flex-1 bg-white/5 border border-white/8 rounded-xl px-4 py-3">
-              <p className="text-white/35 text-[11px] uppercase tracking-wider mb-1">{t('amount') || 'Сума (€)'}</p>
+              <p className="text-white/35 text-[11px] uppercase tracking-wider mb-1">
+                {t('amount') || 'Сума (€)'}
+              </p>
               <input
                 type="text"
                 inputMode="decimal"
                 value={amount}
-                onChange={e => setAmount(e.target.value)}
+                onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.00"
                 className="w-full bg-transparent text-white text-sm outline-none placeholder-white/20"
               />
             </div>
+
             <div className="flex-1 bg-white/5 border border-white/8 rounded-xl px-4 py-3">
-              <p className="text-white/35 text-[11px] uppercase tracking-wider mb-1">{t('date') || 'Дата'}</p>
+              <p className="text-white/35 text-[11px] uppercase tracking-wider mb-1">
+                {t('date') || 'Дата'}
+              </p>
               <input
                 type="date"
                 value={invoiceDate}
-                onChange={e => setInvoiceDate(e.target.value)}
+                onChange={(e) => setInvoiceDate(e.target.value)}
                 className="w-full bg-transparent text-white text-sm outline-none"
               />
             </div>
@@ -359,7 +583,17 @@ const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({ inv
           disabled={saving}
           className="w-full py-3.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-sm font-semibold transition-all active:scale-98 disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          {saving ? <><Clock size={16} className="animate-spin" /> {t('saving') || 'Збереження...'}</> : <><Pencil size={16} /> {t('saveChanges') || 'Зберегти зміни'}</>}
+          {saving ? (
+            <>
+              <Clock size={16} className="animate-spin" />
+              {t('saving') || 'Збереження...'}
+            </>
+          ) : (
+            <>
+              <Pencil size={16} />
+              {t('saveChanges') || 'Зберегти зміни'}
+            </>
+          )}
         </button>
       </motion.div>
     </div>
@@ -373,6 +607,7 @@ export const Invoices: React.FC = () => {
   const { t } = useLanguage();
   const { showSuccess, showError } = useToastContext();
   const queryClient = useQueryClient();
+
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
@@ -391,30 +626,35 @@ export const Invoices: React.FC = () => {
     queryKey: ['invoices', session?.user?.id],
     queryFn: async () => {
       const userId = session?.user?.id || '';
+
       if (!navigator.onLine) {
         const cached = await offlineStore.getInvoices(userId);
-        return cached.map(inv => ({
+        return cached.map((inv) => ({
           ...inv,
           document_number: inv['document_no'],
           gross_total: inv['total_gross'],
         }));
       }
+
       const { data, error } = await supabase
         .from('invoices')
         .select('*, clients(name)')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
+
       if (error) {
         const cached = await offlineStore.getInvoices(userId);
-        return cached.map(inv => ({
+        return cached.map((inv) => ({
           ...inv,
           document_number: inv['document_no'],
           gross_total: inv['total_gross'],
         }));
       }
+
       const rows = data || [];
       await offlineStore.saveInvoices(rows);
-      return rows.map(inv => ({
+
+      return rows.map((inv) => ({
         ...inv,
         document_number: inv.document_no,
         gross_total: inv.total_gross,
@@ -425,7 +665,11 @@ export const Invoices: React.FC = () => {
 
   const formatCurrency = useCallback((amount: number, currency: string) => {
     const curr = currencies.find((c) => c.code === currency);
-    return `${amount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${curr?.symbol || currency}`;
+
+    return `${amount.toLocaleString('de-DE', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} ${curr?.symbol || currency}`;
   }, []);
 
   const handleExportCSV = useCallback(() => {
@@ -439,16 +683,24 @@ export const Invoices: React.FC = () => {
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!invoiceToDelete) return;
+
     try {
       if (!navigator.onLine) {
         await offlineStore.deleteInvoice(invoiceToDelete);
-        await offlineStore.enqueueMutation({ table: 'invoices', operation: 'delete', data: { id: invoiceToDelete }, timestamp: Date.now() });
+        await offlineStore.enqueueMutation({
+          table: 'invoices',
+          operation: 'delete',
+          data: { id: invoiceToDelete },
+          timestamp: Date.now(),
+        });
         showSuccess(t('invoiceDeleted') || 'Invoice deleted successfully');
         queryClient.invalidateQueries({ queryKey: ['invoices'] });
         return;
       }
+
       const { error } = await supabase.from('invoices').delete().eq('id', invoiceToDelete);
       if (error) throw error;
+
       await offlineStore.deleteInvoice(invoiceToDelete);
       showSuccess(t('invoiceDeleted') || 'Invoice deleted successfully');
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
@@ -468,9 +720,8 @@ export const Invoices: React.FC = () => {
     { key: 'overdue', label: t('overdue') },
   ];
 
-  const filteredInvoices = activeFilter === 'all'
-    ? invoices
-    : invoices.filter((inv) => inv.status === activeFilter);
+  const filteredInvoices =
+    activeFilter === 'all' ? invoices : invoices.filter((inv) => inv.status === activeFilter);
 
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-2xl mx-auto">
@@ -489,6 +740,7 @@ export const Invoices: React.FC = () => {
           >
             <Download size={16} />
           </button>
+
           <button
             onClick={() => setUploadModalOpen(true)}
             className="p-2.5 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 transition-all active:scale-95"
@@ -496,6 +748,7 @@ export const Invoices: React.FC = () => {
           >
             <Upload size={16} />
           </button>
+
           <button
             onClick={() => navigate('/invoices/new')}
             className="p-2.5 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 transition-all active:scale-95"
@@ -508,8 +761,13 @@ export const Invoices: React.FC = () => {
 
       <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1 scrollbar-hide">
         {filterTabs.map((tab) => {
-          const count = tab.key === 'all' ? invoices.length : invoices.filter((inv) => inv.status === tab.key).length;
+          const count =
+            tab.key === 'all'
+              ? invoices.length
+              : invoices.filter((inv) => inv.status === tab.key).length;
+
           const isActive = activeFilter === tab.key;
+
           return (
             <button
               key={tab.key}
@@ -522,7 +780,11 @@ export const Invoices: React.FC = () => {
             >
               {tab.label}
               {count > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-white/10 text-white/40'}`}>
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                    isActive ? 'bg-white/20 text-white' : 'bg-white/10 text-white/40'
+                  }`}
+                >
                   {count}
                 </span>
               )}
@@ -535,7 +797,10 @@ export const Invoices: React.FC = () => {
         {isLoading ? (
           <div>
             {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="flex items-center gap-4 px-4 py-4 border-b border-white/5 animate-pulse last:border-0">
+              <div
+                key={i}
+                className="flex items-center gap-4 px-4 py-4 border-b border-white/5 animate-pulse last:border-0"
+              >
                 <div className="w-12 h-14 rounded-lg bg-white/10 flex-shrink-0" />
                 <div className="flex-1">
                   <div className="h-3 bg-white/10 rounded w-24 mb-2" />
@@ -554,8 +819,10 @@ export const Invoices: React.FC = () => {
             <div className="w-16 h-16 bg-orange-500/20 rounded-xl flex items-center justify-center mx-auto mb-4">
               <FileText size={32} className="text-orange-400" />
             </div>
+
             <h3 className="text-lg font-semibold text-white mb-2">{t('noInvoicesMessage')}</h3>
             <p className="text-white/60 mb-6 text-sm">{t('createFirstIn30Sec')}</p>
+
             {activeFilter === 'all' && (
               <button
                 onClick={() => navigate('/invoices/new')}
@@ -569,6 +836,7 @@ export const Invoices: React.FC = () => {
           <div>
             {filteredInvoices.map((invoice, index) => {
               const isUploaded = invoice.source === 'uploaded';
+
               return (
                 <motion.div
                   key={invoice.id}
@@ -586,11 +854,12 @@ export const Invoices: React.FC = () => {
                         <InvoiceThumbnail invoice={invoice} />
                       )}
                     </div>
+
                     <button
                       className="flex-1 flex items-center gap-4 px-3 py-4 hover:bg-white/5 active:bg-white/8 transition-all text-left"
                       onClick={() => {
                         if (isUploaded && invoice.uploaded_pdf_url) {
-                          window.open(invoice.uploaded_pdf_url as string, '_blank');
+                          window.open(invoice.uploaded_pdf_url as string, '_blank', 'noopener,noreferrer');
                         } else {
                           navigate(`/invoices/${invoice.id}/view`);
                         }
@@ -601,15 +870,22 @@ export const Invoices: React.FC = () => {
                           <span className="text-xs text-white/40">
                             {invoice.document_no || invoice.document_number || t('noDraftNumber')}
                           </span>
+
                           {isUploaded && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-teal-500/15 text-teal-400 border border-teal-500/20 font-medium">
                               PDF
                             </span>
                           )}
                         </div>
-                        <div className={`font-semibold text-base leading-tight truncate ${isUploaded ? 'text-teal-100' : 'text-white'}`}>
+
+                        <div
+                          className={`font-semibold text-base leading-tight truncate ${
+                            isUploaded ? 'text-teal-100' : 'text-white'
+                          }`}
+                        >
                           {invoice.clients?.name || invoice.client_name || t('noClient')}
                         </div>
+
                         <div className="mt-1">
                           {isUploaded ? (
                             <span className="flex items-center gap-1 text-xs text-teal-400/70">
@@ -627,10 +903,19 @@ export const Invoices: React.FC = () => {
                           <div className="text-xs text-white/40 mb-0.5">
                             {invoice.date ? format(new Date(invoice.date), 'dd.MM.yyyy') : '—'}
                           </div>
-                          <div className={`font-semibold text-base ${isUploaded ? 'text-teal-300' : 'text-white'}`}>
-                            {formatCurrency(Number(invoice.total_gross ?? invoice.gross_total ?? 0), invoice.currency || 'EUR')}
+
+                          <div
+                            className={`font-semibold text-base ${
+                              isUploaded ? 'text-teal-300' : 'text-white'
+                            }`}
+                          >
+                            {formatCurrency(
+                              Number(invoice.total_gross ?? invoice.gross_total ?? 0),
+                              invoice.currency || 'EUR'
+                            )}
                           </div>
                         </div>
+
                         <ChevronRight size={16} className="text-white/30" />
                       </div>
                     </button>
@@ -647,6 +932,7 @@ export const Invoices: React.FC = () => {
                         <Pencil size={15} />
                       </button>
                     )}
+
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -660,9 +946,7 @@ export const Invoices: React.FC = () => {
                     </button>
                   </div>
 
-                  {index < filteredInvoices.length - 1 && (
-                    <div className="ml-20 border-b border-white/5" />
-                  )}
+                  {index < filteredInvoices.length - 1 && <div className="ml-20 border-b border-white/5" />}
                 </motion.div>
               );
             })}
@@ -675,7 +959,10 @@ export const Invoices: React.FC = () => {
         onClose={() => setDeleteDialogOpen(false)}
         onConfirm={handleDeleteConfirm}
         title={t('deleteInvoice') || 'Delete Invoice'}
-        description={t('deleteInvoiceConfirm') || 'Are you sure you want to delete this invoice? This action cannot be undone.'}
+        description={
+          t('deleteInvoiceConfirm') ||
+          'Are you sure you want to delete this invoice? This action cannot be undone.'
+        }
       />
 
       <AnimatePresence>
