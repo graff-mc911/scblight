@@ -170,6 +170,56 @@ const convertFileToPdf = async (file: File): Promise<File> => {
 };
 
 /**
+ * Нормалізація суми з різних форматів OCR.
+ * Приклади:
+ * 1190,00
+ * 1.190,00
+ * € 1 190,00
+ * 1190.00 EUR
+ */
+const normalizeAmount = (value: string): number => {
+  if (!value) return 0;
+
+  const cleaned = value
+    .replace(/\s/g, '')
+    .replace(/[^\d,.-]/g, '');
+
+  const lastComma = cleaned.lastIndexOf(',');
+  const lastDot = cleaned.lastIndexOf('.');
+
+  // Якщо є і кома, і крапка
+  if (lastComma !== -1 && lastDot !== -1) {
+    // Якщо остання кома правіше крапки => кома десяткова, крапки це розділювач тисяч
+    if (lastComma > lastDot) {
+      return parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
+    }
+
+    // Якщо остання крапка правіше коми => крапка десяткова, коми це розділювач тисяч
+    return parseFloat(cleaned.replace(/,/g, ''));
+  }
+
+  // Якщо є тільки кома — вважаємо її десятковим роздільником
+  if (lastComma !== -1) {
+    return parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
+  }
+
+  // Якщо є тільки крапка
+  if (lastDot !== -1) {
+    const parts = cleaned.split('.');
+
+    // Якщо крапка одна і після неї рівно 2 цифри — це десятковий роздільник
+    if (parts.length === 2 && parts[1].length <= 2) {
+      return parseFloat(cleaned);
+    }
+
+    // Інакше вважаємо крапки розділювачами тисяч
+    return parseFloat(cleaned.replace(/\./g, ''));
+  }
+
+  return parseFloat(cleaned);
+};
+
+/**
  * Модалка для завантаження зовнішнього рахунку.
  * Дає можливість:
  * - вибрати PDF або фото
@@ -239,9 +289,9 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
         setIssuer(cleanName);
       }
 
-      // Якщо знайдена сума — підставляємо її
+      // Якщо знайдена сума — підставляємо як є, без ламання формату
       if (parsed.totalAmount) {
-        setAmount(parsed.totalAmount.replace('.', ','));
+        setAmount(parsed.totalAmount);
         detected.amount = true;
       }
 
@@ -277,7 +327,7 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
       return;
     }
 
-    const parsedAmountCheck = amount.trim() ? parseFloat(amount.trim().replace(',', '.')) : 0;
+    const parsedAmountCheck = normalizeAmount(amount);
 
     if (isNaN(parsedAmountCheck) || parsedAmountCheck <= 0) {
       showError(t('enterAmount') || 'Введіть коректну суму');
@@ -565,9 +615,9 @@ const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({
   const [issuer, setIssuer] = useState((invoice.client_name as string) || '');
   const [amount, setAmount] = useState(
     invoice.uploaded_amount != null
-      ? String(invoice.uploaded_amount).replace('.', ',')
+      ? String(invoice.uploaded_amount)
       : invoice.total_gross != null
-      ? String(invoice.total_gross).replace('.', ',')
+      ? String(invoice.total_gross)
       : ''
   );
   const [invoiceDate, setInvoiceDate] = useState(
@@ -579,7 +629,7 @@ const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({
    * Зберігає змінені поля в таблицю invoices.
    */
   const handleSave = async () => {
-    const parsedAmount = amount.trim() ? parseFloat(amount.trim().replace(',', '.')) : 0;
+    const parsedAmount = normalizeAmount(amount);
 
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       showError(t('enterAmount') || 'Введіть коректну суму');
@@ -940,7 +990,6 @@ export const Invoices: React.FC = () => {
       {/* Основний блок зі списком рахунків */}
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-lg">
         {isLoading ? (
-          // Скелетон під час завантаження
           <div>
             {[1, 2, 3, 4, 5].map((i) => (
               <div
@@ -961,7 +1010,6 @@ export const Invoices: React.FC = () => {
             ))}
           </div>
         ) : filteredInvoices.length === 0 ? (
-          // Стан, коли рахунків немає
           <div className="text-center py-16 px-4">
             <div className="w-16 h-16 bg-orange-500/20 rounded-xl flex items-center justify-center mx-auto mb-4">
               <FileText size={32} className="text-orange-400" />
@@ -980,7 +1028,6 @@ export const Invoices: React.FC = () => {
             )}
           </div>
         ) : (
-          // Список рахунків
           <div>
             {filteredInvoices.map((invoice, index) => {
               const isUploaded = invoice.source === 'uploaded';
@@ -1003,7 +1050,6 @@ export const Invoices: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Клік по рядку відкриває PDF або сторінку рахунку */}
                     <button
                       className="flex-1 flex items-center gap-4 px-3 py-4 hover:bg-white/5 active:bg-white/8 transition-all text-left"
                       onClick={() => {
@@ -1069,7 +1115,6 @@ export const Invoices: React.FC = () => {
                       </div>
                     </button>
 
-                    {/* Кнопка редагування тільки для завантажених рахунків */}
                     {isUploaded && (
                       <button
                         onClick={(e) => {
@@ -1083,7 +1128,6 @@ export const Invoices: React.FC = () => {
                       </button>
                     )}
 
-                    {/* Кнопка видалення */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1105,7 +1149,6 @@ export const Invoices: React.FC = () => {
         )}
       </div>
 
-      {/* Діалог підтвердження видалення */}
       <ConfirmDialog
         open={deleteDialogOpen}
         onClose={() => setDeleteDialogOpen(false)}
@@ -1117,7 +1160,6 @@ export const Invoices: React.FC = () => {
         }
       />
 
-      {/* Модалка завантаження зовнішнього рахунку */}
       <AnimatePresence>
         {uploadModalOpen && session?.user?.id && (
           <UploadInvoiceModal
@@ -1128,7 +1170,6 @@ export const Invoices: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Модалка редагування завантаженого рахунку */}
       <AnimatePresence>
         {editUploadedInvoice && (
           <EditUploadedInvoiceModal
