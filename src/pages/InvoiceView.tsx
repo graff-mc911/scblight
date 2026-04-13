@@ -243,77 +243,79 @@ setAttachments(attachmentsData || []);
   // Користувач обирає файл з пристрою.
   // Файл завантажується в storage, а його public URL
   // записується в поле attached_file_url інвойсу.
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
 
-    if (!id) {
-      showError('Не знайдено ID рахунку');
-      return;
+  if (!id) {
+    showError('Не знайдено ID рахунку');
+    return;
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    showError(t('fileSizeLimit10mb') || 'Файл має бути менше 10 МБ');
+    return;
+  }
+
+  setUploadingFile(true);
+
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      throw new Error('Користувач не авторизований');
     }
 
-    // Обмеження розміру файлу 10 МБ
-    if (file.size > 10 * 1024 * 1024) {
-      showError(t('fileSizeLimit10mb') || 'File size must be less than 10MB');
-      return;
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'bin';
+    const filePath = `${user.id}/attachments/${id}-${Date.now()}-${file.name}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('invoice-pdfs')
+      .upload(filePath, file, {
+        upsert: false,
+        contentType: file.type || undefined,
+      });
+
+    if (uploadError) {
+      throw uploadError;
     }
 
-    setUploadingFile(true);
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from('invoice-pdfs').getPublicUrl(filePath);
 
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        throw new Error('Користувач не авторизований');
-      }
-
-      // Формуємо унікальний шлях до файлу
-      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'bin';
-      const filePath = `${user.id}/attachments/${id}-${Date.now()}.${fileExt}`;
-
-      // Завантажуємо файл у bucket invoice-pdfs
-      const { error: uploadError } = await supabase.storage
-        .from('invoice-pdfs')
-        .upload(filePath, file, {
-          upsert: false,
-          contentType: file.type || undefined,
-        });
-
-      if (uploadError) {
-        throw uploadError;
-      }
-
-      // Отримуємо public URL
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from('invoice-pdfs').getPublicUrl(filePath);
-
-      if (!publicUrl) {
-        throw new Error('Не вдалося отримати public URL файлу');
-      }
-
-      // Записуємо URL у таблицю invoices
-      const { error: updateError } = await supabase
-        .from('invoices')
-        .update({ attached_file_url: publicUrl })
-        .eq('id', id);
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      setAttachedFile(publicUrl);
-      showSuccess(t('fileUploaded') || 'File uploaded successfully');
-    } catch (error: any) {
-      console.error('File upload error:', error);
-      showError(error?.message || t('failedUploadFile') || 'Failed to upload file');
-    } finally {
-      setUploadingFile(false);
-      e.target.value = '';
+    if (!publicUrl) {
+      throw new Error('Не вдалося отримати URL файлу');
     }
-  };
+
+    const { error: insertError } = await supabase
+      .from('invoice_attachments')
+      .insert([
+        {
+          invoice_id: id,
+          user_id: user.id,
+          file_name: file.name,
+          file_url: publicUrl,
+          file_type: file.type || fileExt,
+        },
+      ]);
+
+    if (insertError) {
+      throw insertError;
+    }
+
+    showSuccess(t('fileUploaded') || 'Файл завантажено');
+    await fetchInvoice();
+  } catch (error: any) {
+    console.error('File upload error:', error);
+    showError(error?.message || t('failedUploadFile') || 'Не вдалося завантажити файл');
+  } finally {
+    setUploadingFile(false);
+    e.target.value = '';
+  }
+};
 
   // ---------------------------------------------------------
   // Видалення прикріпленого файлу
