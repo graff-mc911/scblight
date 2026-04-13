@@ -12,30 +12,45 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { downloadReceiptPDF } from '../lib/receiptPdfGenerator';
 import { useToastContext } from '../contexts/ToastContext';
 
+//
+// ОПИС СТРУКТУРИ ФОРМИ
+// Тут зберігаються всі поля документа витрат / чека.
+//
 interface ExpenseFormData {
-  document_number: string;
-  document_date: string;
-  vendor_name: string;
-  items_text: string;
-  payment_method: string;
-  vat_enabled: boolean;
-  amount_net: string;
-  vat_rate: string;
-  vat_amount: string;
-  total_amount: string;
-  currency: string;
-  original_file_url: string;
-  notes: string;
+  document_number: string;   // номер документа / чека
+  document_date: string;     // дата документа
+  vendor_name: string;       // постачальник / магазин
+  items_text: string;        // розпізнані позиції одним текстом
+  payment_method: string;    // спосіб оплати
+  vat_enabled: boolean;      // чи увімкнено ПДВ
+  amount_net: string;        // нетто
+  vat_rate: string;          // ставка ПДВ
+  vat_amount: string;        // сума ПДВ
+  total_amount: string;      // брутто / загальна сума
+  currency: string;          // валюта
+  original_file_url: string; // посилання на оригінальний файл
+  notes: string;             // примітки
 
-  document_type: string;
-  expense_category: string;
-  link_mode: string;
-  client_id: string;
-  invoice_id: string;
+  document_type: string;     // тип документа: чек, рахунок постачальника тощо
+  expense_category: string;  // категорія витрати
+  link_mode: string;         // режим прив’язки: none / client / invoice
+  client_id: string;         // ID клієнта
+  invoice_id: string;        // ID інвойсу
 }
 
+//
+// Доступні валюти
+//
 const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'CZK', 'UAH'];
+
+//
+// Доступні ставки ПДВ
+//
 const VAT_RATES = ['0', '7', '10', '19', '20', '21', '23', '25'];
+
+//
+// Доступні способи оплати
+//
 const PAYMENT_METHODS = [
   'Bar',
   'EC-Karte',
@@ -51,6 +66,9 @@ const PAYMENT_METHODS = [
   'Scheck',
 ];
 
+//
+// Типи витратних документів
+//
 const DOCUMENT_TYPES = [
   { value: 'receipt', label: 'Чек' },
   { value: 'supplier_invoice', label: 'Рахунок постачальника' },
@@ -58,6 +76,9 @@ const DOCUMENT_TYPES = [
   { value: 'other', label: 'Інше' },
 ];
 
+//
+// Категорії витрат
+//
 const EXPENSE_CATEGORIES = [
   { value: 'materials', label: 'Матеріали' },
   { value: 'labor', label: 'Робота' },
@@ -67,12 +88,19 @@ const EXPENSE_CATEGORIES = [
   { value: 'other', label: 'Інше' },
 ];
 
+//
+// Куди прив’язувати витрату
+//
 const LINK_MODES = [
   { value: 'none', label: 'Без привʼязки' },
   { value: 'client', label: 'До клієнта' },
   { value: 'invoice', label: 'До інвойсу' },
 ];
 
+//
+// Перетворює код валюти у символ
+// Наприклад EUR -> €
+//
 function formatCurrencySymbol(currency: string): string {
   const map: Record<string, string> = {
     EUR: '€',
@@ -83,34 +111,54 @@ function formatCurrencySymbol(currency: string): string {
     CZK: 'Kč',
     UAH: '₴',
   };
+
   return map[currency] || currency;
 }
 
+//
+// Безпечне перетворення рядка у число
+// Наприклад "59,06" -> 59.06
+//
 function parseNumber(value: string): number {
   return parseFloat(String(value || '0').replace(',', '.')) || 0;
 }
 
 export default function ReceiptForm() {
+  // Навігація між сторінками
   const navigate = useNavigate();
+
+  // Беремо id з URL
   const { id } = useParams();
+
+  // React Query client для оновлення кешу
   const queryClient = useQueryClient();
+
+  // Читаємо параметри з URL після OCR / розпізнавання
   const [searchParams] = useSearchParams();
+
+  // Переклади
   const { t } = useLanguage();
+
+  // Toast-повідомлення
   const { showSuccess, showError } = useToastContext();
 
-  // Якщо id = new, це створення нового документа
+  // Якщо id !== 'new', значить це режим редагування
   const isEdit = id !== 'new';
 
+  // ref до прихованого input[type=file]
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [showOriginalImage, setShowOriginalImage] = useState(false);
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  // Стани інтерфейсу
+  const [loading, setLoading] = useState(false); // збереження
+  const [uploading, setUploading] = useState(false); // завантаження файлу
+  const [showOriginalImage, setShowOriginalImage] = useState(false); // модалка перегляду оригіналу
+  const [downloadingPdf, setDownloadingPdf] = useState(false); // чи генерується PDF
 
+  // Списки для випадаючих полів
   const [clients, setClients] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
 
+  // Основні дані форми
   const [formData, setFormData] = useState<ExpenseFormData>({
     document_number: '',
     document_date: new Date().toISOString().split('T')[0],
@@ -136,6 +184,8 @@ export default function ReceiptForm() {
   // ---------------------------------------------------------
   // Завантаження клієнтів користувача
   // ---------------------------------------------------------
+  // Потрібно для випадаючого списку "Клієнт"
+  //
   const loadClients = async () => {
     const {
       data: { user },
@@ -157,6 +207,8 @@ export default function ReceiptForm() {
   // ---------------------------------------------------------
   // Завантаження інвойсів користувача
   // ---------------------------------------------------------
+  // Потрібно для випадаючого списку "Інвойс"
+  //
   const loadInvoices = async () => {
     const {
       data: { user },
@@ -176,8 +228,10 @@ export default function ReceiptForm() {
   };
 
   // ---------------------------------------------------------
-  // Завантаження існуючого витратного документа
+  // Завантаження існуючого документа витрат
   // ---------------------------------------------------------
+  // Працює, коли ми редагуємо вже створений документ
+  //
   const loadExpenseDocument = async () => {
     try {
       const { data, error } = await supabase
@@ -211,7 +265,7 @@ export default function ReceiptForm() {
           invoice_id: data.invoice_id || '',
         });
 
-        // Завантажимо позиції документа і зберемо їх в текст
+        // Додатково підтягуємо позиції документа
         const { data: itemsData } = await supabase
           .from('expense_document_items')
           .select('*')
@@ -237,8 +291,13 @@ export default function ReceiptForm() {
   };
 
   // ---------------------------------------------------------
-  // Підтягуємо OCR-дані із query params після розпізнавання
+  // Початкове завантаження сторінки
   // ---------------------------------------------------------
+  // 1. Завантажуємо клієнтів
+  // 2. Завантажуємо інвойси
+  // 3. Якщо редагування — тягнемо документ з бази
+  // 4. Якщо новий документ після OCR — тягнемо дані з URL
+  //
   useEffect(() => {
     void loadClients();
     void loadInvoices();
@@ -248,14 +307,28 @@ export default function ReceiptForm() {
       return;
     }
 
+    // OCR-дані з URL
     const scannedVendor = searchParams.get('issuer_name');
     const fileUrlParam = searchParams.get('file_url');
 
+    // Прив’язка після OCR
+    const scannedLinkMode = searchParams.get('link_mode') || 'none';
+    const scannedClientId = searchParams.get('client_id') || '';
+    const scannedInvoiceId = searchParams.get('invoice_id') || '';
+
+    // Якщо є тільки файл без OCR-даних
     if (fileUrlParam && !scannedVendor) {
-      setFormData((prev) => ({ ...prev, original_file_url: fileUrlParam }));
+      setFormData((prev) => ({
+        ...prev,
+        original_file_url: fileUrlParam,
+        link_mode: scannedLinkMode,
+        client_id: scannedClientId,
+        invoice_id: scannedInvoiceId,
+      }));
       return;
     }
 
+    // Якщо прийшли OCR-дані
     if (scannedVendor !== null) {
       const scannedDate = searchParams.get('date') || new Date().toISOString().split('T')[0];
       const scannedGross = searchParams.get('amount_gross') || '';
@@ -271,6 +344,7 @@ export default function ReceiptForm() {
       const vatVal = parseNumber(scannedVat);
       const hasVat = netVal > 0 && vatVal > 0 && netVal < grossVal;
 
+      // Пробуємо вгадати ставку ПДВ
       let detectedVatRate = '19';
       if (hasVat && netVal > 0) {
         const impliedRate = Math.round(((grossVal / netVal) - 1) * 100);
@@ -281,6 +355,7 @@ export default function ReceiptForm() {
         detectedVatRate = closest.toString();
       }
 
+      // Підганяємо спосіб оплати під список
       const matchPayment = (raw: string): string => {
         const normalized = raw.toLowerCase().trim();
         for (const method of PAYMENT_METHODS) {
@@ -302,13 +377,37 @@ export default function ReceiptForm() {
         items_text: scannedItems,
         original_file_url: scannedFileUrl,
         document_number: scannedReceiptNumber,
+
+        // Прив’язка
+        link_mode: scannedLinkMode,
+        client_id: scannedClientId,
+        invoice_id: scannedInvoiceId,
       }));
     }
   }, [id, isEdit, searchParams]);
 
   // ---------------------------------------------------------
+  // Якщо обраний інвойс, автоматично підтягуємо його клієнта
+  // ---------------------------------------------------------
+  //
+  useEffect(() => {
+    if (formData.link_mode !== 'invoice' || !formData.invoice_id) return;
+
+    const selectedInvoice = invoices.find((invoice) => invoice.id === formData.invoice_id);
+    if (!selectedInvoice?.client_id) return;
+
+    if (formData.client_id !== selectedInvoice.client_id) {
+      setFormData((prev) => ({
+        ...prev,
+        client_id: selectedInvoice.client_id,
+      }));
+    }
+  }, [formData.link_mode, formData.invoice_id, formData.client_id, invoices]);
+
+  // ---------------------------------------------------------
   // Перерахунок ПДВ
   // ---------------------------------------------------------
+  //
   const recalcVat = (net: string, rate: string): { vat: string; gross: string } => {
     const n = parseNumber(net);
     const r = parseNumber(rate);
@@ -323,6 +422,9 @@ export default function ReceiptForm() {
   // ---------------------------------------------------------
   // Зміна сум
   // ---------------------------------------------------------
+  // Якщо ПДВ вимкнено — нетто = брутто
+  // Якщо увімкнено — усе рахується автоматично
+  //
   const handleAmountChange = (
     field: 'amount_net' | 'total_amount' | 'vat_rate',
     value: string
@@ -372,6 +474,7 @@ export default function ReceiptForm() {
   // ---------------------------------------------------------
   // Увімкнення / вимкнення ПДВ
   // ---------------------------------------------------------
+  //
   const handleVatToggle = (enabled: boolean) => {
     if (!enabled) {
       setFormData((prev) => ({
@@ -396,8 +499,10 @@ export default function ReceiptForm() {
   };
 
   // ---------------------------------------------------------
-  // Фільтр інвойсів по вибраному клієнту
+  // Фільтр інвойсів по клієнту
   // ---------------------------------------------------------
+  // Якщо вибраний клієнт — показуємо тільки його інвойси
+  //
   const filteredInvoices = useMemo(() => {
     if (!formData.client_id) return invoices;
     return invoices.filter((invoice) => invoice.client_id === formData.client_id);
@@ -406,6 +511,7 @@ export default function ReceiptForm() {
   // ---------------------------------------------------------
   // Завантаження оригінального файлу
   // ---------------------------------------------------------
+  //
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -460,6 +566,7 @@ export default function ReceiptForm() {
   // ---------------------------------------------------------
   // Видалення оригінального файлу
   // ---------------------------------------------------------
+  //
   const handleRemoveFile = async () => {
     if (!formData.original_file_url) return;
 
@@ -486,8 +593,12 @@ export default function ReceiptForm() {
   };
 
   // ---------------------------------------------------------
-  // Ручне збереження
+  // Збереження документа витрат
   // ---------------------------------------------------------
+  // 1. Зберігаємо сам документ в expense_documents
+  // 2. Видаляємо старі позиції
+  // 3. Створюємо нові позиції з items_text
+  //
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -530,7 +641,6 @@ export default function ReceiptForm() {
             : null,
         notes: formData.notes || null,
         updated_at: new Date().toISOString(),
-        // ці поля поки теж тримаємо в payload для сумісності з логікою форми
         amount_net: amountNet || null,
         vat_rate: parseNumber(formData.vat_rate) || null,
       };
@@ -559,13 +669,13 @@ export default function ReceiptForm() {
         throw new Error('Не вдалося отримати ID документа витрат');
       }
 
-      // Спочатку очищаємо старі позиції
+      // Видаляємо старі позиції
       await supabase
         .from('expense_document_items')
         .delete()
         .eq('expense_document_id', expenseDocumentId);
 
-      // Якщо є текст позицій — записуємо кожен рядок як окрему позицію
+      // Створюємо нові позиції
       const lines = formData.items_text
         .split('\n')
         .map((line) => line.trim())
@@ -589,8 +699,11 @@ export default function ReceiptForm() {
         if (itemsError) throw itemsError;
       }
 
+      // Оновлюємо кеш сторінок
       await queryClient.invalidateQueries({ queryKey: ['expense_documents'] });
       await queryClient.invalidateQueries({ queryKey: ['receipts'] });
+      await queryClient.invalidateQueries({ queryKey: ['client-expenses'] });
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
 
       showSuccess('Документ витрат збережено');
       navigate('/receipts');
@@ -608,18 +721,25 @@ export default function ReceiptForm() {
     }
   };
 
+  // Символ валюти
   const sym = formatCurrencySymbol(formData.currency);
 
+  // Валідація перед збереженням
   const canSave =
     formData.vendor_name.trim() &&
     formData.total_amount &&
     (formData.link_mode !== 'client' || !!formData.client_id) &&
     (formData.link_mode !== 'invoice' || (!!formData.client_id && !!formData.invoice_id));
 
+  // Перевірка, чи файл є зображенням
   const isImageUrl =
     formData.original_file_url &&
     /\.(jpg|jpeg|png|gif|webp|heic|heif)(\?|$)/i.test(formData.original_file_url);
 
+  // ---------------------------------------------------------
+  // Генерація PDF документа витрат
+  // ---------------------------------------------------------
+  //
   const handleDownloadPdf = async () => {
     setDownloadingPdf(true);
 
@@ -654,6 +774,7 @@ export default function ReceiptForm() {
       <TopNav />
 
       <form onSubmit={handleSubmit} className="p-4 space-y-4 max-w-xl mx-auto">
+        {/* Верхня панель */}
         <div className="flex items-center gap-3 mb-2">
           <button
             type="button"
@@ -680,6 +801,7 @@ export default function ReceiptForm() {
           )}
         </div>
 
+        {/* Блок оригінального файлу */}
         {isImageUrl ? (
           <div className="bg-white/6 border border-white/10 rounded-2xl overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/8">
@@ -715,7 +837,7 @@ export default function ReceiptForm() {
             >
               <img
                 src={formData.original_file_url}
-                alt="Receipt"
+                alt="Original document"
                 className="w-full object-contain bg-white"
                 style={{ maxHeight: 340 }}
               />
@@ -750,7 +872,9 @@ export default function ReceiptForm() {
           className="hidden"
         />
 
+        {/* Основна форма */}
         <div className="bg-white/6 border border-white/10 rounded-2xl overflow-hidden">
+          {/* Тип і прив’язка */}
           <div className="px-5 pt-5 pb-4 border-b border-white/8">
             <p className="text-xs uppercase tracking-wider text-white/40 font-medium mb-3">
               Тип і привʼязка
@@ -838,6 +962,7 @@ export default function ReceiptForm() {
             </div>
           </div>
 
+          {/* Основна інформація */}
           <div className="px-5 pt-5 pb-4 border-b border-white/8">
             <p className="text-xs uppercase tracking-wider text-white/40 font-medium mb-3">
               Основна інформація
@@ -864,6 +989,7 @@ export default function ReceiptForm() {
             </div>
           </div>
 
+          {/* Постачальник */}
           <div className="px-5 py-4 border-b border-white/8">
             <p className="text-xs uppercase tracking-wider text-white/40 font-medium mb-3">
               Магазин / постачальник
@@ -880,6 +1006,7 @@ export default function ReceiptForm() {
             />
           </div>
 
+          {/* Позиції */}
           <div className="px-5 py-4 border-b border-white/8">
             <p className="text-xs uppercase tracking-wider text-white/40 font-medium mb-3">
               Позиції / опис
@@ -896,6 +1023,7 @@ export default function ReceiptForm() {
             />
           </div>
 
+          {/* Суми */}
           <div className="px-5 py-4 border-b border-white/8">
             <p className="text-xs uppercase tracking-wider text-white/40 font-medium mb-3">
               Сума і валюта
@@ -983,6 +1111,7 @@ export default function ReceiptForm() {
             </div>
           </div>
 
+          {/* Спосіб оплати */}
           <div className="px-5 py-4 border-b border-white/8">
             <div className="grid grid-cols-2 gap-3">
               <Select
@@ -1008,6 +1137,7 @@ export default function ReceiptForm() {
             </div>
           </div>
 
+          {/* Примітки */}
           <div className="px-5 py-4">
             <Textarea
               label="Примітки"
@@ -1021,6 +1151,7 @@ export default function ReceiptForm() {
           </div>
         </div>
 
+        {/* Нижні кнопки */}
         <div className="flex gap-3">
           <button
             type="button"
@@ -1041,6 +1172,7 @@ export default function ReceiptForm() {
         </div>
       </form>
 
+      {/* Повноекранний перегляд оригінального документа */}
       <AnimatePresence>
         {showOriginalImage && formData.original_file_url && (
           <motion.div
@@ -1074,7 +1206,7 @@ export default function ReceiptForm() {
             >
               <img
                 src={formData.original_file_url}
-                alt="Original receipt"
+                alt="Original document"
                 className="max-w-full rounded-lg shadow-2xl"
                 style={{ minWidth: '100%', objectFit: 'contain' }}
               />
