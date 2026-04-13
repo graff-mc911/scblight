@@ -86,11 +86,23 @@ export const ClientForm: React.FC = () => {
       .limit(1)
       .maybeSingle();
 
-    if (error) {
-      console.error('Помилка генерації номера клієнта:', error);
-      showError('Не вдалося згенерувати номер клієнта');
-      return;
-    }
+  if (error) {
+  console.error('Помилка генерації номера клієнта:', {
+    message: error.message,
+    details: error.details,
+    hint: error.hint,
+    code: error.code,
+  });
+
+  // Не блокуємо форму, а ставимо стартовий номер
+  setFormData((prev) => ({
+    ...prev,
+    client_number: 'CLI-0001',
+  }));
+
+  showError(error.message || 'Не вдалося згенерувати номер клієнта');
+  return;
+}
 
     let nextNumber = 1;
 
