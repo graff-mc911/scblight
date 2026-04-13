@@ -30,9 +30,9 @@ import { offlineStore } from '../lib/offlineStore';
 
 /**
  * Назва bucket у Supabase Storage для завантажених зовнішніх PDF.
- * ВАЖЛИВО: тут має бути bucket, який реально існує у Supabase.
+ * Використовуємо invoice-pdfs, бо він уже задіяний у проекті.
  */
-const UPLOADED_INVOICES_BUCKET = 'uploaded-invoices';
+const UPLOADED_INVOICES_BUCKET = 'invoice-pdfs';
 
 /**
  * Тип пропсів для модалки завантаження зовнішнього рахунку.
@@ -172,6 +172,11 @@ const convertFileToPdf = async (file: File): Promise<File> => {
 
 /**
  * Нормалізація суми з різних форматів OCR.
+ * Приклади:
+ * 1190,00
+ * 1.190,00
+ * € 1 190,00
+ * 1190.00 EUR
  */
 const normalizeAmount = (value: string): number => {
   if (!value) return 0;
@@ -181,22 +186,32 @@ const normalizeAmount = (value: string): number => {
   const lastComma = cleaned.lastIndexOf(',');
   const lastDot = cleaned.lastIndexOf('.');
 
+  // Якщо є і кома, і крапка
   if (lastComma !== -1 && lastDot !== -1) {
+    // Якщо остання кома правіше крапки => кома десяткова, крапки це розділювач тисяч
     if (lastComma > lastDot) {
       return parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
     }
+
+    // Якщо остання крапка правіше коми => крапка десяткова, коми це розділювач тисяч
     return parseFloat(cleaned.replace(/,/g, ''));
   }
 
+  // Якщо є тільки кома — вважаємо її десятковим роздільником
   if (lastComma !== -1) {
     return parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
   }
 
+  // Якщо є тільки крапка
   if (lastDot !== -1) {
     const parts = cleaned.split('.');
+
+    // Якщо крапка одна і після неї рівно 2 цифри — це десятковий роздільник
     if (parts.length === 2 && parts[1].length <= 2) {
       return parseFloat(cleaned);
     }
+
+    // Інакше вважаємо крапки розділювачами тисяч
     return parseFloat(cleaned.replace(/\./g, ''));
   }
 
@@ -205,13 +220,10 @@ const normalizeAmount = (value: string): number => {
 
 /**
  * Модалка для завантаження зовнішнього рахунку.
- * ЛОГІКА:
- * - вибираємо PDF або фото
- * - фото перетворюємо в PDF
- * - намагаємося розпізнати компанію, суму і дату
- * - зберігаємо PDF у storage
- * - записуємо НЕ в invoices, а в expense_documents
- *   бо це витрата від субпідрядника / постачальника
+ * Логіка:
+ * - файл завжди зберігаємо як PDF
+ * - створюємо запис в invoices, щоб документ був у списку рахунків
+ * - одночасно створюємо запис в expense_documents, щоб це була витрата
  */
 const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId, onSuccess }) => {
   const { t } = useLanguage();
@@ -265,19 +277,23 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
 
       const detected: { company?: boolean; amount?: boolean; date?: boolean } = {};
 
+      // Якщо знайдено компанію — підставляємо її
       if (parsed.company) {
         setIssuer(parsed.company);
         detected.company = true;
       } else {
+        // Якщо не знайдено — беремо назву файлу як запасний варіант
         const cleanName = pdfFile.name.replace(/\.pdf$/i, '').replace(/[_]/g, ' ').trim();
         setIssuer(cleanName);
       }
 
+      // Якщо знайдена сума — підставляємо як є, без ламання формату
       if (parsed.totalAmount) {
         setAmount(parsed.totalAmount);
         detected.amount = true;
       }
 
+      // Якщо знайдена дата — підставляємо її
       if (parsed.invoiceDate) {
         setInvoiceDate(parsed.invoiceDate);
         detected.date = true;
@@ -287,6 +303,7 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
     } catch (error: any) {
       console.error('PARSE ERROR:', error);
 
+      // Якщо парсинг впав, хоча б підставляємо назву файлу
       const cleanName = rawFile.name.replace(/\.[^.]+$/i, '').replace(/[_]/g, ' ').trim();
       setIssuer(cleanName);
 
@@ -298,9 +315,9 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
 
   /**
    * Фінальне завантаження:
-   * 1. Файл летить у Supabase Storage
-   * 2. Створюється public URL
-   * 3. У таблицю expense_documents записується витрата
+   * 1. PDF завантажуємо в Storage
+   * 2. Створюємо uploaded invoice в invoices — для списку
+   * 3. Створюємо expense document — для віднімання з прибутку
    */
   const handleSubmit = async () => {
     if (!selectedFile) {
@@ -327,6 +344,13 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
       // Унікальний шлях файлу в storage
       const fileName = `${userId}/${Date.now()}_${safeFileName}`;
 
+      console.log('USER ID:', userId);
+      console.log('PDF FILE:', pdfFile);
+      console.log('FILE NAME:', fileName);
+      console.log('FILE TYPE:', pdfFile.type);
+      console.log('FILE SIZE:', pdfFile.size);
+      console.log('BUCKET:', UPLOADED_INVOICES_BUCKET);
+
       // 1. Завантаження PDF у storage bucket
       const { error: uploadError } = await supabase.storage
         .from(UPLOADED_INVOICES_BUCKET)
@@ -349,13 +373,47 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
         throw new Error('Не вдалося отримати publicUrl PDF');
       }
 
-      // 3. Записуємо документ як ВИТРАТУ
-      const parsedAmount = parsedAmountCheck;
+      console.log('PUBLIC URL:', publicUrl);
 
+      const parsedAmount = parsedAmountCheck;
+      const documentNo = `EXT-${Date.now().toString().slice(-6)}`;
+
+      // 3. Створюємо запис у invoices, щоб документ відображався в списку рахунків
+      const invoicePayload = {
+        user_id: userId,
+        client_name: issuer || pdfFile.name.replace(/\.pdf$/i, ''),
+        date: invoiceDate,
+        status: 'paid',
+        source: 'uploaded',
+        uploaded_pdf_url: publicUrl,
+        pdf_url: publicUrl,
+        uploaded_amount: parsedAmount,
+        total_net: parsedAmount,
+        total_gross: parsedAmount,
+        currency: 'EUR',
+        document_type: 'expense',
+        document_no: documentNo,
+      };
+
+      console.log('INVOICE PAYLOAD:', invoicePayload);
+
+      const { data: insertedInvoice, error: dbError } = await supabase
+        .from('invoices')
+        .insert(invoicePayload)
+        .select()
+        .single();
+
+      if (dbError) {
+        console.error('DB ERROR:', dbError);
+        throw new Error(dbError.message || 'Помилка запису в таблицю invoices');
+      }
+
+      // 4. Створюємо запис у expense_documents, щоб сума віднімалася як витрата
       const expensePayload = {
         user_id: userId,
+        invoice_id: insertedInvoice.id,
         vendor_name: issuer || pdfFile.name.replace(/\.pdf$/i, ''),
-        document_number: `EXT-${Date.now().toString().slice(-6)}`,
+        document_number: documentNo,
         document_date: invoiceDate,
         total_amount: parsedAmount,
         amount_net: parsedAmount,
@@ -370,14 +428,14 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
 
       console.log('EXPENSE PAYLOAD:', expensePayload);
 
-      const { error: dbError } = await supabase.from('expense_documents').insert(expensePayload);
+      const { error: expenseError } = await supabase.from('expense_documents').insert(expensePayload);
 
-      if (dbError) {
-        console.error('DB ERROR:', dbError);
-        throw new Error(dbError.message || 'Помилка запису в таблицю expense_documents');
+      if (expenseError) {
+        console.error('EXPENSE ERROR:', expenseError);
+        throw new Error(expenseError.message || 'Помилка запису в таблицю expense_documents');
       }
 
-      showSuccess(t('invoiceUploaded') || 'Документ завантажено як витрату');
+      showSuccess(t('invoiceUploaded') || 'Документ завантажено');
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -403,7 +461,7 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
       >
         <div className="flex items-center justify-between">
           <h3 className="text-white font-semibold text-base">
-            {t('uploadExternalInvoice') || 'Завантажити документ витрати'}
+            {t('uploadExternalInvoice') || 'Завантажити чужий рахунок'}
           </h3>
           <button
             onClick={onClose}
@@ -413,6 +471,7 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
           </button>
         </div>
 
+        {/* Кнопка вибору файлу */}
         <button
           onClick={() => fileInputRef.current?.click()}
           className={`w-full flex flex-col items-center justify-center gap-3 p-6 rounded-2xl border-2 border-dashed transition-all ${
@@ -457,6 +516,7 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
           )}
         </button>
 
+        {/* Прихований input для вибору файлу */}
         <input
           ref={fileInputRef}
           type="file"
@@ -465,6 +525,7 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
           className="hidden"
         />
 
+        {/* Показуємо, які поля були визначені автоматично */}
         {Object.keys(parsedFields).length > 0 && (
           <div className="flex items-center gap-2 px-1">
             <Sparkles size={12} className="text-teal-400 flex-shrink-0" />
@@ -489,6 +550,7 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
           </div>
         )}
 
+        {/* Поля форми */}
         <div className="space-y-3">
           <div
             className={`bg-white/5 border rounded-xl px-4 py-3 transition-colors ${
@@ -544,6 +606,7 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
           </div>
         </div>
 
+        {/* Кнопка підтвердження завантаження */}
         <button
           onClick={handleSubmit}
           disabled={uploading || !selectedFile || parsing}
@@ -557,7 +620,7 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
           ) : (
             <>
               <Upload size={16} />
-              {t('uploadInvoice') || 'Зберегти як витрату'}
+              {t('uploadInvoice') || 'Завантажити рахунок'}
             </>
           )}
         </button>
@@ -568,8 +631,6 @@ const UploadInvoiceModal: React.FC<UploadInvoiceModalProps> = ({ onClose, userId
 
 /**
  * Модалка редагування вже завантаженого зовнішнього рахунку.
- * Тут ми тепер редагуємо старі uploaded invoices, якщо вони вже є в таблиці invoices.
- * Цей блок не чіпаємо, щоб нічого не зламати у старих даних.
  */
 const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({
   invoice,
@@ -579,6 +640,7 @@ const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({
   const { t } = useLanguage();
   const { showSuccess, showError } = useToastContext();
 
+  // Початкові значення підтягуємо з invoice
   const [issuer, setIssuer] = useState((invoice.client_name as string) || '');
   const [amount, setAmount] = useState(
     invoice.uploaded_amount != null
@@ -592,6 +654,10 @@ const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({
   );
   const [saving, setSaving] = useState(false);
 
+  /**
+   * Зберігає змінені поля в таблицю invoices.
+   * Якщо це uploaded invoice, то паралельно оновлюємо й expense_documents.
+   */
   const handleSave = async () => {
     const parsedAmount = normalizeAmount(amount);
 
@@ -615,6 +681,23 @@ const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({
         .eq('id', invoice.id as string);
 
       if (error) throw error;
+
+      // Для завантажених інвойсів синхронізуємо відповідну витрату
+      if (invoice.source === 'uploaded') {
+        const { error: expenseUpdateError } = await supabase
+          .from('expense_documents')
+          .update({
+            vendor_name: issuer.trim() || (invoice.client_name as string),
+            document_date: invoiceDate,
+            total_amount: parsedAmount,
+            amount_net: parsedAmount,
+          })
+          .eq('invoice_id', invoice.id as string);
+
+        if (expenseUpdateError) {
+          console.error('EXPENSE UPDATE ERROR:', expenseUpdateError);
+        }
+      }
 
       showSuccess(t('saved') || 'Збережено');
       onSuccess();
@@ -732,12 +815,16 @@ export const Invoices: React.FC = () => {
   const { showSuccess, showError } = useToastContext();
   const queryClient = useQueryClient();
 
+  // Стани UI
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [editUploadedInvoice, setEditUploadedInvoice] = useState<Record<string, any> | null>(null);
 
+  /**
+   * Отримуємо поточну сесію користувача.
+   */
   const { data: session } = useQuery({
     queryKey: ['session'],
     queryFn: async () => {
@@ -747,11 +834,9 @@ export const Invoices: React.FC = () => {
   });
 
   /**
-   * Тут залишаємо список invoices як був.
-   * Нові витрати більше не додаються в invoices.
-   * Тому список рахунків показує:
-   * - твої нормальні інвойси
-   * - старі uploaded invoices, якщо вони вже були створені раніше
+   * Отримуємо список рахунків.
+   * Якщо немає інтернету — беремо з локального кешу.
+   * Якщо є інтернет — беремо з Supabase і оновлюємо локальний кеш.
    */
   const { data: invoices = [], isLoading } = useQuery({
     queryKey: ['invoices', session?.user?.id],
@@ -796,6 +881,9 @@ export const Invoices: React.FC = () => {
     enabled: !!session?.user?.id,
   });
 
+  /**
+   * Форматування суми з потрібною валютою.
+   */
   const formatCurrency = useCallback((amount: number, currency: string) => {
     const curr = currencies.find((c) => c.code === currency);
 
@@ -805,6 +893,9 @@ export const Invoices: React.FC = () => {
     })} ${curr?.symbol || currency}`;
   }, []);
 
+  /**
+   * Експорт списку рахунків у CSV.
+   */
   const handleExportCSV = useCallback(() => {
     try {
       exportInvoicesToCSV(invoices);
@@ -815,6 +906,10 @@ export const Invoices: React.FC = () => {
     }
   }, [invoices, showSuccess, showError, t]);
 
+  /**
+   * Підтвердження видалення рахунку.
+   * Для uploaded invoice також пробуємо видалити пов’язану витрату.
+   */
   const handleDeleteConfirm = useCallback(async () => {
     if (!invoiceToDelete) return;
 
@@ -833,6 +928,19 @@ export const Invoices: React.FC = () => {
         return;
       }
 
+      // Якщо це uploaded invoice, прибираємо і пов’язану витрату
+      const invoiceToRemove = invoices.find((inv) => inv.id === invoiceToDelete);
+      if (invoiceToRemove?.source === 'uploaded') {
+        const { error: expenseDeleteError } = await supabase
+          .from('expense_documents')
+          .delete()
+          .eq('invoice_id', invoiceToDelete);
+
+        if (expenseDeleteError) {
+          console.error('DELETE EXPENSE ERROR:', expenseDeleteError);
+        }
+      }
+
       const { error } = await supabase.from('invoices').delete().eq('id', invoiceToDelete);
       if (error) throw error;
 
@@ -840,6 +948,7 @@ export const Invoices: React.FC = () => {
 
       showSuccess(t('invoiceDeleted') || 'Invoice deleted successfully');
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      queryClient.invalidateQueries({ queryKey: ['expense_documents'] });
     } catch (error) {
       console.error('DELETE INVOICE ERROR:', error);
       showError(t('deleteFailed') || 'Failed to delete invoice');
@@ -847,8 +956,11 @@ export const Invoices: React.FC = () => {
       setDeleteDialogOpen(false);
       setInvoiceToDelete(null);
     }
-  }, [invoiceToDelete, showSuccess, showError, t, queryClient]);
+  }, [invoiceToDelete, invoices, showSuccess, showError, t, queryClient]);
 
+  /**
+   * Вкладки фільтрації.
+   */
   const filterTabs: { key: FilterStatus; label: string }[] = [
     { key: 'all', label: t('allStatuses') || 'All' },
     { key: 'draft', label: t('draft') },
@@ -857,17 +969,22 @@ export const Invoices: React.FC = () => {
     { key: 'overdue', label: t('overdue') },
   ];
 
+  /**
+   * Фільтрований список рахунків по активній вкладці.
+   */
   const filteredInvoices =
     activeFilter === 'all' ? invoices : invoices.filter((inv) => inv.status === activeFilter);
 
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-2xl mx-auto">
+      {/* Верхній заголовок сторінки */}
       <div className="flex justify-between items-center mb-4">
         <div>
           <h2 className="text-2xl font-semibold text-white">{t('invoices')}</h2>
           <p className="text-white/60 text-sm mt-1">{t('manageInvoices')}</p>
         </div>
 
+        {/* Кнопки дій */}
         <div className="flex gap-2">
           <button
             onClick={handleExportCSV}
@@ -881,7 +998,7 @@ export const Invoices: React.FC = () => {
           <button
             onClick={() => setUploadModalOpen(true)}
             className="p-2.5 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 transition-all active:scale-95"
-            title={t('uploadExternalInvoice') || 'Завантажити документ витрати'}
+            title={t('uploadExternalInvoice') || 'Завантажити чужий рахунок'}
           >
             <Upload size={16} />
           </button>
@@ -896,6 +1013,7 @@ export const Invoices: React.FC = () => {
         </div>
       </div>
 
+      {/* Фільтри по статусах */}
       <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1 scrollbar-hide">
         {filterTabs.map((tab) => {
           const count =
@@ -930,6 +1048,7 @@ export const Invoices: React.FC = () => {
         })}
       </div>
 
+      {/* Основний блок зі списком рахунків */}
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-lg">
         {isLoading ? (
           <div>
@@ -1120,7 +1239,10 @@ export const Invoices: React.FC = () => {
           <EditUploadedInvoiceModal
             invoice={editUploadedInvoice}
             onClose={() => setEditUploadedInvoice(null)}
-            onSuccess={() => queryClient.invalidateQueries({ queryKey: ['invoices'] })}
+            onSuccess={() => {
+              queryClient.invalidateQueries({ queryKey: ['invoices'] });
+              queryClient.invalidateQueries({ queryKey: ['expense_documents'] });
+            }}
           />
         )}
       </AnimatePresence>
