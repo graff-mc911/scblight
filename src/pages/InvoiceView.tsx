@@ -21,7 +21,6 @@ import { supabase } from '../lib/supabase';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 
-// Тип одного вкладення інвойсу
 type InvoiceAttachment = {
   id: string;
   invoice_id: string;
@@ -32,51 +31,48 @@ type InvoiceAttachment = {
   created_at: string | null;
 };
 
-// Сторінка перегляду збереженого інвойсу
+// Очищає ім'я файлу для безпечного збереження в Supabase Storage
+const sanitizeFileName = (fileName: string) => {
+  const lastDotIndex = fileName.lastIndexOf('.');
+  const baseName = lastDotIndex > 0 ? fileName.slice(0, lastDotIndex) : fileName;
+  const extension = lastDotIndex > 0 ? fileName.slice(lastDotIndex + 1).toLowerCase() : 'bin';
+
+  const safeBaseName = baseName
+    .normalize('NFKD')
+    .replace(/[^\w.-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80);
+
+  return `${safeBaseName || 'file'}.${extension}`;
+};
+
 export const InvoiceView: React.FC = () => {
-  // ID інвойсу з адреси сторінки
   const { id } = useParams();
-
-  // Перехід між сторінками
   const navigate = useNavigate();
-
-  // Переклади
   const { t } = useLanguage();
-
-  // Повідомлення
   const { showSuccess, showError } = useToastContext();
 
-  // Основні стани сторінки
   const [invoice, setInvoice] = useState<any>(null);
   const [client, setClient] = useState<any>(null);
   const [companyProfile, setCompanyProfile] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Список вкладень до інвойсу
   const [attachments, setAttachments] = useState<InvoiceAttachment[]>([]);
-
-  // Стан завантаження нового файлу
   const [uploadingFile, setUploadingFile] = useState(false);
 
-  // Стан модалки підпису
   const [showSignatureModal, setShowSignatureModal] = useState(false);
 
-  // Стан модалки "відправити"
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailTo, setEmailTo] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
 
-  // Стан PDF
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [showFullScreenPDF, setShowFullScreenPDF] = useState(false);
   const [pdfZoom, setPdfZoom] = useState(100);
 
-  // Просте визначення мобільного екрана
   const isMobile = window.innerWidth < 768;
 
-  // ---------------------------------------------------------
-  // Пошук PDF інвойсу в storage
-  // ---------------------------------------------------------
   const findPdfInStorage = useCallback(async (userId: string, invoiceId: string) => {
     const { data: files, error } = await supabase.storage
       .from('invoice-pdfs')
@@ -84,10 +80,7 @@ export const InvoiceView: React.FC = () => {
 
     if (error || !files) return null;
 
-    const matchedPdf = files.find((file) =>
-      file.name.startsWith(`${invoiceId}-invoice`)
-    );
-
+    const matchedPdf = files.find((file) => file.name.startsWith(`${invoiceId}-invoice`));
     if (!matchedPdf) return null;
 
     const filePath = `${userId}/${matchedPdf.name}`;
@@ -99,9 +92,6 @@ export const InvoiceView: React.FC = () => {
     return publicUrl || null;
   }, []);
 
-  // ---------------------------------------------------------
-  // Завантаження всіх даних сторінки
-  // ---------------------------------------------------------
   const fetchInvoice = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -112,7 +102,6 @@ export const InvoiceView: React.FC = () => {
 
       if (!user || !id) return;
 
-      // 1. Завантажуємо інвойс
       const { data: invoiceData, error: invoiceError } = await supabase
         .from('invoices')
         .select('*')
@@ -128,14 +117,12 @@ export const InvoiceView: React.FC = () => {
         return;
       }
 
-      // 2. Завантажуємо позиції інвойсу
       const { data: itemsData } = await supabase
         .from('invoice_items')
         .select('*')
         .eq('invoice_id', id)
         .order('sort_order');
 
-      // 3. Формуємо об’єкт інвойсу для зручного показу
       const invoiceWithItems = {
         ...invoiceData,
         document_number: invoiceData.document_no,
@@ -166,7 +153,6 @@ export const InvoiceView: React.FC = () => {
 
       setInvoice(invoiceWithItems);
 
-      // 4. Завантажуємо всі вкладення інвойсу
       const { data: attachmentsData, error: attachmentsError } = await supabase
         .from('invoice_attachments')
         .select('*')
@@ -181,7 +167,6 @@ export const InvoiceView: React.FC = () => {
         setAttachments((attachmentsData || []) as InvoiceAttachment[]);
       }
 
-      // 5. Завантажуємо PDF інвойсу
       let resolvedPdfUrl = invoiceData.pdf_url || null;
 
       if (!resolvedPdfUrl) {
@@ -199,7 +184,6 @@ export const InvoiceView: React.FC = () => {
 
       setPdfUrl(resolvedPdfUrl);
 
-      // 6. Завантажуємо клієнта
       if (invoiceData.client_id) {
         const { data: clientData } = await supabase
           .from('clients')
@@ -212,7 +196,6 @@ export const InvoiceView: React.FC = () => {
         setClient(null);
       }
 
-      // 7. Завантажуємо профіль компанії
       const { data: profileData } = await supabase
         .from('company_profile')
         .select('*')
@@ -228,16 +211,12 @@ export const InvoiceView: React.FC = () => {
     }
   }, [findPdfInStorage, id, navigate, showError, t]);
 
-  // При відкритті сторінки завантажуємо інвойс
   useEffect(() => {
     if (id) {
       void fetchInvoice();
     }
   }, [id, fetchInvoice]);
 
-  // ---------------------------------------------------------
-  // Завантаження нового файлу до інвойсу
-  // ---------------------------------------------------------
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -263,10 +242,9 @@ export const InvoiceView: React.FC = () => {
         throw new Error('Користувач не авторизований');
       }
 
-      // Унікальний шлях файлу в storage
-      const filePath = `${user.id}/attachments/${id}-${Date.now()}-${file.name}`;
+      const safeFileName = sanitizeFileName(file.name);
+      const filePath = `${user.id}/attachments/${id}-${Date.now()}-${safeFileName}`;
 
-      // Завантажуємо файл у bucket invoice-pdfs
       const { error: uploadError } = await supabase.storage
         .from('invoice-pdfs')
         .upload(filePath, file, {
@@ -278,7 +256,6 @@ export const InvoiceView: React.FC = () => {
         throw uploadError;
       }
 
-      // Отримуємо public URL
       const {
         data: { publicUrl },
       } = supabase.storage.from('invoice-pdfs').getPublicUrl(filePath);
@@ -287,7 +264,6 @@ export const InvoiceView: React.FC = () => {
         throw new Error('Не вдалося отримати URL файлу');
       }
 
-      // Створюємо окремий запис у таблиці вкладень
       const { error: insertError } = await supabase
         .from('invoice_attachments')
         .insert([
@@ -308,18 +284,13 @@ export const InvoiceView: React.FC = () => {
       await fetchInvoice();
     } catch (error: any) {
       console.error('File upload error:', error);
-      showError(
-        error?.message || t('failedUploadFile') || 'Не вдалося завантажити файл'
-      );
+      showError(error?.message || t('failedUploadFile') || 'Не вдалося завантажити файл');
     } finally {
       setUploadingFile(false);
       e.target.value = '';
     }
   };
 
-  // ---------------------------------------------------------
-  // Видалення одного вкладення
-  // ---------------------------------------------------------
   const handleAttachmentDelete = async (attachment: InvoiceAttachment) => {
     if (!attachment?.file_url || !attachment?.id) return;
 
@@ -332,12 +303,10 @@ export const InvoiceView: React.FC = () => {
         throw new Error('Користувач не авторизований');
       }
 
-      // Витягуємо шлях до файлу зі storage з public URL
       const url = new URL(attachment.file_url);
       const pathParts = url.pathname.split('/storage/v1/object/public/invoice-pdfs/');
       const filePath = pathParts[1];
 
-      // Спочатку видаляємо файл зі storage
       if (filePath) {
         const { error: deleteStorageError } = await supabase.storage
           .from('invoice-pdfs')
@@ -348,7 +317,6 @@ export const InvoiceView: React.FC = () => {
         }
       }
 
-      // Потім видаляємо запис з таблиці invoice_attachments
       const { error: deleteDbError } = await supabase
         .from('invoice_attachments')
         .delete()
@@ -363,15 +331,10 @@ export const InvoiceView: React.FC = () => {
       await fetchInvoice();
     } catch (error: any) {
       console.error('File delete error:', error);
-      showError(
-        error?.message || t('failedDeleteFile') || 'Не вдалося видалити файл'
-      );
+      showError(error?.message || t('failedDeleteFile') || 'Не вдалося видалити файл');
     }
   };
 
-  // ---------------------------------------------------------
-  // Збереження підпису
-  // ---------------------------------------------------------
   const handleSaveSignature = async (signatureDataUrl: string, signerName: string) => {
     try {
       const { error } = await supabase
@@ -393,9 +356,6 @@ export const InvoiceView: React.FC = () => {
     }
   };
 
-  // ---------------------------------------------------------
-  // Позначення інвойсу як відправленого
-  // ---------------------------------------------------------
   const handleSendEmail = async () => {
     if (!emailTo.trim()) {
       showError(t('enterEmailAddress') || 'Введіть email');
@@ -426,7 +386,6 @@ export const InvoiceView: React.FC = () => {
     }
   };
 
-  // Стан завантаження
   if (isLoading) {
     return (
       <div className="min-h-screen pt-20 px-4 max-w-6xl mx-auto">
@@ -437,12 +396,10 @@ export const InvoiceView: React.FC = () => {
     );
   }
 
-  // Якщо інвойс не знайдено
   if (!invoice) {
     return null;
   }
 
-  // Формуємо фінальний об’єкт для компонента прев’ю
   const invoiceData = {
     ...invoice,
     document_number: invoice.document_no || invoice.document_number,
@@ -462,7 +419,6 @@ export const InvoiceView: React.FC = () => {
   return (
     <div className="min-h-screen pt-20 pb-10 px-3 md:px-6 max-w-6xl mx-auto overflow-x-hidden">
       <div className="mb-6">
-        {/* Кнопка назад */}
         <button
           type="button"
           onClick={() => navigate('/invoices')}
@@ -472,7 +428,6 @@ export const InvoiceView: React.FC = () => {
           <ArrowLeft size={20} />
         </button>
 
-        {/* Верхня панель */}
         <div className="flex justify-between items-start gap-3 mb-6">
           <div className="min-w-0">
             <h2 className="text-2xl font-semibold text-white mb-1">
@@ -483,7 +438,6 @@ export const InvoiceView: React.FC = () => {
             </p>
           </div>
 
-          {/* Кнопки дій */}
           <div className="flex gap-2 flex-wrap justify-end">
             {pdfUrl && (
               <button
@@ -531,14 +485,12 @@ export const InvoiceView: React.FC = () => {
         </div>
       </div>
 
-      {/* Візуальний перегляд інвойсу */}
       <InvoicePreview
         invoice={invoiceData}
         client={client}
         companyProfile={companyProfile}
       />
 
-      {/* Блок PDF */}
       {pdfUrl && (
         <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mb-6 mt-6">
           <div className="flex items-center justify-between mb-4">
@@ -581,7 +533,6 @@ export const InvoiceView: React.FC = () => {
         </div>
       )}
 
-      {/* Блок вкладень */}
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 mt-6">
         <div className="flex items-center justify-between gap-3 mb-4">
           <h3 className="text-lg font-semibold text-white">
@@ -675,7 +626,6 @@ export const InvoiceView: React.FC = () => {
         )}
       </div>
 
-      {/* Модалка підпису */}
       {showSignatureModal && (
         <SignatureCanvas
           onSave={handleSaveSignature}
@@ -685,7 +635,6 @@ export const InvoiceView: React.FC = () => {
         />
       )}
 
-      {/* Модалка "відправити" */}
       {showEmailModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl shadow-2xl max-w-md w-full border border-white/10">
@@ -759,7 +708,6 @@ export const InvoiceView: React.FC = () => {
         </div>
       )}
 
-      {/* Повноекранний перегляд PDF */}
       {showFullScreenPDF && pdfUrl && (
         <div className="fixed inset-0 bg-black z-[9999] flex flex-col">
           <div className="bg-slate-900 border-b border-white/10 p-3 md:p-4 flex items-center justify-between flex-shrink-0">
