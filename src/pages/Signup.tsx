@@ -15,56 +15,41 @@ import { useLanguage } from '../contexts/LanguageContext';
 // - Підтвердіть пароль
 //
 // ВАЖЛИВО:
-// На Windows у Chrome / Edge автозаповнення часто
-// змінює DOM-наповнення input, але React state
-// не оновлюється автоматично.
-//
-// Тому тут є:
-// 1. refs на реальні input
-// 2. синхронізація state з DOM після autofill
-// 3. автокопіювання першого пароля в другий,
-//    якщо друге поле ще не редагували вручну
+// Для автозаповнення браузера email-поле повинно бути
+// саме видимим username-полем.
+// Тому:
+// - НЕ використовуємо приховане username поле
+// - видиме поле email має:
+//   name="username"
+//   autoComplete="username"
 // ============================================
 
 export const Signup: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
 
-  // --------------------------------------------
-  // refs на реальні DOM input
-  // --------------------------------------------
+  // refs на справжні input у DOM
   const emailRef = useRef<HTMLInputElement | null>(null);
   const passwordRef = useRef<HTMLInputElement | null>(null);
   const confirmPasswordRef = useRef<HTMLInputElement | null>(null);
 
-  // --------------------------------------------
-  // React state полів форми
-  // --------------------------------------------
+  // Стани форми
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  // --------------------------------------------
   // Показати / сховати пароль
-  // --------------------------------------------
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // --------------------------------------------
-  // Стан інтерфейсу
-  // --------------------------------------------
+  // Стани інтерфейсу
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // --------------------------------------------
-  // Чи користувач уже вручну змінював поле
-  // підтвердження пароля
-  // --------------------------------------------
+  // Чи користувач уже вручну змінював другий пароль
   const [confirmTouched, setConfirmTouched] = useState(false);
 
-  // --------------------------------------------
   // Якщо вже є сесія — переходимо на головну
-  // --------------------------------------------
   useEffect(() => {
     const checkSession = async () => {
       const { data, error } = await supabase.auth.getSession();
@@ -83,28 +68,22 @@ export const Signup: React.FC = () => {
   }, [navigate]);
 
   // --------------------------------------------
-  // Функція синхронізації React state з реальними
-  // значеннями в input після autofill браузера
+  // Синхронізація React state з тим,
+  // що браузер реально підставив у DOM
   // --------------------------------------------
   const syncAutofilledValuesFromDom = () => {
     const domEmail = emailRef.current?.value ?? '';
     const domPassword = passwordRef.current?.value ?? '';
     const domConfirm = confirmPasswordRef.current?.value ?? '';
 
-    // Якщо браузер уже вставив email у DOM,
-    // а state ще порожній — синхронізуємо
     if (domEmail && domEmail !== email) {
       setEmail(domEmail);
     }
 
-    // Якщо браузер вставив пароль у DOM,
-    // а state ще не знає про це — синхронізуємо
     if (domPassword && domPassword !== password) {
       setPassword(domPassword);
     }
 
-    // Якщо друге поле ще не редагували вручну,
-    // то воно повинно повторювати перший пароль
     if (!confirmTouched) {
       const targetValue = domPassword || password;
 
@@ -118,18 +97,13 @@ export const Signup: React.FC = () => {
         }
       }
     } else {
-      // Якщо друге поле вже редагували вручну,
-      // просто синхронізуємо state з DOM
       if (domConfirm && domConfirm !== confirmPassword) {
         setConfirmPassword(domConfirm);
       }
     }
   };
 
-  // --------------------------------------------
-  // На старті кілька разів перевіряємо DOM,
-  // бо autofill часто відбувається не миттєво
-  // --------------------------------------------
+  // Кілька перевірок після рендеру, бо браузер автозаповнює не миттєво
   useEffect(() => {
     const timeouts = [100, 300, 700, 1200, 2000].map((delay) =>
       window.setTimeout(() => {
@@ -142,10 +116,7 @@ export const Signup: React.FC = () => {
     };
   }, []);
 
-  // --------------------------------------------
-  // Додатково синхронізуємо другий пароль,
-  // якщо перший змінюється звичайним способом
-  // --------------------------------------------
+  // Другий пароль повторює перший, якщо його ще не редагували вручну
   useEffect(() => {
     if (!confirmTouched) {
       setConfirmPassword(password);
@@ -156,14 +127,11 @@ export const Signup: React.FC = () => {
     }
   }, [password, confirmTouched]);
 
-  // --------------------------------------------
   // Реєстрація
-  // --------------------------------------------
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Перед сабмітом ще раз забираємо значення
-    // прямо з DOM, якщо браузер їх автопідставив
+    // Перед відправкою ще раз читаємо DOM
     syncAutofilledValuesFromDom();
 
     setError('');
@@ -223,9 +191,6 @@ export const Signup: React.FC = () => {
     }
   };
 
-  // --------------------------------------------
-  // Стиль інпутів
-  // --------------------------------------------
   const inputClassName =
     'block w-full min-w-0 box-border rounded-xl border border-white/10 bg-white/5 px-4 pr-12 py-3.5 text-base leading-6 text-white placeholder-white/40 outline-none transition-all focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20';
 
@@ -235,7 +200,6 @@ export const Signup: React.FC = () => {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-[#1a1f24]">
       <Card className="w-full max-w-md p-8 overflow-hidden">
-        {/* Верхній блок */}
         <div className="mb-8 flex flex-col items-center">
           <Logo variant="glass" size="lg" className="mb-6" />
 
@@ -248,9 +212,7 @@ export const Signup: React.FC = () => {
           </p>
         </div>
 
-        {/* Форма */}
         <form onSubmit={handleSignup} className="space-y-5" autoComplete="on">
-          {/* Помилка */}
           {error && (
             <div className="rounded-xl border border-red-500/30 bg-red-500/20 p-3">
               <p className="text-sm text-red-400 break-words">{error}</p>
@@ -266,7 +228,7 @@ export const Signup: React.FC = () => {
             <input
               ref={emailRef}
               id="signup-email"
-              name="email"
+              name="username"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -274,7 +236,7 @@ export const Signup: React.FC = () => {
               onBlur={syncAutofilledValuesFromDom}
               className={inputClassName}
               placeholder="your@email.com"
-              autoComplete="email"
+              autoComplete="username"
               inputMode="email"
               spellCheck={false}
               autoCapitalize="none"
@@ -360,8 +322,6 @@ export const Signup: React.FC = () => {
                 onFocus={() => {
                   syncAutofilledValuesFromDom();
 
-                  // Якщо друге поле ще не редагували,
-                  // а перший пароль уже є — копіюємо його
                   if (!confirmTouched) {
                     const sourcePassword = passwordRef.current?.value || password;
                     if (sourcePassword && confirmPasswordRef.current) {
@@ -401,7 +361,6 @@ export const Signup: React.FC = () => {
             </div>
           </div>
 
-          {/* Кнопка */}
           <Button type="submit" disabled={loading} className="w-full">
             {loading
               ? `${t('loading') || 'Завантаження'}...`
@@ -409,7 +368,6 @@ export const Signup: React.FC = () => {
           </Button>
         </form>
 
-        {/* Перехід на логін */}
         <div className="mt-6 text-center">
           <p className="text-sm text-white/60">
             {t('haveAccount') || 'Вже маєте обліковий запис?'}{' '}
