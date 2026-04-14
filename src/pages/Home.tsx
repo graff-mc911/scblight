@@ -235,7 +235,7 @@ export const Home: React.FC = () => {
 
       // Беремо тільки нормальні інвойси.
       // Старі uploaded-инвойси як витрати більше тут не рахуємо.
-      return (data || []).filter((inv) => inv.source !== 'uploaded' && !inv.uploaded_pdf_url);
+      return data || [];
     },
     enabled: !!session?.user?.id,
   });
@@ -279,21 +279,36 @@ export const Home: React.FC = () => {
   // ---------------------------------------------------------
   // 5. Підрахунки
   // ---------------------------------------------------------
-  const totalEarnings = invoices
+  // Інвойси: доходи та витрати
+  const uploadedInvoices = invoices.filter((inv) => inv.source === 'uploaded' || inv.uploaded_pdf_url);
+  const incomeInvoices = invoices.filter((inv) => !(inv.source === 'uploaded' || inv.uploaded_pdf_url));
+
+  const expenseInvoiceIds = new Set(
+    expenseDocuments.map((exp: any) => exp.invoice_id).filter((id: string | null | undefined) => !!id)
+  );
+
+  const uploadedExpenses = uploadedInvoices
+    .filter((inv) => !expenseInvoiceIds.has(inv.id))
+    .map((inv) => ({
+      total_amount: Number(inv.uploaded_amount ?? inv.total_gross ?? inv.total_net ?? 0),
+      document_date: inv.date || inv.created_at,
+      created_at: inv.created_at,
+    }));
+
+  const mergedExpenses = [...expenseDocuments, ...uploadedExpenses];
+
+  const totalEarnings = incomeInvoices
     .filter((inv) => inv.status === 'paid')
     .reduce((sum, inv) => sum + Number(inv.total_gross || 0), 0);
 
-  const unpaidTotal = invoices
+  const unpaidTotal = incomeInvoices
     .filter((inv) => inv.status === 'sent' || inv.status === 'draft')
     .reduce((sum, inv) => sum + Number(inv.total_gross || 0), 0);
 
-  const overdueInvoices = invoices.filter((inv) => inv.status === 'overdue');
+  const overdueInvoices = incomeInvoices.filter((inv) => inv.status === 'overdue');
   const overdueTotal = overdueInvoices.reduce((sum, inv) => sum + Number(inv.total_gross || 0), 0);
 
-  const totalExpenses = expenseDocuments.reduce(
-    (sum, exp) => sum + Number(exp.total_amount || 0),
-    0
-  );
+  const totalExpenses = mergedExpenses.reduce((sum, exp) => sum + Number(exp.total_amount || 0), 0);
 
   const totalProfit = totalEarnings - totalExpenses;
 
@@ -365,7 +380,7 @@ export const Home: React.FC = () => {
             Документи витрат
           </p>
           <h2 className="text-xl font-semibold text-cyan-400 leading-tight">
-            {expenseDocuments.length}
+            {mergedExpenses.length}
           </h2>
         </Card>
       </div>
@@ -439,11 +454,7 @@ export const Home: React.FC = () => {
       </motion.div>
 
       {/* Графік */}
-      <MonthlyChart
-        invoices={invoices}
-        expenseDocuments={expenseDocuments}
-        t={t}
-      />
+      <MonthlyChart invoices={incomeInvoices} expenseDocuments={mergedExpenses} t={t} />
     </div>
   );
 };
