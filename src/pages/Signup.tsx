@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { Eye, EyeOff } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Logo } from '../components/Logo';
@@ -8,10 +9,14 @@ import { useLanguage } from '../contexts/LanguageContext';
 
 // ============================================
 // Проста сторінка реєстрації
-// Тільки:
+// Поля:
 // - Email
 // - Пароль
-// - Повтор пароля
+// - Повторіть пароль
+//
+// Додатково:
+// - кнопки показати / сховати пароль
+// - правильні autocomplete для Safari / iPhone
 // ============================================
 
 export const Signup: React.FC = () => {
@@ -26,6 +31,12 @@ export const Signup: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
 
   // --------------------------------------------
+  // Стани видимості паролів
+  // --------------------------------------------
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // --------------------------------------------
   // Стани інтерфейсу
   // --------------------------------------------
   const [error, setError] = useState('');
@@ -33,6 +44,7 @@ export const Signup: React.FC = () => {
 
   // --------------------------------------------
   // Якщо користувач уже увійшов — перекидаємо
+  // на головну сторінку
   // --------------------------------------------
   useEffect(() => {
     const checkSession = async () => {
@@ -52,7 +64,7 @@ export const Signup: React.FC = () => {
   }, [navigate]);
 
   // --------------------------------------------
-  // Реєстрація
+  // Реєстрація нового користувача
   // --------------------------------------------
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,26 +72,31 @@ export const Signup: React.FC = () => {
 
     const normalizedEmail = email.trim().toLowerCase();
 
+    // Перевірка email
     if (!normalizedEmail) {
       setError('Введіть email');
       return;
     }
 
+    // Перевірка пароля
     if (!password) {
       setError('Введіть пароль');
       return;
     }
 
+    // Перевірка повтору пароля
     if (!confirmPassword) {
       setError('Повторіть пароль');
       return;
     }
 
+    // Паролі повинні збігатися
     if (password !== confirmPassword) {
       setError('Паролі не співпадають');
       return;
     }
 
+    // Мінімальна довжина пароля
     if (password.length < 6) {
       setError('Пароль має містити мінімум 6 символів');
       return;
@@ -88,6 +105,7 @@ export const Signup: React.FC = () => {
     setLoading(true);
 
     try {
+      // Реєстрація через Supabase Auth
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
@@ -97,6 +115,7 @@ export const Signup: React.FC = () => {
         throw signUpError;
       }
 
+      // Якщо користувач створений — переходимо на сторінку входу
       if (data.user) {
         navigate('/login');
         return;
@@ -112,21 +131,23 @@ export const Signup: React.FC = () => {
   };
 
   // --------------------------------------------
-  // Стиль інпутів
-  // ВАЖЛИВО:
-  // - box-border не дає полю вилазити за контейнер
-  // - pr-12 лишає місце справа для іконок автозаповнення / Face ID
-  // - text-base робить текст читабельним
-  // - min-w-0 не дає layout-поломок у flex/grid
+  // Базовий стиль для інпутів
+  // pr-12 залишає місце справа під кнопку ока
   // --------------------------------------------
   const inputClassName =
     'block w-full min-w-0 box-border rounded-xl border border-white/10 bg-white/5 px-4 pr-12 py-3.5 text-base leading-6 text-white placeholder-white/40 outline-none transition-all focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20';
+
+  // --------------------------------------------
+  // Стиль для кнопки "око"
+  // --------------------------------------------
+  const eyeButtonClassName =
+    'absolute right-3 top-1/2 -translate-y-1/2 p-1 text-white/40 hover:text-white/80 transition-colors';
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-[#1a1f24]">
       <Card className="w-full max-w-md p-8 overflow-hidden">
         {/* --------------------------------------------
-            Логотип і заголовок
+            Верхній блок: логотип і заголовок
         -------------------------------------------- */}
         <div className="mb-8 flex flex-col items-center">
           <Logo variant="glass" size="lg" className="mb-6" />
@@ -141,28 +162,33 @@ export const Signup: React.FC = () => {
         </div>
 
         {/* --------------------------------------------
-            Форма
+            Форма реєстрації
         -------------------------------------------- */}
         <form onSubmit={handleSignup} className="space-y-5">
-          {/* Помилка */}
+          {/* Блок помилки */}
           {error && (
             <div className="rounded-xl border border-red-500/30 bg-red-500/20 p-3">
               <p className="text-sm text-red-400 break-words">{error}</p>
             </div>
           )}
 
-          {/* Email */}
+          {/* --------------------------------------------
+              Поле Email
+          -------------------------------------------- */}
           <div className="w-full min-w-0">
-            <label className="mb-2 block text-sm text-white/70">
+            <label htmlFor="signup-email" className="mb-2 block text-sm text-white/70">
               {t('email') || 'Email'}
             </label>
+
             <input
+              id="signup-email"
+              name="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className={inputClassName}
               placeholder="your@email.com"
-              autoComplete="email"
+              autoComplete="username"
               inputMode="email"
               spellCheck={false}
               autoCapitalize="none"
@@ -171,45 +197,90 @@ export const Signup: React.FC = () => {
             />
           </div>
 
-          {/* Пароль */}
+          {/* --------------------------------------------
+              Поле Пароль
+          -------------------------------------------- */}
           <div className="w-full min-w-0">
-            <label className="mb-2 block text-sm text-white/70">
+            <label htmlFor="signup-password" className="mb-2 block text-sm text-white/70">
               {t('password') || 'Пароль'}
             </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className={inputClassName}
-              placeholder="••••••••"
-              autoComplete="new-password"
-              spellCheck={false}
-              autoCapitalize="none"
-              autoCorrect="off"
-              required
-            />
+
+            <div className="relative">
+              <input
+                id="signup-password"
+                name="password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={inputClassName}
+                placeholder="••••••••"
+                autoComplete="new-password"
+                passwordRules="minlength: 6;"
+                spellCheck={false}
+                autoCapitalize="none"
+                autoCorrect="off"
+                required
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                className={eyeButtonClassName}
+                aria-label={showPassword ? 'Сховати пароль' : 'Показати пароль'}
+                title={showPassword ? 'Сховати пароль' : 'Показати пароль'}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
-          {/* Повтор пароля */}
+          {/* --------------------------------------------
+              Поле Повторіть пароль
+          -------------------------------------------- */}
           <div className="w-full min-w-0">
-            <label className="mb-2 block text-sm text-white/70">
+            <label
+              htmlFor="signup-confirm-password"
+              className="mb-2 block text-sm text-white/70"
+            >
               {t('confirmPassword') || 'Повторіть пароль'}
             </label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className={inputClassName}
-              placeholder="••••••••"
-              autoComplete="new-password"
-              spellCheck={false}
-              autoCapitalize="none"
-              autoCorrect="off"
-              required
-            />
+
+            <div className="relative">
+              <input
+                id="signup-confirm-password"
+                name="confirmPassword"
+                type={showConfirmPassword ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className={inputClassName}
+                placeholder="••••••••"
+                autoComplete="new-password"
+                passwordRules="minlength: 6;"
+                spellCheck={false}
+                autoCapitalize="none"
+                autoCorrect="off"
+                required
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword((prev) => !prev)}
+                className={eyeButtonClassName}
+                aria-label={
+                  showConfirmPassword ? 'Сховати підтвердження пароля' : 'Показати підтвердження пароля'
+                }
+                title={
+                  showConfirmPassword ? 'Сховати підтвердження пароля' : 'Показати підтвердження пароля'
+                }
+              >
+                {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
-          {/* Кнопка */}
+          {/* --------------------------------------------
+              Кнопка реєстрації
+          -------------------------------------------- */}
           <Button type="submit" disabled={loading} className="w-full">
             {loading
               ? `${t('loading') || 'Завантаження'}...`
@@ -217,7 +288,9 @@ export const Signup: React.FC = () => {
           </Button>
         </form>
 
-        {/* Перехід на логін */}
+        {/* --------------------------------------------
+            Перехід на сторінку входу
+        -------------------------------------------- */}
         <div className="mt-6 text-center">
           <p className="text-sm text-white/60">
             {t('haveAccount') || 'Вже маєте обліковий запис?'}{' '}
