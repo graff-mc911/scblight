@@ -231,12 +231,12 @@ function parseTotal(text: string): string {
     if (/eur|€/.test(line)) s += 1;
     if (line.length < 60) s += 1;
     const fromBottom = lines.length - idx;
-    if (fromBottom < 10) s += 2; // пріоритетнизу
+    if (fromBottom < 10) s += 2;
     return s;
   };
 
   lines.forEach((line, idx) => {
-    if (/mwst|ust|steuer/i.test(line)) return; // не беремо ПДВ рядки
+    if (/mwst|ust|steuer/i.test(line)) return;
     let m: RegExpExecArray | null;
     while ((m = numberRx.exec(line)) !== null) {
       const value = toNum(m[1]);
@@ -477,6 +477,3 @@ export async function extractReceiptData(file: File, onProgress?: ScanProgressCa
     detectedFields,
   };
 }
-```【F:/Users/PC/Downloads/Нова папка/scblight-main/src/lib/receiptOCR.ts†L1-L327】
-
-Зараз це повна актуальна версія файлу. Якщо потрібно ще підкрутити суму чи позиції — надішліть конкретний чек/текст для тонкого тюнінгу.
