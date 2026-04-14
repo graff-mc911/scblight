@@ -231,12 +231,12 @@ function parseTotal(text: string): string {
     if (/eur|€/.test(line)) s += 1;
     if (line.length < 60) s += 1;
     const fromBottom = lines.length - idx;
-    if (fromBottom < 10) s += 2;
+    if (fromBottom < 10) s += 2; // пріоритетнизу
     return s;
   };
 
   lines.forEach((line, idx) => {
-    if (/mwst|ust|steuer/i.test(line)) return;
+    if (/mwst|ust|steuer/i.test(line)) return; // не беремо ПДВ рядки
     let m: RegExpExecArray | null;
     while ((m = numberRx.exec(line)) !== null) {
       const value = toNum(m[1]);
@@ -280,10 +280,18 @@ function parseStoreName(text: string, fileName?: string): string {
 
   for (const line of lines.slice(0, 15)) {
     if (skip.test(line)) continue;
-    if (/[A-ZÄÖÜ]{3}/.test(line) && line.length <= 40) return line.replace(/\s{2,}/g, ' ');
+    if (/[A-ZÄÖÜ]{3}/.test(line) && line.length <= 40 && !/nr\.?|no\.?|bon|beleg|rechnung/i.test(line)) {
+      return line.replace(/\s{2,}/g, ' ');
+    }
   }
   for (const line of lines.slice(0, 35)) {
-    if (line.length >= 3 && line.length <= 80 && !skip.test(line) && /[A-Za-zÄÖÜäöüß]{2}/.test(line)) {
+    if (
+      line.length >= 3 &&
+      line.length <= 80 &&
+      !skip.test(line) &&
+      /[A-Za-zÄÖÜäöüß]{2}/.test(line) &&
+      !/nr\.?|no\.?|bon|beleg|rechnung/i.test(line)
+    ) {
       return line.replace(/\s{2,}/g, ' ');
     }
   }
@@ -354,7 +362,7 @@ function parseReceiptNumber(text: string): string {
 
   const tokens = text
     .split(/\s+/)
-    .filter((t) => /^[A-Z0-9][A-Z0-9\-\/]{5,19}$/i.test(t));
+    .filter((t) => /^[A-Z0-9][A-Z0-9\-\/]{5,19}$/i.test(t) && /\d/.test(t)); // вимога хоча б однієї цифри
   return tokens[0] || '';
 }
 
