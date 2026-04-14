@@ -8,18 +8,17 @@ import { supabase } from '../lib/supabase';
 import { useLanguage } from '../contexts/LanguageContext';
 
 // ============================================
-// Проста сторінка реєстрації
+// Стандартна форма реєстрації
 // Поля:
 // - Email
 // - Пароль
-// - Повторіть пароль
+// - Підтвердіть пароль
 //
-// ОСОБЛИВІСТЬ:
-// Safari / iPhone / iCloud Keychain часто вставляє
-// пароль тільки в перше поле.
-// Тому тут є авто-синхронізація:
-// якщо друге поле ще не чіпали,
-// воно автоматично копіює значення першого.
+// Мета:
+// - максимально дружня до Safari / iPhone / Keychain
+// - другий пароль не прибираємо
+// - якщо пароль автопідставився в перше поле,
+//   друге поле автоматично копіює це значення
 // ============================================
 
 export const Signup: React.FC = () => {
@@ -34,7 +33,7 @@ export const Signup: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
 
   // --------------------------------------------
-  // Стани для показу / приховування пароля
+  // Стани видимості паролів
   // --------------------------------------------
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -46,14 +45,13 @@ export const Signup: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   // --------------------------------------------
-  // Чи користувач уже вручну чіпав поле підтвердження
-  // Якщо ні — будемо автоматично копіювати пароль
-  // з першого поля у друге
+  // Чи користувач уже вручну редагував другий пароль
+  // Якщо ні — тримаємо його синхронізованим з першим
   // --------------------------------------------
   const [confirmTouched, setConfirmTouched] = useState(false);
 
   // --------------------------------------------
-  // Якщо сесія вже є — перекидаємо на головну
+  // Якщо користувач уже увійшов — перекидаємо на /
   // --------------------------------------------
   useEffect(() => {
     const checkSession = async () => {
@@ -73,9 +71,10 @@ export const Signup: React.FC = () => {
   }, [navigate]);
 
   // --------------------------------------------
-  // Автоматично дублюємо пароль у поле підтвердження,
-  // поки користувач не почав редагувати друге поле вручну
-  // Це виправляє проблему Safari / Face ID / Keychain
+  // Автосинхронізація другого пароля
+  // Потрібно для iPhone / Safari / Keychain:
+  // якщо пароль вставився лише в перше поле,
+  // друге поле підтягнеться саме.
   // --------------------------------------------
   useEffect(() => {
     if (!confirmTouched) {
@@ -103,7 +102,7 @@ export const Signup: React.FC = () => {
     }
 
     if (!confirmPassword) {
-      setError('Повторіть пароль');
+      setError('Підтвердіть пароль');
       return;
     }
 
@@ -145,13 +144,11 @@ export const Signup: React.FC = () => {
 
   // --------------------------------------------
   // Стиль інпутів
+  // pr-12 залишає місце справа під кнопку "око"
   // --------------------------------------------
   const inputClassName =
     'block w-full min-w-0 box-border rounded-xl border border-white/10 bg-white/5 px-4 pr-12 py-3.5 text-base leading-6 text-white placeholder-white/40 outline-none transition-all focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20';
 
-  // --------------------------------------------
-  // Стиль кнопки "око"
-  // --------------------------------------------
   const eyeButtonClassName =
     'absolute right-3 top-1/2 -translate-y-1/2 p-1 text-white/40 hover:text-white/80 transition-colors';
 
@@ -171,8 +168,27 @@ export const Signup: React.FC = () => {
           </p>
         </div>
 
-        {/* Форма */}
-        <form onSubmit={handleSignup} className="space-y-5">
+        {/* --------------------------------------------
+            Форма
+            autoComplete="on" залишаємо ввімкненим,
+            щоб Keychain міг працювати максимально повно.
+        -------------------------------------------- */}
+        <form onSubmit={handleSignup} className="space-y-5" autoComplete="on">
+          {/* --------------------------------------------
+              Приховане технічне поле для деяких менеджерів паролів.
+              Не чіпай його.
+          -------------------------------------------- */}
+          <input
+            type="email"
+            name="username"
+            autoComplete="username"
+            value={email}
+            readOnly
+            tabIndex={-1}
+            aria-hidden="true"
+            className="hidden"
+          />
+
           {/* Помилка */}
           {error && (
             <div className="rounded-xl border border-red-500/30 bg-red-500/20 p-3">
@@ -194,7 +210,7 @@ export const Signup: React.FC = () => {
               onChange={(e) => setEmail(e.target.value)}
               className={inputClassName}
               placeholder="your@email.com"
-              autoComplete="username"
+              autoComplete="email"
               inputMode="email"
               spellCheck={false}
               autoCapitalize="none"
@@ -215,7 +231,19 @@ export const Signup: React.FC = () => {
                 name="new-password"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                }}
+                onInput={(e) => {
+                  const value = (e.target as HTMLInputElement).value;
+                  setPassword(value);
+
+                  // Якщо друге поле ще не чіпали,
+                  // одразу дублюємо пароль туди
+                  if (!confirmTouched) {
+                    setConfirmPassword(value);
+                  }
+                }}
                 className={inputClassName}
                 placeholder="••••••••"
                 autoComplete="new-password"
@@ -238,13 +266,13 @@ export const Signup: React.FC = () => {
             </div>
           </div>
 
-          {/* Повтор пароля */}
+          {/* Підтвердження пароля */}
           <div className="w-full min-w-0">
             <label
               htmlFor="signup-confirm-password"
               className="mb-2 block text-sm text-white/70"
             >
-              {t('confirmPassword') || 'Повторіть пароль'}
+              {t('confirmPassword') || 'Підтвердіть пароль'}
             </label>
 
             <div className="relative">
@@ -257,10 +285,13 @@ export const Signup: React.FC = () => {
                   setConfirmTouched(true);
                   setConfirmPassword(e.target.value);
                 }}
+                onInput={(e) => {
+                  setConfirmTouched(true);
+                  setConfirmPassword((e.target as HTMLInputElement).value);
+                }}
                 onFocus={() => {
                   // Якщо Safari вставив пароль тільки в перше поле,
-                  // то при переході в друге поле і якщо користувач
-                  // ще не почав його змінювати — підставимо автоматично
+                  // а друге ще пусте — підтягнемо його
                   if (!confirmTouched && password && !confirmPassword) {
                     setConfirmPassword(password);
                   }
