@@ -1,11 +1,18 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, Zap, ArrowLeft } from 'lucide-react';
+import { Check, Zap, ArrowLeft, Crown, Loader2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 
-const MONTHLY_LINK = 'https://buy.stripe.com/test_bJe14o2ip6Oe99f0N49oc00';
-const YEARLY_LINK = 'https://buy.stripe.com/test_eVq5kEbSZ0pQ5X3dzQ9oc01';
+type Plan = 'monthly' | 'yearly';
+
+interface Subscription {
+  status: string | null;
+  plan: string | null;
+  trial_end: string | null;
+  cancel_at_period_end?: boolean | null;
+  current_period_end?: string | null;
+}
 
 const FEATURES = [
   'Необмежена кількість рахунків',
@@ -18,8 +25,26 @@ const FEATURES = [
   'Мультимовний інтерфейс',
 ];
 
+const PRICING: Record<Plan, { title: string; price: string; suffix: string; note: string; badge?: string }> = {
+  monthly: {
+    title: 'Щомісяця',
+    price: '€5',
+    suffix: '/міс',
+    note: '30 днів безкоштовно',
+  },
+  yearly: {
+    title: 'Щорічно',
+    price: '€50',
+    suffix: '/рік',
+    note: '€4.17/міс • 30 днів безкоштовно',
+    badge: '-17%',
+  },
+};
+
 export const Paywall: React.FC = () => {
   const navigate = useNavigate();
+  const [loadingPlan, setLoadingPlan] = React.useState<Plan | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   const { data: session } = useQuery({
     queryKey: ['session'],
@@ -29,13 +54,104 @@ export const Paywall: React.FC = () => {
     },
   });
 
-  const buildLink = (base: string) => {
-    if (!session?.user) return base;
-    const params = new URLSearchParams({
-      client_reference_id: session.user.id,
-      prefilled_email: session.user.email ?? '',
-    });
-    return `${base}?${params.toString()}`;
+  const { data: subscription, isLoading: subLoading } = useQuery<Subscription | null>({
+    queryKey: ['subscription', session?.user?.id],
+    enabled: !!session?.user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('subscriptions')
+        .select('status, plan, trial_end, cancel_at_period_end, current_period_end')
+        .eq('user_id', session!.user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const hasAccess = subscription?.status === 'active' || subscription?.status === 'trialing';
+  const trialEnds = subscription?.trial_end ? new Date(subscription.trial_end).toLocaleDateString('uk-UA') : null;
+
+  const startCheckout = async (plan: Plan) => {
+    setError(null);
+    setLoadingPlan(plan);
+
+    try {
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+
+      if (!currentSession) {
+        navigate('/login');
+        return;
+      }
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-checkout-session`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${currentSession.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ plan }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data?.url) {
+        throw new Error(data?.error || 'Не вдалося створити сесію оплати. Спробуйте ще раз.');
+      }
+
+      window.location.href = data.url as string;
+    } catch (err: any) {
+      setError(err.message ?? 'Сталася помилка. Спробуйте ще раз.');
+    } finally {
+      setLoadingPlan(null);
+    }
+  };
+
+  const renderPlanCard = (plan: Plan) => {
+    const copy = PRICING[plan];
+    const isCurrentPlan = hasAccess && subscription?.plan === plan;
+    const buttonDisabled = loadingPlan === plan;
+
+    return (
+      <div
+        key={plan}
+        className={`relative block rounded-2xl p-6 transition-all backdrop-blur-xl border
+        ${
+          plan === 'yearly'
+            ? 'bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/15'
+            : 'bg-white/10 border-white/10 hover:bg-white/15 hover:border-white/20'
+        }`}
+      >
+        {copy.badge && (
+          <div className="absolute top-3 right-3 bg-orange-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full">
+            {copy.badge}
+          </div>
+        )}
+
+        <p className="text-white/60 text-sm mb-1">{copy.title}</p>
+        <p className="text-3xl font-bold text-white mb-1">
+          {copy.price}
+          <span className="text-lg font-normal text-white/60">{copy.suffix}</span>
+        </p>
+        <p className="text-white/40 text-xs mb-5">{copy.note}</p>
+
+        <button
+          disabled={buttonDisabled || hasAccess}
+          onClick={() => startCheckout(plan)}
+          className={`w-full py-2.5 rounded-xl text-center text-sm font-medium transition-all flex items-center justify-center gap-2
+            ${
+              plan === 'yearly'
+                ? 'bg-orange-500 text-white hover:bg-orange-600 disabled:bg-orange-500/60 disabled:text-white/70'
+                : 'bg-white/10 border border-white/10 text-white/80 hover:bg-white/20 disabled:bg-white/5 disabled:text-white/50'
+            }`}
+        >
+          {buttonDisabled && <Loader2 className="h-4 w-4 animate-spin" />}
+          {hasAccess ? (isCurrentPlan ? 'Поточний план' : 'Доступ вже активний') : 'Розпочати'}
+        </button>
+      </div>
+    );
   };
 
   return (
@@ -48,18 +164,17 @@ export const Paywall: React.FC = () => {
         Назад
       </button>
 
-      <div className="text-center mb-10">
+      <div className="text-center mb-8">
         <div className="inline-flex items-center justify-center w-14 h-14 bg-orange-500/20 rounded-2xl mb-4">
           <Zap className="h-7 w-7 text-orange-400" />
         </div>
         <h1 className="text-3xl font-bold text-white mb-3">SCB Light Pro</h1>
-        <p className="text-white/60 text-base max-w-md mx-auto">
-          Отримайте доступ до всіх функцій. Почніть з 30-денного безкоштовного пробного
-          періоду — без прихованих платежів.
+        <p className="text-white/60 text-base max-w-xl mx-auto">
+          Отримайте доступ до всіх функцій. 30 днів безкоштовно — без прихованих платежів.
         </p>
       </div>
 
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-5 mb-8">
+      <div className="bg-white/5 border border-white/10 rounded-2xl p-5 mb-6">
         <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {FEATURES.map((f) => (
             <li key={f} className="flex items-center gap-3 text-sm text-white/80">
@@ -72,38 +187,50 @@ export const Paywall: React.FC = () => {
         </ul>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <a
-          href={buildLink(MONTHLY_LINK)}
-          className="block bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 hover:bg-white/15 hover:border-white/20 transition-all group"
-        >
-          <p className="text-white/60 text-sm mb-1">Щомісяця</p>
-          <p className="text-3xl font-bold text-white mb-1">
-            €5<span className="text-lg font-normal text-white/60">/міс</span>
-          </p>
-          <p className="text-white/40 text-xs mb-5">30 днів безкоштовно</p>
-          <div className="w-full py-2.5 bg-white/10 border border-white/10 rounded-xl text-center text-sm text-white/80 group-hover:bg-white/20 transition-all">
-            Розпочати
+      {subLoading ? (
+        <div className="flex items-center gap-2 text-white/70 text-sm mb-4">
+          <Loader2 className="h-4 w-4 animate-spin" /> Перевіряємо статус підписки...
+        </div>
+      ) : hasAccess ? (
+        <div className="mb-6 rounded-2xl border border-green-500/30 bg-green-500/10 p-4 flex items-start gap-3">
+          <div className="w-10 h-10 bg-green-500/20 rounded-xl flex items-center justify-center text-green-400">
+            <Crown className="h-5 w-5" />
           </div>
-        </a>
+          <div className="flex-1">
+            <p className="text-green-400 font-semibold text-sm">Доступ активний</p>
+            <p className="text-white/60 text-sm">
+              {subscription?.plan === 'yearly' ? 'Річний план' : 'Місячний план'}
+              {subscription?.cancel_at_period_end && ' · Скасовується в кінці періоду'}
+            </p>
+            {trialEnds && <p className="text-white/40 text-xs mt-1">Пробний період до {trialEnds}</p>}
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => navigate('/settings')}
+                className="px-4 py-2 bg-white/10 border border-white/15 rounded-xl text-sm text-white/80 hover:text-white hover:bg-white/20 transition-colors"
+              >
+                Керувати підпискою
+              </button>
+              <button
+                onClick={() => navigate('/')}
+                className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-sm text-white/70 hover:text-white transition-colors"
+              >
+                Перейти в додаток
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
-        <a
-          href={buildLink(YEARLY_LINK)}
-          className="block bg-orange-500/10 backdrop-blur-xl border border-orange-500/30 rounded-2xl p-6 hover:bg-orange-500/15 transition-all group relative"
-        >
-          <div className="absolute top-3 right-3 bg-orange-500 text-white text-xs font-semibold px-2 py-0.5 rounded-full">
-            -17%
-          </div>
-          <p className="text-white/60 text-sm mb-1">Щорічно</p>
-          <p className="text-3xl font-bold text-white mb-1">
-            €50<span className="text-lg font-normal text-white/60">/рік</span>
-          </p>
-          <p className="text-white/40 text-xs mb-5">€4.17/міс &bull; 30 днів безкоштовно</p>
-          <div className="w-full py-2.5 bg-orange-500 rounded-xl text-center text-sm text-white font-medium group-hover:bg-orange-600 transition-all">
-            Розпочати
-          </div>
-        </a>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {renderPlanCard('monthly')}
+        {renderPlanCard('yearly')}
       </div>
+
+      {error && (
+        <div className="mt-4 p-3 rounded-xl border border-red-500/30 bg-red-500/10 text-red-200 text-sm">
+          {error}
+        </div>
+      )}
 
       <p className="text-center text-white/30 text-xs mt-6">
         Скасувати можна будь-коли. Безпечна оплата через Stripe.
