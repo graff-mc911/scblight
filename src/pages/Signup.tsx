@@ -7,8 +7,11 @@ import { supabase } from '../lib/supabase';
 import { useLanguage } from '../contexts/LanguageContext';
 
 // ============================================
-// Сторінка простої реєстрації
-// Тільки: email + пароль + повтор пароля
+// Проста сторінка реєстрації
+// Тільки:
+// - Email
+// - Пароль
+// - Повтор пароля
 // ============================================
 
 export const Signup: React.FC = () => {
@@ -16,7 +19,7 @@ export const Signup: React.FC = () => {
   const { t } = useLanguage();
 
   // --------------------------------------------
-  // Стани форми
+  // Стани полів форми
   // --------------------------------------------
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,7 +32,7 @@ export const Signup: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   // --------------------------------------------
-  // Перевірка: якщо вже залогінений → на головну
+  // Якщо користувач уже увійшов — перекидаємо
   // --------------------------------------------
   useEffect(() => {
     const checkSession = async () => {
@@ -49,20 +52,14 @@ export const Signup: React.FC = () => {
   }, [navigate]);
 
   // --------------------------------------------
-  // Обробка реєстрації
+  // Реєстрація
   // --------------------------------------------
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // очищаємо попередню помилку
     setError('');
 
-    // нормалізуємо email (без пробілів, маленькі букви)
     const normalizedEmail = email.trim().toLowerCase();
 
-    // --------------------------------------------
-    // Валідація
-    // --------------------------------------------
     if (!normalizedEmail) {
       setError('Введіть email');
       return;
@@ -83,7 +80,6 @@ export const Signup: React.FC = () => {
       return;
     }
 
-    // мінімальна перевірка (без складних правил)
     if (password.length < 6) {
       setError('Пароль має містити мінімум 6 символів');
       return;
@@ -92,9 +88,6 @@ export const Signup: React.FC = () => {
     setLoading(true);
 
     try {
-      // --------------------------------------------
-      // Реєстрація в Supabase
-      // --------------------------------------------
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
@@ -104,7 +97,6 @@ export const Signup: React.FC = () => {
         throw signUpError;
       }
 
-      // якщо користувач створений → переходимо на логін
       if (data.user) {
         navigate('/login');
         return;
@@ -120,15 +112,19 @@ export const Signup: React.FC = () => {
   };
 
   // --------------------------------------------
-  // Стиль для інпутів
+  // Стиль інпутів
+  // ВАЖЛИВО:
+  // - box-border не дає полю вилазити за контейнер
+  // - pr-12 лишає місце справа для іконок автозаповнення / Face ID
+  // - text-base робить текст читабельним
+  // - min-w-0 не дає layout-поломок у flex/grid
   // --------------------------------------------
   const inputClassName =
-    'w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20';
+    'block w-full min-w-0 box-border rounded-xl border border-white/10 bg-white/5 px-4 pr-12 py-3.5 text-base leading-6 text-white placeholder-white/40 outline-none transition-all focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20';
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-[#1a1f24]">
-      <Card className="w-full max-w-md p-8">
-
+      <Card className="w-full max-w-md p-8 overflow-hidden">
         {/* --------------------------------------------
             Логотип і заголовок
         -------------------------------------------- */}
@@ -148,16 +144,15 @@ export const Signup: React.FC = () => {
             Форма
         -------------------------------------------- */}
         <form onSubmit={handleSignup} className="space-y-5">
-
-          {/* Вивід помилки */}
+          {/* Помилка */}
           {error && (
             <div className="rounded-xl border border-red-500/30 bg-red-500/20 p-3">
-              <p className="text-sm text-red-400">{error}</p>
+              <p className="text-sm text-red-400 break-words">{error}</p>
             </div>
           )}
 
           {/* Email */}
-          <div>
+          <div className="w-full min-w-0">
             <label className="mb-2 block text-sm text-white/70">
               {t('email') || 'Email'}
             </label>
@@ -168,12 +163,16 @@ export const Signup: React.FC = () => {
               className={inputClassName}
               placeholder="your@email.com"
               autoComplete="email"
+              inputMode="email"
+              spellCheck={false}
+              autoCapitalize="none"
+              autoCorrect="off"
               required
             />
           </div>
 
           {/* Пароль */}
-          <div>
+          <div className="w-full min-w-0">
             <label className="mb-2 block text-sm text-white/70">
               {t('password') || 'Пароль'}
             </label>
@@ -184,12 +183,15 @@ export const Signup: React.FC = () => {
               className={inputClassName}
               placeholder="••••••••"
               autoComplete="new-password"
+              spellCheck={false}
+              autoCapitalize="none"
+              autoCorrect="off"
               required
             />
           </div>
 
           {/* Повтор пароля */}
-          <div>
+          <div className="w-full min-w-0">
             <label className="mb-2 block text-sm text-white/70">
               {t('confirmPassword') || 'Повторіть пароль'}
             </label>
@@ -200,6 +202,9 @@ export const Signup: React.FC = () => {
               className={inputClassName}
               placeholder="••••••••"
               autoComplete="new-password"
+              spellCheck={false}
+              autoCapitalize="none"
+              autoCorrect="off"
               required
             />
           </div>
@@ -212,9 +217,7 @@ export const Signup: React.FC = () => {
           </Button>
         </form>
 
-        {/* --------------------------------------------
-            Перехід на логін
-        -------------------------------------------- */}
+        {/* Перехід на логін */}
         <div className="mt-6 text-center">
           <p className="text-sm text-white/60">
             {t('haveAccount') || 'Вже маєте обліковий запис?'}{' '}
