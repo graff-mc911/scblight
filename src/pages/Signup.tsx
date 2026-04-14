@@ -8,13 +8,14 @@ import { supabase } from '../lib/supabase';
 import { useLanguage } from '../contexts/LanguageContext';
 
 // ============================================
-// ПОВНА СТОРІНКА РЕЄСТРАЦІЇ
+// ПОВНА СТАНДАРТНА ФОРМА РЕЄСТРАЦІЇ
 // Варіанти:
 // 1. Email + пароль
 // 2. Google
 // 3. Apple
 //
-// Усі коментарі українською мовою.
+// Коментарі українською мовою.
+// Без нестандартних хаків.
 // ============================================
 
 function GoogleIcon() {
@@ -69,8 +70,8 @@ export const Signup: React.FC = () => {
   const [oauthLoading, setOauthLoading] = useState<'google' | 'apple' | null>(null);
 
   // --------------------------------------------
-  // Якщо користувач уже увійшов — перекидаємо
-  // на головну сторінку
+  // Якщо користувач уже авторизований
+  // перекидаємо на головну сторінку
   // --------------------------------------------
   useEffect(() => {
     const checkSession = async () => {
@@ -90,7 +91,7 @@ export const Signup: React.FC = () => {
   }, [navigate]);
 
   // --------------------------------------------
-  // Перевірка email
+  // Проста перевірка email
   // --------------------------------------------
   const isValidEmail = (value: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -138,7 +139,6 @@ export const Signup: React.FC = () => {
     setLoading(true);
 
     try {
-      // Створення акаунта через Supabase Auth
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
@@ -163,7 +163,7 @@ export const Signup: React.FC = () => {
   };
 
   // --------------------------------------------
-  // Вхід / реєстрація через Google або Apple
+  // Реєстрація / вхід через Google або Apple
   // --------------------------------------------
   const handleOAuthSignup = async (provider: 'google' | 'apple') => {
     setError('');
@@ -190,7 +190,7 @@ export const Signup: React.FC = () => {
   };
 
   // --------------------------------------------
-  // Стилі
+  // Стилі інпутів і кнопок
   // --------------------------------------------
   const inputBaseClass =
     'w-full rounded-2xl border border-white/10 bg-white/5 pl-11 pr-12 py-3.5 text-white placeholder-white/35 outline-none transition-all focus:border-orange-500/50 focus:ring-2 focus:ring-orange-500/20';
