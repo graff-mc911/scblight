@@ -1,7 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { createWorker } from 'tesseract.js';
 
-// Configure pdfjs worker path
+// Налаштування воркера pdf.js (обов’язково для браузера)
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
 
 export interface ScannedReceiptData {
@@ -22,7 +22,7 @@ export interface ScannedReceiptData {
 
 export type ScanProgressCallback = (progress: number, status: string) => void;
 
-// Known stores (helps to stabilise noisy OCR names)
+// Короткий словник відомих магазинів (стабілізує OCR назву)
 const KNOWN_STORES: [RegExp, string][] = [
   [/\bBAUHAUS\b/i, 'BAUHAUS'],
   [/\bREWE\b/i, 'REWE'],
@@ -51,7 +51,7 @@ const KNOWN_STORES: [RegExp, string][] = [
   [/\bAMAZON\b/i, 'Amazon'],
 ];
 
-// Helpers
+// ───────────── Допоміжні функції ─────────────
 const fmt2 = (n: number) => n.toFixed(2);
 
 function normalizeAmount(raw: string): string {
@@ -77,9 +77,9 @@ function toNum(s: string): number {
   return isNaN(n) ? 0 : n;
 }
 
-// Image pre-processing (binarise and upscale)
+// ───────────── Попередня обробка зображення ─────────────
 async function preprocessImage(file: File, onProgress?: ScanProgressCallback): Promise<Blob> {
-  onProgress?.(7, 'Bild wird optimiert...');
+  onProgress?.(7, 'Готуємо зображення...');
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -117,7 +117,7 @@ async function preprocessImage(file: File, onProgress?: ScanProgressCallback): P
   });
 }
 
-// Extract text from PDF (first 4 pages, line preserving)
+// ───────────── Текст із PDF (перші 4 сторінки, збереження рядків) ─────────────
 async function extractTextFromPDF(file: File): Promise<string> {
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
@@ -142,7 +142,7 @@ async function extractTextFromPDF(file: File): Promise<string> {
   return lines.join('\n');
 }
 
-// Render first PDF page to image (for scanned PDFs without text)
+// ───────────── Рендер першої сторінки PDF у PNG (для сканів без тексту) ─────────────
 async function renderPdfFirstPageToImage(file: File, scale = 2.6): Promise<File> {
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
@@ -162,21 +162,21 @@ async function renderPdfFirstPageToImage(file: File, scale = 2.6): Promise<File>
   });
 }
 
-// OCR for images
+// ───────────── OCR для зображень ─────────────
 async function extractTextFromImage(file: File, onProgress?: ScanProgressCallback): Promise<string> {
-  onProgress?.(5, 'Bild wird vorbereitet...');
+  onProgress?.(5, 'Підготовка зображення...');
   let src: Blob = file;
   try {
     src = await preprocessImage(file, onProgress);
   } catch {
-    /* keep original */
+    // якщо pre-process не вдався — працюємо з оригіналом
   }
 
-  onProgress?.(13, 'OCR-Engine wird geladen...');
+  onProgress?.(13, 'Завантаження OCR...');
   const worker = await createWorker('deu+eng', 1, {
     logger: (m: any) => {
       if (m.status === 'recognizing text') {
-        onProgress?.(15 + Math.round(m.progress * 62), 'Zeichen werden erkannt...');
+        onProgress?.(15 + Math.round(m.progress * 62), 'Розпізнаємо текст...');
       }
     },
   });
@@ -187,14 +187,14 @@ async function extractTextFromImage(file: File, onProgress?: ScanProgressCallbac
       tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÄÖÜäöüß.,:-€/*#+%@&()[]{}!\'"/ ',
     } as any);
     const { data } = await worker.recognize(src);
-    onProgress?.(80, 'Daten werden analysiert...');
+    onProgress?.(80, 'Аналіз даних...');
     return data.text;
   } finally {
     await worker.terminate();
   }
 }
 
-// Clean common OCR mistakes
+// ───────────── Фікс частих OCR-помилок ─────────────
 function fixOCRErrors(text: string): string {
   return text
     .replace(/\r\n/g, '\n')
@@ -208,7 +208,7 @@ function fixOCRErrors(text: string): string {
     .trim();
 }
 
-// Parsing helpers
+// ───────────── Парсинг дати ─────────────
 function parseDate(text: string): string {
   const m = text.match(/\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b/);
   if (!m) return '';
@@ -218,39 +218,53 @@ function parseDate(text: string): string {
   return `${yy}-${mm}-${dd}`;
 }
 
+// ───────────── Парсинг підсумкової суми ─────────────
 function parseTotal(text: string): string {
-  const numberRx = /(-?\d{1,6}(?:[.,]\d{2})?)(?:\s*(?:€|EUR))?/g;
+  const numberRx = /(-?\d{1,7}(?:[.,]\d{2})?)(?:\s*(?:€|EUR))?/g;
   const lines = text.split('\n');
   let best = '';
   let bestScore = -1;
 
-  const scoreLine = (line: string) => {
+  const scoreLine = (line: string, idx: number) => {
     let s = 0;
-    if (/gesamt|summe|total|betrag|brutto|zahlbetrag/i.test(line)) s += 3;
+    if (/gesamt|summe|total|betrag|brutto|zahlbetrag|zu\s*zahlen|payable/i.test(line)) s += 4;
     if (/eur|€/.test(line)) s += 1;
-    if (line.length < 50) s += 1;
+    if (line.length < 60) s += 1;
+    const fromBottom = lines.length - idx;
+    if (fromBottom < 12) s += 1; // низ чеку — пріоритет
     return s;
   };
 
-  for (const line of lines) {
+  lines.forEach((line, idx) => {
     let m: RegExpExecArray | null;
     while ((m = numberRx.exec(line)) !== null) {
-      const score = scoreLine(line);
+      const value = toNum(m[1]);
+      if (value <= 0 || value > 100000) continue;
+      const score = scoreLine(line, idx);
       if (score > bestScore) {
         bestScore = score;
         best = m[1];
       }
     }
+  });
+
+  if (!best) {
+    const tail = lines.slice(-12);
+    for (let i = tail.length - 1; i >= 0 && !best; i--) {
+      const m = tail[i].match(numberRx);
+      if (m && toNum(m[1]) > 0) best = m[1];
+    }
   }
 
   if (!best) {
-    const nums = [...text.matchAll(numberRx)].map((m) => toNum(m[1])).filter((n) => n > 0);
+    const nums = [...text.matchAll(numberRx)].map((m) => toNum(m[1])).filter((n) => n > 0 && n < 100000);
     if (nums.length) best = fmt2(nums.sort((a, b) => b - a)[0]);
   }
   return normalizeAmount(best);
 }
 
-function parseStoreName(text: string): string {
+// ───────────── Парсинг назви магазину ─────────────
+function parseStoreName(text: string, fileName?: string): string {
   for (const [rx, name] of KNOWN_STORES) {
     if (rx.test(text)) return name;
   }
@@ -258,18 +272,24 @@ function parseStoreName(text: string): string {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const skip = /^[\d\s€.,\-*\/+%:=|#@_]{3,}$/;
 
-  for (const line of lines.slice(0, 12)) {
+  for (const line of lines.slice(0, 15)) {
     if (skip.test(line)) continue;
     if (/[A-ZÄÖÜ]{3}/.test(line) && line.length <= 40) return line.replace(/\s{2,}/g, ' ');
   }
-  for (const line of lines.slice(0, 30)) {
+  for (const line of lines.slice(0, 35)) {
     if (line.length >= 3 && line.length <= 80 && !skip.test(line) && /[A-Za-zÄÖÜäöüß]{2}/.test(line)) {
       return line.replace(/\s{2,}/g, ' ');
     }
   }
+
+  if (fileName) {
+    const base = fileName.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+    if (base.length >= 3) return base;
+  }
   return '';
 }
 
+// ───────────── Парсинг ПДВ ─────────────
 function parseVAT(text: string, total: string) {
   const totalNum = toNum(total);
   const vatRx = /(MwSt\.?|MWST|USt\.?|VAT)\s*[:=]?\s*(\d{1,2}[.,]?\d*)\s*%\s*[:=]?\s*([0-9.,]+)/gi;
@@ -286,6 +306,7 @@ function parseVAT(text: string, total: string) {
   return { net, vat: fmt2(vat), rate: String(dominant.rate || 19), enabled: true };
 }
 
+// ───────────── Парсинг способу оплати ─────────────
 function parsePaymentMethod(text: string): { method: string; explicit: boolean } {
   const rules: [RegExp, string][] = [
     [/\bApple\s*Pay\b/i, 'Apple Pay'],
@@ -318,6 +339,7 @@ function parsePaymentMethod(text: string): { method: string; explicit: boolean }
   return { method: 'Bar', explicit: false };
 }
 
+// ───────────── Парсинг номера документа ─────────────
 function parseReceiptNumber(text: string): string {
   const rx =
     /(?:Rechnungs-?(?:Nr\.?|Nummer)|Invoice\s*No\.?|Invoice\s*#|Bon-?Nr\.?|Beleg-?Nr\.?|Quittung[s-]?Nr\.?|Transaktions-?Nr\.?|TA-?Nr\.?|Doc(?:ument)?\s*(?:No|Nr)?\.?|Receipt\s*No\.?)[:\s#]*([A-Z0-9\-\/]{3,40})/i;
@@ -330,6 +352,7 @@ function parseReceiptNumber(text: string): string {
   return tokens[0] || '';
 }
 
+// ───────────── Парсинг позицій ─────────────
 function parseItems(text: string): string {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const stop =
@@ -343,13 +366,14 @@ function parseItems(text: string): string {
     const line = lines[idx];
     if (stop.test(line) && items.length > 0) break;
 
+    // Формат "2 x 5,99 11,98"
     const qm = line.match(qtyAmt);
     if (qm) {
       const total = normalizeAmount(qm[3]);
       const name =
         lines[idx - 1] && !stop.test(lines[idx - 1]) && !amtEnd.test(lines[idx - 1])
           ? lines[idx - 1].replace(/\s{2,}/g, ' ')
-          : 'Position';
+          : 'Позиція';
       items.push(`${name}: ${total}`);
       continue;
     }
@@ -365,6 +389,7 @@ function parseItems(text: string): string {
   return items.join('\n');
 }
 
+// ───────────── Визначення валюти ─────────────
 function detectCurrency(text: string): string {
   if (/\bCHF\b/.test(text)) return 'CHF';
   if (/\bGBP\b|£\d/.test(text)) return 'GBP';
@@ -375,32 +400,33 @@ function detectCurrency(text: string): string {
   return 'EUR';
 }
 
-// Main entry
+// ───────────── Основний вхід ─────────────
 export async function extractReceiptData(file: File, onProgress?: ScanProgressCallback): Promise<ScannedReceiptData> {
   let rawText = '';
-  onProgress?.(3, 'Datei wird gelesen...');
+  onProgress?.(3, 'Зчитуємо файл...');
 
   try {
     if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
       rawText = await extractTextFromPDF(file);
+      // Якщо PDF фактично скан (майже немає тексту) — робимо OCR з рендеру
       if (!rawText || rawText.trim().length < 40) {
-        onProgress?.(12, 'PDF ohne Text – OCR...');
+        onProgress?.(12, 'PDF без тексту — запускаємо OCR...');
         const imageFile = await renderPdfFirstPageToImage(file, 2.6);
         rawText = await extractTextFromImage(imageFile, onProgress);
       } else {
-        onProgress?.(78, 'Daten werden extrahiert...');
+        onProgress?.(78, 'Отримуємо дані...');
       }
     } else {
       rawText = await extractTextFromImage(file, onProgress);
     }
   } catch {
-    onProgress?.(78, 'Daten werden extrahiert...');
+    onProgress?.(78, 'Отримуємо дані...');
   }
 
   const text = fixOCRErrors(rawText);
   const total = parseTotal(text);
   const date = parseDate(text);
-  const store_name = parseStoreName(text);
+  const store_name = parseStoreName(text, file.name);
   const vat = parseVAT(text, total);
   const paymentResult = parsePaymentMethod(text);
   const receipt_number = parseReceiptNumber(text);
@@ -425,7 +451,7 @@ export async function extractReceiptData(file: File, onProgress?: ScanProgressCa
   if (receipt_number) confidence += 5;
   if (items) confidence += 10;
 
-  onProgress?.(100, 'Fertig');
+  onProgress?.(100, 'Готово');
 
   return {
     store_name,
