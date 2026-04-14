@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Logo from './Logo'
 
@@ -46,7 +46,8 @@ export default function Auth({ t, onAuthSuccess }) {
       loginError: 'Помилка входу. Перевірте свої дані.',
       signupError: 'Помилка реєстрації.',
       verifyEmail: 'Підтвердіть вашу електронну пошту',
-      verifyEmailText: 'Ми відправили лист для підтвердження на вашу пошту. Перейдіть за посиланням у листі, щоб активувати обліковий запис.',
+      verifyEmailText:
+        'Ми відправили лист для підтвердження на вашу пошту. Перейдіть за посиланням у листі, щоб активувати обліковий запис.',
       resendVerification: 'Відправити лист повторно',
       emailSent: 'Лист відправлено',
       emailExists: 'Користувач з такою електронною поштою вже існує',
@@ -85,7 +86,8 @@ export default function Auth({ t, onAuthSuccess }) {
       loginError: 'Login failed. Please check your credentials.',
       signupError: 'Registration failed.',
       verifyEmail: 'Verify Your Email',
-      verifyEmailText: 'We sent a verification email to your address. Click the link in the email to activate your account.',
+      verifyEmailText:
+        'We sent a verification email to your address. Click the link in the email to activate your account.',
       resendVerification: 'Resend verification email',
       emailSent: 'Email sent',
       emailExists: 'User with this email already exists',
@@ -97,17 +99,26 @@ export default function Auth({ t, onAuthSuccess }) {
     }
   }
 
-  const lang = t.nav?.dashboard ? 'uk' : 'en'
+  const lang = t?.nav?.dashboard ? 'uk' : 'en'
   const tr = translations[lang]
 
-  const validateEmail = (email) => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  // --------------------------------------------------
+  // Перевірка email
+  // --------------------------------------------------
+  const validateEmail = (value) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
   }
 
-  const validatePassword = (password) => {
-    return password.length >= 8
+  // --------------------------------------------------
+  // Перевірка пароля
+  // --------------------------------------------------
+  const validatePassword = (value) => {
+    return value.length >= 8
   }
 
+  // --------------------------------------------------
+  // Локальна валідація полів
+  // --------------------------------------------------
   const validateField = (field, value) => {
     const errors = { ...fieldErrors }
 
@@ -143,6 +154,9 @@ export default function Auth({ t, onAuthSuccess }) {
     return Object.keys(errors).length === 0
   }
 
+  // --------------------------------------------------
+  // Вхід через email + пароль
+  // --------------------------------------------------
   const handleEmailLogin = async (e) => {
     e.preventDefault()
     setError('')
@@ -167,48 +181,33 @@ export default function Auth({ t, onAuthSuccess }) {
     setLoading(true)
 
     try {
-      console.log('Starting login process for:', email.trim())
-
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password
       })
 
-      console.log('Login response:', {
-        hasError: !!error,
-        errorMessage: error?.message,
-        hasUser: !!data?.user,
-        hasSession: !!data?.session,
-        userId: data?.user?.id
-      })
-
       if (error) {
-        console.error('Login error details:', {
-          message: error.message,
-          status: error.status,
-          name: error.name
-        })
         setError(error.message || tr.loginError)
         setLoading(false)
         return
       }
 
       if (data.user && data.session) {
-        console.log('Login successful, user authenticated')
         setLoading(false)
         onAuthSuccess(data.user)
       } else {
-        console.error('Login succeeded but no user/session')
         setError(tr.loginError)
         setLoading(false)
       }
-    } catch (error) {
-      console.error('Login exception:', error)
-      setError(error.message || tr.loginError)
+    } catch (err) {
+      setError(err.message || tr.loginError)
       setLoading(false)
     }
   }
 
+  // --------------------------------------------------
+  // Реєстрація через email + пароль
+  // --------------------------------------------------
   const handleSignup = async (e) => {
     e.preventDefault()
     setError('')
@@ -238,8 +237,6 @@ export default function Auth({ t, onAuthSuccess }) {
     setLoading(true)
 
     try {
-      console.log('Starting signup process for:', email.trim())
-
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
@@ -253,25 +250,13 @@ export default function Auth({ t, onAuthSuccess }) {
         }
       })
 
-      console.log('Signup response:', {
-        hasError: !!error,
-        errorMessage: error?.message,
-        hasUser: !!data?.user,
-        hasSession: !!data?.session,
-        userId: data?.user?.id
-      })
-
       if (error) {
-        console.error('Signup error details:', {
-          message: error.message,
-          status: error.status,
-          name: error.name
-        })
-
-        if (error.message.includes('already registered') ||
-            error.message.includes('User already registered') ||
-            error.message.includes('already been registered') ||
-            error.status === 400) {
+        if (
+          error.message.includes('already registered') ||
+          error.message.includes('User already registered') ||
+          error.message.includes('already been registered') ||
+          error.status === 400
+        ) {
           setError(tr.emailExists)
         } else {
           setError(error.message || tr.signupError)
@@ -281,50 +266,40 @@ export default function Auth({ t, onAuthSuccess }) {
       }
 
       if (data?.user && data?.user?.identities && data.user.identities.length === 0) {
-        console.log('User already exists (identities empty)')
         setError(tr.emailExists)
         setLoading(false)
         return
       }
 
-      console.log('Signup successful:', {
-        userId: data.user?.id,
-        email: data.user?.email,
-        hasSession: !!data.session
-      })
-
       if (data.user) {
         if (data.session) {
-          console.log('User has session, logging in automatically')
           setLoading(false)
           onAuthSuccess(data.user)
         } else {
-          console.log('No session yet, checking if email confirmation is required')
           const { data: sessionData } = await supabase.auth.getSession()
 
           if (sessionData.session) {
-            console.log('Found session after signup, logging in')
             setLoading(false)
             onAuthSuccess(data.user)
           } else {
-            console.log('Email verification required')
             setMode('verify')
             setMessage(tr.checkEmail)
             setLoading(false)
           }
         }
       } else {
-        console.error('No user in response')
         setError(tr.signupError)
         setLoading(false)
       }
-    } catch (error) {
-      console.error('Signup exception:', error)
-      setError(error.message || tr.signupError)
+    } catch (err) {
+      setError(err.message || tr.signupError)
       setLoading(false)
     }
   }
 
+  // --------------------------------------------------
+  // Скидання пароля
+  // --------------------------------------------------
   const handlePasswordReset = async (e) => {
     e.preventDefault()
     setError('')
@@ -349,7 +324,6 @@ export default function Auth({ t, onAuthSuccess }) {
       })
 
       if (error) {
-        console.error('Password reset error:', error)
         setError(error.message || 'Error sending reset email')
         setLoading(false)
         return
@@ -357,13 +331,15 @@ export default function Auth({ t, onAuthSuccess }) {
 
       setMessage(tr.resetEmailSent)
       setLoading(false)
-    } catch (error) {
-      console.error('Password reset error:', error)
+    } catch (err) {
       setError('Error sending reset email')
       setLoading(false)
     }
   }
 
+  // --------------------------------------------------
+  // Google OAuth
+  // --------------------------------------------------
   const handleGoogleLogin = async () => {
     setError('')
     setLoading(true)
@@ -381,17 +357,18 @@ export default function Auth({ t, onAuthSuccess }) {
       })
 
       if (error) {
-        console.error('Google login error:', error)
         setError(error.message || 'Google login failed')
         setLoading(false)
       }
-    } catch (error) {
-      console.error('Google login error:', error)
+    } catch (err) {
       setError('Google login failed')
       setLoading(false)
     }
   }
 
+  // --------------------------------------------------
+  // Apple OAuth
+  // --------------------------------------------------
   const handleAppleLogin = async () => {
     setError('')
     setLoading(true)
@@ -405,17 +382,18 @@ export default function Auth({ t, onAuthSuccess }) {
       })
 
       if (error) {
-        console.error('Apple login error:', error)
         setError(error.message || 'Apple login failed')
         setLoading(false)
       }
-    } catch (error) {
-      console.error('Apple login error:', error)
+    } catch (err) {
       setError('Apple login failed')
       setLoading(false)
     }
   }
 
+  // --------------------------------------------------
+  // Повторне відправлення листа підтвердження
+  // --------------------------------------------------
   const resendVerification = async () => {
     setError('')
     setMessage('')
@@ -428,7 +406,6 @@ export default function Auth({ t, onAuthSuccess }) {
       })
 
       if (error) {
-        console.error('Resend error:', error)
         setError(error.message || 'Error resending email')
         setLoading(false)
         return
@@ -436,13 +413,15 @@ export default function Auth({ t, onAuthSuccess }) {
 
       setMessage(tr.emailSent)
       setLoading(false)
-    } catch (error) {
-      console.error('Resend error:', error)
+    } catch (err) {
       setError('Error resending email')
       setLoading(false)
     }
   }
 
+  // --------------------------------------------------
+  // Перевірка валідності форми
+  // --------------------------------------------------
   const isFormValid = () => {
     if (mode === 'signup') {
       return (
@@ -456,12 +435,15 @@ export default function Auth({ t, onAuthSuccess }) {
         termsConsent
       )
     }
+
     if (mode === 'login') {
       return email && validateEmail(email) && password
     }
+
     if (mode === 'reset') {
       return email && validateEmail(email)
     }
+
     return false
   }
 
@@ -480,9 +462,11 @@ export default function Auth({ t, onAuthSuccess }) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
               </div>
+
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                 {tr.verifyEmail}
               </h2>
+
               <p className="text-gray-600 dark:text-gray-400 text-sm">
                 {tr.verifyEmailText}
               </p>
@@ -548,13 +532,20 @@ export default function Auth({ t, onAuthSuccess }) {
             </div>
           )}
 
-          <form onSubmit={mode === 'reset' ? handlePasswordReset : mode === 'signup' ? handleSignup : handleEmailLogin} className="space-y-4">
+          <form
+            onSubmit={mode === 'reset' ? handlePasswordReset : mode === 'signup' ? handleSignup : handleEmailLogin}
+            className="space-y-4"
+            autoComplete="on"
+          >
+            {/* EMAIL / USERNAME */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label htmlFor="auth-email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 {tr.email}
               </label>
+
               <input
-                id="email"
+                id="auth-email"
+                name="username"
                 type="email"
                 value={email}
                 onChange={(e) => {
@@ -567,21 +558,30 @@ export default function Auth({ t, onAuthSuccess }) {
                 } bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all`}
                 placeholder="user@example.com"
                 disabled={loading}
-                autoComplete="email"
+                autoComplete={mode === 'login' ? 'username' : 'username'}
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
               />
+
               {fieldErrors.email && (
-                <p className="mt-1 text-sm text-red-600 dark:text-red-400">{fieldErrors.email}</p>
+                <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                  {fieldErrors.email}
+                </p>
               )}
             </div>
 
             {mode !== 'reset' && (
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="auth-password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   {tr.password}
                 </label>
+
                 <div className="relative">
                   <input
-                    id="password"
+                    id="auth-password"
+                    name={mode === 'signup' ? 'new-password' : 'password'}
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => {
@@ -595,12 +595,18 @@ export default function Auth({ t, onAuthSuccess }) {
                     placeholder="••••••••"
                     disabled={loading}
                     autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                   />
+
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                     tabIndex={-1}
+                    aria-label={showPassword ? tr.hidePassword : tr.showPassword}
+                    title={showPassword ? tr.hidePassword : tr.showPassword}
                   >
                     {showPassword ? (
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -614,21 +620,27 @@ export default function Auth({ t, onAuthSuccess }) {
                     )}
                   </button>
                 </div>
+
                 {fieldErrors.password && (
-                  <p className="mt-1 text-sm text-red-600 dark:text-red-400">{fieldErrors.password}</p>
+                  <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                    {fieldErrors.password}
+                  </p>
                 )}
               </div>
             )}
 
             {mode === 'signup' && (
               <>
+                {/* ПІДТВЕРДЖЕННЯ ПАРОЛЯ */}
                 <div>
-                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <label htmlFor="auth-confirm-password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     {tr.confirmPassword}
                   </label>
+
                   <div className="relative">
                     <input
-                      id="confirmPassword"
+                      id="auth-confirm-password"
+                      name="confirm-new-password"
                       type={showConfirmPassword ? 'text' : 'password'}
                       value={confirmPassword}
                       onChange={(e) => {
@@ -642,12 +654,18 @@ export default function Auth({ t, onAuthSuccess }) {
                       placeholder="••••••••"
                       disabled={loading}
                       autoComplete="new-password"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                     />
+
                     <button
                       type="button"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                       tabIndex={-1}
+                      aria-label={showConfirmPassword ? tr.hidePassword : tr.showPassword}
+                      title={showConfirmPassword ? tr.hidePassword : tr.showPassword}
                     >
                       {showConfirmPassword ? (
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -661,11 +679,15 @@ export default function Auth({ t, onAuthSuccess }) {
                       )}
                     </button>
                   </div>
+
                   {fieldErrors.confirmPassword && (
-                    <p className="mt-1 text-sm text-red-600 dark:text-red-400">{fieldErrors.confirmPassword}</p>
+                    <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                      {fieldErrors.confirmPassword}
+                    </p>
                   )}
                 </div>
 
+                {/* Згоди */}
                 <div className="space-y-3 pt-2">
                   <label className="flex items-start gap-3 cursor-pointer group">
                     <input
@@ -726,8 +748,7 @@ export default function Auth({ t, onAuthSuccess }) {
             >
               {loading
                 ? (mode === 'signup' ? tr.signingUp : mode === 'login' ? tr.loggingIn : tr.sending)
-                : (mode === 'reset' ? tr.resetPassword : mode === 'signup' ? tr.signup : tr.login)
-              }
+                : (mode === 'reset' ? tr.resetPassword : mode === 'signup' ? tr.signup : tr.login)}
             </button>
           </form>
 
@@ -752,10 +773,10 @@ export default function Auth({ t, onAuthSuccess }) {
                   className="flex items-center justify-center gap-2 py-3 px-4 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
                   </svg>
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Google</span>
                 </button>
@@ -767,7 +788,7 @@ export default function Auth({ t, onAuthSuccess }) {
                   className="flex items-center justify-center gap-2 py-3 px-4 border border-gray-300 dark:border-gray-600 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+                    <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
                   </svg>
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Apple</span>
                 </button>
