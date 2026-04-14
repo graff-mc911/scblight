@@ -1,7 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { createWorker } from 'tesseract.js';
 
-// Configure pdfjs worker
+// Configure pdfjs worker path
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
 
 export interface ScannedReceiptData {
@@ -22,7 +22,7 @@ export interface ScannedReceiptData {
 
 export type ScanProgressCallback = (progress: number, status: string) => void;
 
-// Known stores to stabilise OCR naming
+// Known stores (helps to stabilise noisy OCR names)
 const KNOWN_STORES: [RegExp, string][] = [
   [/\bBAUHAUS\b/i, 'BAUHAUS'],
   [/\bREWE\b/i, 'REWE'],
@@ -51,7 +51,9 @@ const KNOWN_STORES: [RegExp, string][] = [
   [/\bAMAZON\b/i, 'Amazon'],
 ];
 
-// Utility helpers
+// Helpers
+const fmt2 = (n: number) => n.toFixed(2);
+
 function normalizeAmount(raw: string): string {
   if (!raw) return '';
   const trimmed = raw.trim().replace(/\s/g, '');
@@ -70,12 +72,12 @@ function normalizeAmount(raw: string): string {
   return negative ? `-${val}` : val;
 }
 
-const toNum = (s: string) => {
+function toNum(s: string): number {
   const n = parseFloat(normalizeAmount(s));
   return isNaN(n) ? 0 : n;
-};
+}
 
-// Image pre-processing for better OCR
+// Image pre-processing (binarise and upscale)
 async function preprocessImage(file: File, onProgress?: ScanProgressCallback): Promise<Blob> {
   onProgress?.(7, 'Bild wird optimiert...');
   return new Promise((resolve, reject) => {
@@ -115,7 +117,7 @@ async function preprocessImage(file: File, onProgress?: ScanProgressCallback): P
   });
 }
 
-// Extract text from a PDF (first 4 pages, line-preserving)
+// Extract text from PDF (first 4 pages, line preserving)
 async function extractTextFromPDF(file: File): Promise<string> {
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
@@ -140,8 +142,8 @@ async function extractTextFromPDF(file: File): Promise<string> {
   return lines.join('\n');
 }
 
-// Render first PDF page to an image (for scanned PDFs without text)
-async function renderPdfFirstPageToImage(file: File, scale = 2.5): Promise<File> {
+// Render first PDF page to image (for scanned PDFs without text)
+async function renderPdfFirstPageToImage(file: File, scale = 2.6): Promise<File> {
   const buf = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
   const page = await pdf.getPage(1);
@@ -155,7 +157,7 @@ async function renderPdfFirstPageToImage(file: File, scale = 2.5): Promise<File>
   return await new Promise<File>((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (!blob) return reject(new Error('PDF render failed'));
-      resolve(new File([blob], `${file.name.replace(/\\.pdf$/i, '')}-page1.png`, { type: 'image/png' }));
+      resolve(new File([blob], `${file.name.replace(/\.pdf$/i, '')}-page1.png`, { type: 'image/png' }));
     }, 'image/png');
   });
 }
@@ -167,7 +169,7 @@ async function extractTextFromImage(file: File, onProgress?: ScanProgressCallbac
   try {
     src = await preprocessImage(file, onProgress);
   } catch {
-    /* ignore and use original */
+    /* keep original */
   }
 
   onProgress?.(13, 'OCR-Engine wird geladen...');
@@ -197,7 +199,6 @@ function fixOCRErrors(text: string): string {
   return text
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
-    .replace(/O(?=\d)/g, '0')
     .replace(/(?<=\d)[oO]/g, '0')
     .replace(/(?<=\d)[lI|]/g, '1')
     .replace(/(?<=\d)S(?=\d)/g, '5')
@@ -207,14 +208,14 @@ function fixOCRErrors(text: string): string {
     .trim();
 }
 
-// Parse helpers
+// Parsing helpers
 function parseDate(text: string): string {
   const m = text.match(/\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b/);
   if (!m) return '';
-  const d = m[1].padStart(2, '0');
-  const mo = m[2].padStart(2, '0');
-  const y = m[3].length === 2 ? `20${m[3]}` : m[3].padStart(4, '20');
-  return `${y}-${mo}-${d}`;
+  const dd = m[1].padStart(2, '0');
+  const mm = m[2].padStart(2, '0');
+  const yy = m[3].length === 2 ? `20${m[3]}` : m[3].padStart(4, '20');
+  return `${yy}-${mm}-${dd}`;
 }
 
 function parseTotal(text: string): string {
@@ -224,27 +225,27 @@ function parseTotal(text: string): string {
   let bestScore = -1;
 
   const scoreLine = (line: string) => {
-    let score = 0;
-    if (/gesamt|summe|total|betrag|brutto|zahlbetrag/i.test(line)) score += 3;
-    if (/eur|€/.test(line)) score += 1;
-    if (line.length < 50) score += 1;
-    return score;
+    let s = 0;
+    if (/gesamt|summe|total|betrag|brutto|zahlbetrag/i.test(line)) s += 3;
+    if (/eur|€/.test(line)) s += 1;
+    if (line.length < 50) s += 1;
+    return s;
   };
 
   for (const line of lines) {
-    let match: RegExpExecArray | null;
-    while ((match = numberRx.exec(line)) !== null) {
+    let m: RegExpExecArray | null;
+    while ((m = numberRx.exec(line)) !== null) {
       const score = scoreLine(line);
       if (score > bestScore) {
         bestScore = score;
-        best = match[1];
+        best = m[1];
       }
     }
   }
 
   if (!best) {
     const nums = [...text.matchAll(numberRx)].map((m) => toNum(m[1])).filter((n) => n > 0);
-    if (nums.length) best = nums.sort((a, b) => b - a)[0].toFixed(2);
+    if (nums.length) best = fmt2(nums.sort((a, b) => b - a)[0]);
   }
   return normalizeAmount(best);
 }
@@ -253,8 +254,14 @@ function parseStoreName(text: string): string {
   for (const [rx, name] of KNOWN_STORES) {
     if (rx.test(text)) return name;
   }
+
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const skip = /^[\d\s€.,\-*\/+%:=|#@_]{3,}$/;
+
+  for (const line of lines.slice(0, 12)) {
+    if (skip.test(line)) continue;
+    if (/[A-ZÄÖÜ]{3}/.test(line) && line.length <= 40) return line.replace(/\s{2,}/g, ' ');
+  }
   for (const line of lines.slice(0, 30)) {
     if (line.length >= 3 && line.length <= 80 && !skip.test(line) && /[A-Za-zÄÖÜäöüß]{2}/.test(line)) {
       return line.replace(/\s{2,}/g, ' ');
@@ -274,9 +281,9 @@ function parseVAT(text: string, total: string) {
   if (!entries.length) return { net: '', vat: '0.00', rate: '19', enabled: false };
 
   const vat = entries.reduce((s, e) => s + e.amount, 0);
-  const net = totalNum > 0 ? (totalNum - vat).toFixed(2) : '';
+  const net = totalNum > 0 ? fmt2(Math.max(0, totalNum - vat)) : '';
   const dominant = entries.reduce((a, b) => (b.amount > a.amount ? b : a));
-  return { net, vat: vat.toFixed(2), rate: String(dominant.rate || 19), enabled: true };
+  return { net, vat: fmt2(vat), rate: String(dominant.rate || 19), enabled: true };
 }
 
 function parsePaymentMethod(text: string): { method: string; explicit: boolean } {
@@ -287,12 +294,24 @@ function parsePaymentMethod(text: string): { method: string; explicit: boolean }
     [/\bAmerican\s*Express\b|\bAMEX\b/i, 'American Express'],
     [/\bMastercard\b/i, 'Mastercard'],
     [/\bVisa\b/i, 'Visa'],
+    [/\bMaestro\b/i, 'Maestro'],
+    [/\bEC[-\s]?Karte\b|\bEC\b|\bGirocard\b/i, 'EC-Karte'],
+    [/\bDebit(?:karte)?\b/i, 'Debitkarte'],
+    [/\bKreditkarte\b/i, 'Kreditkarte'],
     [/\bPayPal\b/i, 'PayPal'],
     [/\bTWINT\b/i, 'TWINT'],
-    [/(?:EC|Girocard|Maestro|Debitkarte|EC[-\s]?Karte)\b/i, 'EC-Karte'],
-    [/\bBarzahlung|Bargeld|BAR\b/i, 'Bar'],
+    [/\bSEPA\b/i, 'SEPA-Lastschrift'],
+    [/\bÜberweisung\b|\bUeberweisung\b/i, 'Überweisung'],
+    [/\bRechnung\b/i, 'Rechnung'],
+    [/\bBarzahlung\b|\bBargeld\b|\bBAR\b/i, 'Bar'],
   ];
+
   const clean = text.replace(/Kartennummer[^\n]*/gi, '');
+  const footer = clean.split('\n').slice(-15).join('\n');
+
+  for (const [rx, method] of rules) {
+    if (rx.test(footer)) return { method, explicit: true };
+  }
   for (const [rx, method] of rules) {
     if (rx.test(clean)) return { method, explicit: true };
   }
@@ -301,19 +320,40 @@ function parsePaymentMethod(text: string): { method: string; explicit: boolean }
 
 function parseReceiptNumber(text: string): string {
   const rx =
-    /(?:Rechnungs-?(?:Nr\.?|Nummer)|Invoice\s*No\.?|Bon-?Nr\.?|Beleg-?Nr\.?|Quittung[s-]?Nr\.?|Transaktions-?Nr\.?|TA-?Nr\.?)[:\s#]*([A-Z0-9\-\/]{3,30})/i;
+    /(?:Rechnungs-?(?:Nr\.?|Nummer)|Invoice\s*No\.?|Invoice\s*#|Bon-?Nr\.?|Beleg-?Nr\.?|Quittung[s-]?Nr\.?|Transaktions-?Nr\.?|TA-?Nr\.?|Doc(?:ument)?\s*(?:No|Nr)?\.?|Receipt\s*No\.?)[:\s#]*([A-Z0-9\-\/]{3,40})/i;
   const m = text.match(rx);
-  return m ? m[1].trim() : '';
+  if (m) return m[1].trim();
+
+  const tokens = text
+    .split(/\s+/)
+    .filter((t) => /^[A-Z0-9][A-Z0-9\-\/]{5,19}$/i.test(t));
+  return tokens[0] || '';
 }
 
 function parseItems(text: string): string {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const stop =
-    /^(summe|gesamt|total|mwst|ust|zahlung|rueck|rück|gegeben|danke|quittung|rechnung|kasse|iban|bic|steuer)/i;
+    /^(summe|gesamt|total|betrag|mwst|ust|zahlung|rueck|rück|gegeben|danke|quittung|rechnung|kasse|iban|bic|steuer|zahlbetrag)/i;
+
   const amtEnd = /([0-9]{1,5}[,.][0-9]{2})\s*[A-Za-z€]?\s*$/;
+  const qtyAmt = /^\s*(\d{1,3})\s*[xX]\s*([0-9]{1,5}[,.][0-9]{2})\s+([0-9]{1,6}[,.][0-9]{2})/;
+
   const items: string[] = [];
-  for (const line of lines) {
-    if (stop.test(line)) break;
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx];
+    if (stop.test(line) && items.length > 0) break;
+
+    const qm = line.match(qtyAmt);
+    if (qm) {
+      const total = normalizeAmount(qm[3]);
+      const name =
+        lines[idx - 1] && !stop.test(lines[idx - 1]) && !amtEnd.test(lines[idx - 1])
+          ? lines[idx - 1].replace(/\s{2,}/g, ' ')
+          : 'Position';
+      items.push(`${name}: ${total}`);
+      continue;
+    }
+
     const m = line.match(amtEnd);
     if (!m) continue;
     const value = toNum(m[1]);
@@ -327,7 +367,7 @@ function parseItems(text: string): string {
 
 function detectCurrency(text: string): string {
   if (/\bCHF\b/.test(text)) return 'CHF';
-  if (/\bGBP\b|\£\d/.test(text)) return 'GBP';
+  if (/\bGBP\b|£\d/.test(text)) return 'GBP';
   if (/\bUSD\b|\$\d/.test(text)) return 'USD';
   if (/\bPLN\b/.test(text)) return 'PLN';
   if (/\bCZK\b/.test(text)) return 'CZK';
