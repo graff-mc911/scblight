@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { Card } from '../components/ui/Card';
@@ -14,11 +14,16 @@ import { useLanguage } from '../contexts/LanguageContext';
 // - Пароль
 // - Підтвердіть пароль
 //
-// Мета:
-// - максимально дружня до Safari / iPhone / Keychain
-// - другий пароль не прибираємо
-// - якщо пароль автопідставився в перше поле,
-//   друге поле автоматично копіює це значення
+// ВАЖЛИВО:
+// На Windows у Chrome / Edge автозаповнення часто
+// змінює DOM-наповнення input, але React state
+// не оновлюється автоматично.
+//
+// Тому тут є:
+// 1. refs на реальні input
+// 2. синхронізація state з DOM після autofill
+// 3. автокопіювання першого пароля в другий,
+//    якщо друге поле ще не редагували вручну
 // ============================================
 
 export const Signup: React.FC = () => {
@@ -26,32 +31,39 @@ export const Signup: React.FC = () => {
   const { t } = useLanguage();
 
   // --------------------------------------------
-  // Стани форми
+  // refs на реальні DOM input
+  // --------------------------------------------
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  const passwordRef = useRef<HTMLInputElement | null>(null);
+  const confirmPasswordRef = useRef<HTMLInputElement | null>(null);
+
+  // --------------------------------------------
+  // React state полів форми
   // --------------------------------------------
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
   // --------------------------------------------
-  // Стани видимості паролів
+  // Показати / сховати пароль
   // --------------------------------------------
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // --------------------------------------------
-  // Стани інтерфейсу
+  // Стан інтерфейсу
   // --------------------------------------------
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   // --------------------------------------------
-  // Чи користувач уже вручну редагував другий пароль
-  // Якщо ні — тримаємо його синхронізованим з першим
+  // Чи користувач уже вручну змінював поле
+  // підтвердження пароля
   // --------------------------------------------
   const [confirmTouched, setConfirmTouched] = useState(false);
 
   // --------------------------------------------
-  // Якщо користувач уже увійшов — перекидаємо на /
+  // Якщо вже є сесія — переходимо на головну
   // --------------------------------------------
   useEffect(() => {
     const checkSession = async () => {
@@ -71,14 +83,76 @@ export const Signup: React.FC = () => {
   }, [navigate]);
 
   // --------------------------------------------
-  // Автосинхронізація другого пароля
-  // Потрібно для iPhone / Safari / Keychain:
-  // якщо пароль вставився лише в перше поле,
-  // друге поле підтягнеться саме.
+  // Функція синхронізації React state з реальними
+  // значеннями в input після autofill браузера
+  // --------------------------------------------
+  const syncAutofilledValuesFromDom = () => {
+    const domEmail = emailRef.current?.value ?? '';
+    const domPassword = passwordRef.current?.value ?? '';
+    const domConfirm = confirmPasswordRef.current?.value ?? '';
+
+    // Якщо браузер уже вставив email у DOM,
+    // а state ще порожній — синхронізуємо
+    if (domEmail && domEmail !== email) {
+      setEmail(domEmail);
+    }
+
+    // Якщо браузер вставив пароль у DOM,
+    // а state ще не знає про це — синхронізуємо
+    if (domPassword && domPassword !== password) {
+      setPassword(domPassword);
+    }
+
+    // Якщо друге поле ще не редагували вручну,
+    // то воно повинно повторювати перший пароль
+    if (!confirmTouched) {
+      const targetValue = domPassword || password;
+
+      if (targetValue) {
+        if (confirmPasswordRef.current && confirmPasswordRef.current.value !== targetValue) {
+          confirmPasswordRef.current.value = targetValue;
+        }
+
+        if (confirmPassword !== targetValue) {
+          setConfirmPassword(targetValue);
+        }
+      }
+    } else {
+      // Якщо друге поле вже редагували вручну,
+      // просто синхронізуємо state з DOM
+      if (domConfirm && domConfirm !== confirmPassword) {
+        setConfirmPassword(domConfirm);
+      }
+    }
+  };
+
+  // --------------------------------------------
+  // На старті кілька разів перевіряємо DOM,
+  // бо autofill часто відбувається не миттєво
+  // --------------------------------------------
+  useEffect(() => {
+    const timeouts = [100, 300, 700, 1200, 2000].map((delay) =>
+      window.setTimeout(() => {
+        syncAutofilledValuesFromDom();
+      }, delay)
+    );
+
+    return () => {
+      timeouts.forEach((id) => window.clearTimeout(id));
+    };
+  }, []);
+
+  // --------------------------------------------
+  // Додатково синхронізуємо другий пароль,
+  // якщо перший змінюється звичайним способом
   // --------------------------------------------
   useEffect(() => {
     if (!confirmTouched) {
       setConfirmPassword(password);
+
+      if (confirmPasswordRef.current && confirmPasswordRef.current.value !== password) {
+        confirmPasswordRef.current.value = password;
+      }
     }
   }, [password, confirmTouched]);
 
@@ -87,31 +161,38 @@ export const Signup: React.FC = () => {
   // --------------------------------------------
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Перед сабмітом ще раз забираємо значення
+    // прямо з DOM, якщо браузер їх автопідставив
+    syncAutofilledValuesFromDom();
+
     setError('');
 
-    const normalizedEmail = email.trim().toLowerCase();
+    const finalEmail = (emailRef.current?.value || email).trim().toLowerCase();
+    const finalPassword = passwordRef.current?.value || password;
+    const finalConfirmPassword = confirmPasswordRef.current?.value || confirmPassword;
 
-    if (!normalizedEmail) {
+    if (!finalEmail) {
       setError('Введіть email');
       return;
     }
 
-    if (!password) {
+    if (!finalPassword) {
       setError('Введіть пароль');
       return;
     }
 
-    if (!confirmPassword) {
+    if (!finalConfirmPassword) {
       setError('Підтвердіть пароль');
       return;
     }
 
-    if (password !== confirmPassword) {
+    if (finalPassword !== finalConfirmPassword) {
       setError('Паролі не співпадають');
       return;
     }
 
-    if (password.length < 6) {
+    if (finalPassword.length < 6) {
       setError('Пароль має містити мінімум 6 символів');
       return;
     }
@@ -120,8 +201,8 @@ export const Signup: React.FC = () => {
 
     try {
       const { data, error: signUpError } = await supabase.auth.signUp({
-        email: normalizedEmail,
-        password,
+        email: finalEmail,
+        password: finalPassword,
       });
 
       if (signUpError) {
@@ -144,7 +225,6 @@ export const Signup: React.FC = () => {
 
   // --------------------------------------------
   // Стиль інпутів
-  // pr-12 залишає місце справа під кнопку "око"
   // --------------------------------------------
   const inputClassName =
     'block w-full min-w-0 box-border rounded-xl border border-white/10 bg-white/5 px-4 pr-12 py-3.5 text-base leading-6 text-white placeholder-white/40 outline-none transition-all focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20';
@@ -168,27 +248,8 @@ export const Signup: React.FC = () => {
           </p>
         </div>
 
-        {/* --------------------------------------------
-            Форма
-            autoComplete="on" залишаємо ввімкненим,
-            щоб Keychain міг працювати максимально повно.
-        -------------------------------------------- */}
+        {/* Форма */}
         <form onSubmit={handleSignup} className="space-y-5" autoComplete="on">
-          {/* --------------------------------------------
-              Приховане технічне поле для деяких менеджерів паролів.
-              Не чіпай його.
-          -------------------------------------------- */}
-          <input
-            type="email"
-            name="username"
-            autoComplete="username"
-            value={email}
-            readOnly
-            tabIndex={-1}
-            aria-hidden="true"
-            className="hidden"
-          />
-
           {/* Помилка */}
           {error && (
             <div className="rounded-xl border border-red-500/30 bg-red-500/20 p-3">
@@ -203,11 +264,14 @@ export const Signup: React.FC = () => {
             </label>
 
             <input
+              ref={emailRef}
               id="signup-email"
               name="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              onFocus={syncAutofilledValuesFromDom}
+              onBlur={syncAutofilledValuesFromDom}
               className={inputClassName}
               placeholder="your@email.com"
               autoComplete="email"
@@ -227,23 +291,26 @@ export const Signup: React.FC = () => {
 
             <div className="relative">
               <input
+                ref={passwordRef}
                 id="signup-password"
                 name="new-password"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                }}
+                onChange={(e) => setPassword(e.target.value)}
                 onInput={(e) => {
                   const value = (e.target as HTMLInputElement).value;
                   setPassword(value);
 
-                  // Якщо друге поле ще не чіпали,
-                  // одразу дублюємо пароль туди
                   if (!confirmTouched) {
                     setConfirmPassword(value);
+
+                    if (confirmPasswordRef.current) {
+                      confirmPasswordRef.current.value = value;
+                    }
                   }
                 }}
+                onFocus={syncAutofilledValuesFromDom}
+                onBlur={syncAutofilledValuesFromDom}
                 className={inputClassName}
                 placeholder="••••••••"
                 autoComplete="new-password"
@@ -277,6 +344,7 @@ export const Signup: React.FC = () => {
 
             <div className="relative">
               <input
+                ref={confirmPasswordRef}
                 id="signup-confirm-password"
                 name="confirm-new-password"
                 type={showConfirmPassword ? 'text' : 'password'}
@@ -290,12 +358,19 @@ export const Signup: React.FC = () => {
                   setConfirmPassword((e.target as HTMLInputElement).value);
                 }}
                 onFocus={() => {
-                  // Якщо Safari вставив пароль тільки в перше поле,
-                  // а друге ще пусте — підтягнемо його
-                  if (!confirmTouched && password && !confirmPassword) {
-                    setConfirmPassword(password);
+                  syncAutofilledValuesFromDom();
+
+                  // Якщо друге поле ще не редагували,
+                  // а перший пароль уже є — копіюємо його
+                  if (!confirmTouched) {
+                    const sourcePassword = passwordRef.current?.value || password;
+                    if (sourcePassword && confirmPasswordRef.current) {
+                      confirmPasswordRef.current.value = sourcePassword;
+                      setConfirmPassword(sourcePassword);
+                    }
                   }
                 }}
+                onBlur={syncAutofilledValuesFromDom}
                 className={inputClassName}
                 placeholder="••••••••"
                 autoComplete="new-password"
