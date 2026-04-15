@@ -28,15 +28,15 @@ export const Account: React.FC = () => {
   }, [searchParams, setSearchParams, showSuccess]);
 
   const [formData, setFormData] = useState({
-    company_name: 'Sovban BAU',
+    company_name: '',
     logo_url: '',
-    address: 'Lichtenbergerstr. 22, 64405 Fischbachtal',
-    phone: '+4917622613093',
-    email: 'Sovbanbau@gmail.com',
-    bank_name: 'Sparkasse Dieburg',
-    iban: 'DE91 5085 2651 0075 1467 95',
-    bic: 'HELADEF1DIE',
-    tax_number: '00887031624',
+    address: ',
+    phone: '',
+    email: '',
+    bank_name: ',
+    iban: '',
+    bic: '',
+    tax_number: '',
     google_client_ids: '',
   });
 
