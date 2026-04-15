@@ -28,16 +28,16 @@ export const Account: React.FC = () => {
   }, [searchParams, setSearchParams, showSuccess]);
 
   const [formData, setFormData] = useState({
-    company_name: '',
-    logo_url: '',
-    address: ',
-    phone: '',
-    email: '',
-    bank_name: ',
-    iban: '',
-    bic: '',
-    tax_number: '',
-    google_client_ids: '',
+    company_name: ,
+    logo_url: ,
+    address: ,
+    phone: ,
+    email: ,
+    bank_name: ,
+    iban: ,
+    bic: ,
+    tax_number: ,
+    google_client_ids: ,
   });
 
   const [uploading, setUploading] = useState(false);
