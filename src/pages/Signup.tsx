@@ -6,16 +6,17 @@ import { Button } from '../components/ui/Button';
 import { Logo } from '../components/Logo';
 
 // --------------------------------------------------
-// ПРОСТА І СТАБІЛЬНА СТОРІНКА ВХОДУ
-// Потрібна, щоб App.tsx знову зібрався без помилок
-// і додаток перестав показувати білий екран.
+// ПРОСТА І СТАБІЛЬНА СТОРІНКА РЕЄСТРАЦІЇ
+// Потрібна для швидкого відновлення додатка,
+// щоб Vite знову зібрав проект без білого екрана.
 // --------------------------------------------------
-export const Login: React.FC = () => {
+export const Signup: React.FC = () => {
   const navigate = useNavigate();
 
   // Стани форми
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   // Стани інтерфейсу
   const [loading, setLoading] = useState(false);
@@ -39,12 +40,14 @@ export const Login: React.FC = () => {
     void checkSession();
   }, [navigate]);
 
-  // Вхід через email + пароль
-  const handleLogin = async (e: React.FormEvent) => {
+  // Реєстрація через email + пароль
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!email.trim()) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
       setError('Введіть email');
       return;
     }
@@ -54,11 +57,26 @@ export const Login: React.FC = () => {
       return;
     }
 
+    if (password.length < 6) {
+      setError('Пароль має містити мінімум 6 символів');
+      return;
+    }
+
+    if (!confirmPassword) {
+      setError('Підтвердіть пароль');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('Паролі не співпадають');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+      const { data, error } = await supabase.auth.signUp({
+        email: normalizedEmail,
         password,
       });
 
@@ -66,15 +84,15 @@ export const Login: React.FC = () => {
         throw error;
       }
 
-      if (data.session) {
-        navigate('/');
+      if (data.user) {
+        navigate('/login');
         return;
       }
 
-      setError('Не вдалося увійти');
+      setError('Не вдалося створити обліковий запис');
     } catch (err: any) {
-      console.error('LOGIN ERROR:', err);
-      setError(err?.message || 'Помилка входу');
+      console.error('SIGNUP ERROR:', err);
+      setError(err?.message || 'Помилка реєстрації');
     } finally {
       setLoading(false);
     }
@@ -85,11 +103,11 @@ export const Login: React.FC = () => {
       <Card className="w-full max-w-md p-8">
         <div className="mb-8 flex flex-col items-center">
           <Logo variant="glass" size="lg" className="mb-6" />
-          <h1 className="text-xl font-semibold text-white mb-2">Вхід</h1>
-          <p className="text-sm text-white/60">Увійдіть у свій обліковий запис</p>
+          <h1 className="text-xl font-semibold text-white mb-2">Реєстрація</h1>
+          <p className="text-sm text-white/60">Створіть новий обліковий запис</p>
         </div>
 
-        <form onSubmit={handleLogin} autoComplete="on" className="space-y-5">
+        <form onSubmit={handleSignup} autoComplete="on" className="space-y-5">
           {error && (
             <div className="rounded-lg border border-red-500/30 bg-red-500/20 p-3">
               <p className="text-sm text-red-400">{error}</p>
@@ -101,7 +119,7 @@ export const Login: React.FC = () => {
             <input
               type="email"
               name="email"
-              autoComplete="email"
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20"
@@ -114,8 +132,8 @@ export const Login: React.FC = () => {
             <label className="mb-2 block text-sm text-white/70">Пароль</label>
             <input
               type="password"
-              name="password"
-              autoComplete="current-password"
+              name="new-password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20"
@@ -124,16 +142,30 @@ export const Login: React.FC = () => {
             />
           </div>
 
+          <div>
+            <label className="mb-2 block text-sm text-white/70">Підтвердіть пароль</label>
+            <input
+              type="password"
+              name="confirm-new-password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20"
+              placeholder="••••••••"
+              required
+            />
+          </div>
+
           <Button type="submit" disabled={loading} className="w-full">
-            {loading ? 'Завантаження...' : 'Увійти'}
+            {loading ? 'Завантаження...' : 'Зареєструватися'}
           </Button>
         </form>
 
         <div className="mt-6 text-center">
           <p className="text-sm text-white/60">
-            Немає акаунту?{' '}
-            <Link to="/signup" className="font-medium text-orange-400 hover:text-orange-300">
-              Зареєструватися
+            Вже є акаунт?{' '}
+            <Link to="/login" className="font-medium text-orange-400 hover:text-orange-300">
+              Увійти
             </Link>
           </p>
         </div>
