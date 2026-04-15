@@ -1,22 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
-import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { Logo } from '../components/Logo';
 import { supabase } from '../lib/supabase';
 import { useLanguage } from '../contexts/LanguageContext';
 
+// --------------------------------------------------
+// Сторінка входу.
+// Використовує звичайні HTML input,
+// щоб браузер правильно розпізнавав логін-форму
+// і коректно підтягував збережені логіни/паролі.
+// --------------------------------------------------
 export const Login: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
 
+  // --------------------------------------------
+  // Стани полів форми
+  // --------------------------------------------
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
+  // --------------------------------------------
+  // Стани інтерфейсу
+  // --------------------------------------------
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // --------------------------------------------
+  // Якщо користувач уже увійшов — перекидаємо на головну
+  // --------------------------------------------
   useEffect(() => {
     const checkSession = async () => {
       const { data, error } = await supabase.auth.getSession();
@@ -34,17 +48,21 @@ export const Login: React.FC = () => {
     void checkSession();
   }, [navigate]);
 
+  // --------------------------------------------
+  // Обробка входу
+  // --------------------------------------------
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-
     setError('');
 
-    if (!email.trim()) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
       setError('Введіть email');
       return;
     }
 
-    if (!password.trim()) {
+    if (!password) {
       setError('Введіть пароль');
       return;
     }
@@ -53,7 +71,7 @@ export const Login: React.FC = () => {
 
     try {
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: normalizedEmail,
         password,
       });
 
@@ -88,30 +106,53 @@ export const Login: React.FC = () => {
           </p>
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-5">
+        {/* 
+          ВАЖЛИВО:
+          autoComplete="on" + правильні name/autoComplete
+          дають браузеру зрозуміти, що це login форма.
+        */}
+        <form onSubmit={handleLogin} autoComplete="on" className="space-y-5">
           {error && (
             <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-xl">
               <p className="text-sm text-red-400">{error}</p>
             </div>
           )}
 
-          <Input
-            type="email"
-            label={t('email') || 'Email'}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="your@email.com"
-            required
-          />
+          {/* Поле email / username */}
+          <div>
+            <label className="block text-sm text-white/70 mb-2">
+              {t('email') || 'Email'}
+            </label>
 
-          <Input
-            type="password"
-            label={t('password') || 'Пароль'}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-            required
-          />
+            <input
+              name="username"
+              type="email"
+              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="your@email.com"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
+              required
+            />
+          </div>
+
+          {/* Поле поточного пароля */}
+          <div>
+            <label className="block text-sm text-white/70 mb-2">
+              {t('password') || 'Пароль'}
+            </label>
+
+            <input
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
+              required
+            />
+          </div>
 
           <Button type="submit" disabled={loading} className="w-full">
             {loading ? (t('loading') || 'Завантаження') + '...' : t('login') || 'Увійти'}
