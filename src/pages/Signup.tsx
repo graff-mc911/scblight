@@ -20,18 +20,20 @@ export const Signup: React.FC = () => {
   // --------------------------------------------------
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   // --------------------------------------------------
-  // REF-и НА INPUT
-  // Потрібні, щоб зловити автозаповнення браузера,
-  // яке інколи не викликає onChange.
+  // REF ДЛЯ ПОЛІВ
+  // Потрібні, щоб зчитати значення,
+  // якщо менеджер паролів вставив їх напряму в DOM
   // --------------------------------------------------
   const emailRef = useRef<HTMLInputElement>(null)
   const passwordRef = useRef<HTMLInputElement>(null)
   const confirmPasswordRef = useRef<HTMLInputElement>(null)
 
   // --------------------------------------------------
-  // ЯКЩО ВЖЕ Є СЕСІЯ → НА ГОЛОВНУ
+  // ЯКЩО КОРИСТУВАЧ УЖЕ УВІЙШОВ → НА ГОЛОВНУ
   // --------------------------------------------------
   useEffect(() => {
     const checkSession = async () => {
@@ -46,28 +48,27 @@ export const Signup: React.FC = () => {
 
   // --------------------------------------------------
   // СИНХРОНІЗАЦІЯ AUTOFILL
-  // Якщо браузер підставив тільки перший пароль,
-  // ми копіюємо його в другий.
-  // Також зчитуємо email, якщо він був підставлений без onChange.
+  // Якщо менеджер паролів заповнив тільки пароль,
+  // або не викликав onChange, зчитуємо значення з input напряму.
+  // Якщо підтвердження ще пусте, дублюємо туди пароль.
   // --------------------------------------------------
   useEffect(() => {
-    const syncAutofillValues = () => {
+    const syncAutofill = () => {
       const domEmail = emailRef.current?.value || ''
       const domPassword = passwordRef.current?.value || ''
-      const domConfirm = confirmPasswordRef.current?.value || ''
+      const domConfirmPassword = confirmPasswordRef.current?.value || ''
 
-      // якщо браузер підставив email напряму в DOM
       if (domEmail && domEmail !== email) {
         setEmail(domEmail)
       }
 
-      // якщо браузер підставив пароль напряму в DOM
       if (domPassword && domPassword !== password) {
         setPassword(domPassword)
       }
 
-      // якщо другий пароль пустий, але перший уже підставився
-      if (domPassword && !domConfirm) {
+      // Якщо перший пароль уже підставився,
+      // а другий ще пустий — копіюємо значення.
+      if (domPassword && !domConfirmPassword) {
         if (confirmPasswordRef.current) {
           confirmPasswordRef.current.value = domPassword
         }
@@ -76,19 +77,15 @@ export const Signup: React.FC = () => {
         }
       }
 
-      // якщо браузер підставив і другий пароль напряму в DOM
-      if (domConfirm && domConfirm !== confirmPassword) {
-        setConfirmPassword(domConfirm)
+      if (domConfirmPassword && domConfirmPassword !== confirmPassword) {
+        setConfirmPassword(domConfirmPassword)
       }
     }
 
-    // кілька швидких перевірок після рендера
-    const t1 = window.setTimeout(syncAutofillValues, 100)
-    const t2 = window.setTimeout(syncAutofillValues, 400)
-    const t3 = window.setTimeout(syncAutofillValues, 1000)
-
-    // ще трохи поллінгу, бо деякі браузери вставляють із затримкою
-    const interval = window.setInterval(syncAutofillValues, 800)
+    const t1 = window.setTimeout(syncAutofill, 100)
+    const t2 = window.setTimeout(syncAutofill, 400)
+    const t3 = window.setTimeout(syncAutofill, 1000)
+    const interval = window.setInterval(syncAutofill, 800)
 
     return () => {
       window.clearTimeout(t1)
@@ -99,7 +96,7 @@ export const Signup: React.FC = () => {
   }, [email, password, confirmPassword])
 
   // --------------------------------------------------
-  // ОБРОБКА РЕЄСТРАЦІЇ
+  // РЕЄСТРАЦІЯ
   // --------------------------------------------------
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -134,14 +131,14 @@ export const Signup: React.FC = () => {
 
       navigate('/login')
     } catch (err: any) {
-      setError(err.message || 'Помилка реєстрації')
+      setError(err?.message || 'Помилка реєстрації')
     } finally {
       setLoading(false)
     }
   }
 
   // --------------------------------------------------
-  // GOOGLE LOGIN
+  // ВХІД ЧЕРЕЗ GOOGLE
   // --------------------------------------------------
   const handleGoogleLogin = async () => {
     setError('')
@@ -168,7 +165,7 @@ export const Signup: React.FC = () => {
   }
 
   // --------------------------------------------------
-  // APPLE LOGIN
+  // ВХІД ЧЕРЕЗ APPLE
   // --------------------------------------------------
   const handleAppleLogin = async () => {
     setError('')
@@ -203,21 +200,19 @@ export const Signup: React.FC = () => {
 
         {/* --------------------------------------------------
             ФОРМА
-            Ключове:
-            - autoComplete="on"
-            - email = username
-            - password = current-password
-            Бо ти хочеш, щоб signup поводився як login
         -------------------------------------------------- */}
         <form onSubmit={handleSignup} autoComplete="on" className="space-y-5">
-          {/* ПОМИЛКА */}
           {error && (
             <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-lg">
               <p className="text-sm text-red-400">{error}</p>
             </div>
           )}
 
-          {/* EMAIL */}
+          {/* --------------------------------------------------
+              EMAIL
+              Поле налаштоване як в Auth.jsx:
+              autoComplete="username"
+          -------------------------------------------------- */}
           <div>
             <label className="block text-sm text-white/70 mb-2">Email</label>
 
@@ -235,55 +230,136 @@ export const Signup: React.FC = () => {
             />
           </div>
 
-          {/* PASSWORD */}
+          {/* --------------------------------------------------
+              ПАРОЛЬ
+              Додаємо око перегляду як стандарт
+          -------------------------------------------------- */}
           <div>
             <label className="block text-sm text-white/70 mb-2">Пароль</label>
 
-            <input
-              ref={passwordRef}
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => {
-                const nextValue = e.target.value
-                setPassword(nextValue)
+            <div className="relative">
+              <input
+                ref={passwordRef}
+                id="password"
+                name="password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => {
+                  const nextValue = e.target.value
+                  setPassword(nextValue)
 
-                // якщо другий пароль ще пустий або був таким самим —
-                // синхронізуємо його з першим
-                if (!confirmPassword || confirmPassword === password) {
-                  setConfirmPassword(nextValue)
-                  if (confirmPasswordRef.current) {
-                    confirmPasswordRef.current.value = nextValue
+                  // Якщо друге поле порожнє
+                  // або йшло в синхроні з першим —
+                  // одразу копіюємо значення і туди.
+                  if (!confirmPassword || confirmPassword === password) {
+                    setConfirmPassword(nextValue)
+                    if (confirmPasswordRef.current) {
+                      confirmPasswordRef.current.value = nextValue
+                    }
                   }
-                }
-              }}
-              placeholder="••••••••"
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-orange-500"
-              required
-            />
+                }}
+                placeholder="••••••••"
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 pr-12 text-white outline-none focus:border-orange-500"
+                required
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white/80 transition-colors"
+                aria-label={showPassword ? 'Сховати пароль' : 'Показати пароль'}
+                title={showPassword ? 'Сховати пароль' : 'Показати пароль'}
+              >
+                {showPassword ? (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+                    />
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                    />
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
 
-          {/* CONFIRM PASSWORD */}
+          {/* --------------------------------------------------
+              ПІДТВЕРДЖЕННЯ ПАРОЛЯ
+              Тут теж додаємо око перегляду
+          -------------------------------------------------- */}
           <div>
             <label className="block text-sm text-white/70 mb-2">Підтвердіть пароль</label>
 
-            <input
-              ref={confirmPasswordRef}
-              id="confirm_password"
-              name="confirm_password"
-              type="password"
-              autoComplete="current-password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-orange-500"
-              required
-            />
+            <div className="relative">
+              <input
+                ref={confirmPasswordRef}
+                id="confirm_password"
+                name="confirm_password"
+                type={showConfirmPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 pr-12 text-white outline-none focus:border-orange-500"
+                required
+              />
+
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white/80 transition-colors"
+                aria-label={showConfirmPassword ? 'Сховати підтвердження пароля' : 'Показати підтвердження пароля'}
+                title={showConfirmPassword ? 'Сховати підтвердження пароля' : 'Показати підтвердження пароля'}
+              >
+                {showConfirmPassword ? (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"
+                    />
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                    />
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
 
-          {/* КНОПКА РЕЄСТРАЦІЇ */}
+          {/* --------------------------------------------------
+              КНОПКА РЕЄСТРАЦІЇ
+          -------------------------------------------------- */}
           <Button type="submit" disabled={loading} className="w-full">
             {loading ? 'Завантаження...' : 'Зареєструватися'}
           </Button>
@@ -291,16 +367,13 @@ export const Signup: React.FC = () => {
 
         {/* --------------------------------------------------
             GOOGLE / APPLE
-            Повернув з іконками
         -------------------------------------------------- */}
         <div className="relative my-6">
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-white/10"></div>
           </div>
           <div className="relative flex justify-center text-sm">
-            <span className="px-4 bg-[#1f2429] text-white/50">
-              Або продовжити з
-            </span>
+            <span className="px-4 bg-[#1f2429] text-white/50">Або продовжити з</span>
           </div>
         </div>
 
@@ -345,7 +418,9 @@ export const Signup: React.FC = () => {
           </button>
         </div>
 
-        {/* ПЕРЕХІД НА LOGIN */}
+        {/* --------------------------------------------------
+            ПЕРЕХІД НА LOGIN
+        -------------------------------------------------- */}
         <div className="mt-6 text-center">
           <p className="text-sm text-white/60">
             Вже є акаунт?{' '}
