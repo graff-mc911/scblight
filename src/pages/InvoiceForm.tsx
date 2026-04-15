@@ -34,9 +34,15 @@ export const InvoiceForm: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
+  // --------------------------------------------------
+  // Клієнти та профіль компанії
+  // --------------------------------------------------
   const [clients, setClients] = useState<any[]>([]);
   const [companyProfile, setCompanyProfile] = useState<any>(null);
 
+  // --------------------------------------------------
+  // Основні дані інвойсу
+  // --------------------------------------------------
   const [formData, setFormData] = useState({
     client_id: '',
     document_number: '',
@@ -53,6 +59,9 @@ export const InvoiceForm: React.FC = () => {
     notes: '',
   });
 
+  // --------------------------------------------------
+  // Позиції інвойсу
+  // --------------------------------------------------
   const [items, setItems] = useState<InvoiceItem[]>([
     {
       quantity: 0,
@@ -69,6 +78,9 @@ export const InvoiceForm: React.FC = () => {
     void init();
   }, [id]);
 
+  // --------------------------------------------------
+  // Початкове завантаження
+  // --------------------------------------------------
   const init = async () => {
     try {
       setLoading(true);
@@ -84,6 +96,9 @@ export const InvoiceForm: React.FC = () => {
     }
   };
 
+  // --------------------------------------------------
+  // Завантаження клієнтів
+  // --------------------------------------------------
   const fetchClients = async () => {
     const {
       data: { user },
@@ -102,6 +117,9 @@ export const InvoiceForm: React.FC = () => {
     }
   };
 
+  // --------------------------------------------------
+  // Завантаження профілю компанії
+  // --------------------------------------------------
   const fetchCompanyProfile = async () => {
     const {
       data: { user },
@@ -120,6 +138,9 @@ export const InvoiceForm: React.FC = () => {
     }
   };
 
+  // --------------------------------------------------
+  // Генерація номера документа
+  // --------------------------------------------------
   const generateDocumentNumber = async () => {
     const {
       data: { user },
@@ -153,6 +174,9 @@ export const InvoiceForm: React.FC = () => {
     }));
   };
 
+  // --------------------------------------------------
+  // Завантаження існуючого інвойсу
+  // --------------------------------------------------
   const fetchInvoice = async () => {
     const { data: invoiceData, error } = await supabase
       .from('invoices')
@@ -169,8 +193,14 @@ export const InvoiceForm: React.FC = () => {
       client_id: invoiceData.client_id || '',
       document_number: invoiceData.document_no || '',
       date: invoiceData.date || new Date().toISOString().split('T')[0],
-      work_period_start: invoiceData.work_period_start || invoiceData.date || new Date().toISOString().split('T')[0],
-      work_period_end: invoiceData.work_period_end || invoiceData.date || new Date().toISOString().split('T')[0],
+      work_period_start:
+        invoiceData.work_period_start ||
+        invoiceData.date ||
+        new Date().toISOString().split('T')[0],
+      work_period_end:
+        invoiceData.work_period_end ||
+        invoiceData.date ||
+        new Date().toISOString().split('T')[0],
       currency: invoiceData.currency || 'EUR',
       status: invoiceData.status || 'draft',
       vat_enabled: (invoiceData.tax_percent || 0) > 0,
@@ -202,6 +232,9 @@ export const InvoiceForm: React.FC = () => {
     }
   };
 
+  // --------------------------------------------------
+  // Зміна полів позиції
+  // --------------------------------------------------
   const handleItemChange = (index: number, field: keyof InvoiceItem, value: any) => {
     setItems((prev) => {
       const next = [...prev];
@@ -222,6 +255,9 @@ export const InvoiceForm: React.FC = () => {
     });
   };
 
+  // --------------------------------------------------
+  // Калькулятор для кількості
+  // --------------------------------------------------
   const handleQuantityChange = (index: number, value: string) => {
     setItems((prev) => {
       const next = [...prev];
@@ -244,6 +280,9 @@ export const InvoiceForm: React.FC = () => {
     }
   };
 
+  // --------------------------------------------------
+  // Додати / видалити позицію
+  // --------------------------------------------------
   const addItem = () => {
     setItems((prev) => [
       ...prev,
@@ -266,15 +305,23 @@ export const InvoiceForm: React.FC = () => {
     });
   };
 
+  // --------------------------------------------------
+  // Підсумки
+  // --------------------------------------------------
   const netTotal = useMemo(() => items.reduce((sum, item) => sum + item.total, 0), [items]);
+
   const vatAmount = useMemo(
     () => (formData.vat_enabled ? (netTotal * formData.vat_rate) / 100 : 0),
     [formData.vat_enabled, formData.vat_rate, netTotal]
   );
+
   const grossTotal = useMemo(() => netTotal + vatAmount, [netTotal, vatAmount]);
 
   const formatCurrency = (amount: number) => amount.toFixed(2);
 
+  // --------------------------------------------------
+  // Збереження інвойсу
+  // --------------------------------------------------
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -291,10 +338,15 @@ export const InvoiceForm: React.FC = () => {
       }
 
       const selectedClient = clients.find((c) => c.id === formData.client_id);
+
       const totalProjectArea = formData.project_area ? parseFloat(formData.project_area) : 0;
       const totalAreaNet = items.reduce((sum, item) => sum + item.quantity, 0);
       const totalAreaGross = totalAreaNet;
 
+      // --------------------------------------------------
+      // Тут додаємо ВСІ потрібні дані компанії
+      // щоб вони залишилися в ЗБЕРЕЖЕНОМУ інвойсі
+      // --------------------------------------------------
       const invoicePayload = {
         user_id: user.id,
         client_id: formData.client_id || null,
@@ -309,6 +361,7 @@ export const InvoiceForm: React.FC = () => {
         document_type: formData.document_type,
         object_address: formData.object_address || null,
         notes: formData.notes || null,
+
         total_net: netTotal,
         tax_percent: formData.vat_enabled ? formData.vat_rate : 0,
         tax_amount: vatAmount,
@@ -316,7 +369,15 @@ export const InvoiceForm: React.FC = () => {
         total_project_area: totalProjectArea || null,
         total_area_net: totalAreaNet || null,
         total_area_gross: totalAreaGross || null,
+
+        // --------------------------------------------------
+        // Дані виконавця / компанії
+        // --------------------------------------------------
         executor_name: companyProfile?.company_name || null,
+        executor_logo_url: companyProfile?.logo_url || null,
+        executor_address: companyProfile?.address || null,
+        executor_phone: companyProfile?.phone || null,
+        executor_email: companyProfile?.email || null,
         executor_bank: companyProfile?.bank_name || null,
         executor_iban: companyProfile?.iban || null,
         executor_bic: companyProfile?.bic || null,
@@ -331,9 +392,7 @@ export const InvoiceForm: React.FC = () => {
           .update(invoicePayload)
           .eq('id', id);
 
-        if (error) {
-          throw error;
-        }
+        if (error) throw error;
       } else {
         const { data, error } = await supabase
           .from('invoices')
@@ -341,10 +400,7 @@ export const InvoiceForm: React.FC = () => {
           .select()
           .maybeSingle();
 
-        if (error) {
-          throw error;
-        }
-
+        if (error) throw error;
         invoiceId = data?.id;
       }
 
@@ -352,8 +408,14 @@ export const InvoiceForm: React.FC = () => {
         throw new Error('Failed to get invoice ID');
       }
 
+      // --------------------------------------------------
+      // Видаляємо старі позиції
+      // --------------------------------------------------
       await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId);
 
+      // --------------------------------------------------
+      // Додаємо нові позиції
+      // --------------------------------------------------
       if (items.length > 0) {
         const itemsPayload = items.map((item, index) => ({
           invoice_id: invoiceId,
@@ -370,15 +432,15 @@ export const InvoiceForm: React.FC = () => {
           .from('invoice_items')
           .insert(itemsPayload);
 
-        if (itemsError) {
-          throw itemsError;
-        }
+        if (itemsError) throw itemsError;
       }
 
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
 
       showSuccess(
-        id ? (t('invoiceUpdated') || 'Invoice updated') : (t('invoiceCreated') || 'Invoice created')
+        id
+          ? (t('invoiceUpdated') || 'Invoice updated')
+          : (t('invoiceCreated') || 'Invoice created')
       );
 
       navigate(`/invoices/${invoiceId}/view`);
@@ -390,6 +452,9 @@ export const InvoiceForm: React.FC = () => {
     }
   };
 
+  // --------------------------------------------------
+  // Лоадер
+  // --------------------------------------------------
   if (loading) {
     return (
       <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-5xl mx-auto">
@@ -425,6 +490,9 @@ export const InvoiceForm: React.FC = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* --------------------------------------------------
+            Основні дані документа
+        -------------------------------------------------- */}
         <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-lg">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Select
@@ -494,6 +562,9 @@ export const InvoiceForm: React.FC = () => {
           </div>
         </div>
 
+        {/* --------------------------------------------------
+            Позиції
+        -------------------------------------------------- */}
         <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-lg">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-medium text-white text-lg">{t('positions')}</h2>
@@ -588,6 +659,9 @@ export const InvoiceForm: React.FC = () => {
           </div>
         </div>
 
+        {/* --------------------------------------------------
+            ПДВ і підсумки
+        -------------------------------------------------- */}
         <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-lg">
           <div className="space-y-4">
             <div className="flex items-center gap-3 mb-3">
@@ -598,7 +672,9 @@ export const InvoiceForm: React.FC = () => {
                   onChange={(e) => setFormData({ ...formData, vat_enabled: e.target.checked })}
                   className="w-4 h-4 accent-orange-500"
                 />
-                <span className="text-white">{t('enableVat')} ({formData.vat_rate}%)</span>
+                <span className="text-white">
+                  {t('enableVat')} ({formData.vat_rate}%)
+                </span>
               </label>
 
               {formData.vat_enabled && (
@@ -607,7 +683,9 @@ export const InvoiceForm: React.FC = () => {
                   <Input
                     type="number"
                     value={formData.vat_rate}
-                    onChange={(e) => setFormData({ ...formData, vat_rate: Number(e.target.value) })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, vat_rate: Number(e.target.value) })
+                    }
                     className="w-20"
                   />
                 </div>
@@ -617,24 +695,35 @@ export const InvoiceForm: React.FC = () => {
             <div className="space-y-2 pt-3 border-t border-white/10">
               <div className="flex justify-between items-center">
                 <span className="text-white/60">{t('netAmount')}</span>
-                <span className="font-medium text-white">{formatCurrency(netTotal)} €</span>
+                <span className="font-medium text-white">
+                  {formatCurrency(netTotal)} {formData.currency}
+                </span>
               </div>
 
               {formData.vat_enabled && (
                 <div className="flex justify-between items-center">
-                  <span className="text-white/60">{t('vat')} ({formData.vat_rate}%)</span>
-                  <span className="font-medium text-white">{formatCurrency(vatAmount)} €</span>
+                  <span className="text-white/60">
+                    {t('vat')} ({formData.vat_rate}%)
+                  </span>
+                  <span className="font-medium text-white">
+                    {formatCurrency(vatAmount)} {formData.currency}
+                  </span>
                 </div>
               )}
 
               <div className="flex justify-between items-center pt-2 border-t border-white/10">
                 <span className="font-semibold text-white text-lg">{t('grossAmount')}</span>
-                <span className="text-2xl font-bold text-orange-400">{formatCurrency(grossTotal)} €</span>
+                <span className="text-2xl font-bold text-orange-400">
+                  {formatCurrency(grossTotal)} {formData.currency}
+                </span>
               </div>
             </div>
           </div>
         </div>
 
+        {/* --------------------------------------------------
+            Додаткові поля
+        -------------------------------------------------- */}
         <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-lg">
           <Input
             label={t('projectArea')}
@@ -660,6 +749,9 @@ export const InvoiceForm: React.FC = () => {
           />
         </div>
 
+        {/* --------------------------------------------------
+            Кнопки
+        -------------------------------------------------- */}
         <div className="flex gap-2">
           <button
             type="button"
@@ -690,6 +782,9 @@ export const InvoiceForm: React.FC = () => {
         </div>
       </form>
 
+      {/* --------------------------------------------------
+          Preview
+      -------------------------------------------------- */}
       {isPreviewOpen && (
         <InvoicePreview
           invoice={{
@@ -705,6 +800,19 @@ export const InvoiceForm: React.FC = () => {
             object_address: formData.object_address,
             notes: formData.notes,
             invoice_language: language,
+
+            // --------------------------------------------------
+            // Передаємо також збережені дані компанії
+            // --------------------------------------------------
+            executor_name: companyProfile?.company_name || '',
+            executor_logo_url: companyProfile?.logo_url || '',
+            executor_address: companyProfile?.address || '',
+            executor_phone: companyProfile?.phone || '',
+            executor_email: companyProfile?.email || '',
+            executor_bank: companyProfile?.bank_name || '',
+            executor_iban: companyProfile?.iban || '',
+            executor_bic: companyProfile?.bic || '',
+            executor_tax_number: companyProfile?.tax_number || '',
           }}
           client={clients.find((c) => c.id === formData.client_id)}
           companyProfile={companyProfile}
