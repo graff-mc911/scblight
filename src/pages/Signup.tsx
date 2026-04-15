@@ -1,10 +1,16 @@
-import { useState } from 'react'
-import { supabase } from '../lib/supabase'
+import React, { useEffect, useState } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
+import { Card } from '../components/ui/Card'
+import { Button } from '../components/ui/Button'
 import { Logo } from '../components/Logo'
+import { supabase } from '../lib/supabase'
 
-export const Signup = () => {
-  const [mode, setMode] = useState<'login' | 'signup'>('signup')
+export const Signup: React.FC = () => {
+  const navigate = useNavigate()
 
+  // ---------------------------
+  // СТАНИ ФОРМИ
+  // ---------------------------
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -12,158 +18,176 @@ export const Signup = () => {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // LOGIN
-  const handleLogin = async (e: any) => {
+  // ---------------------------
+  // ПЕРЕВІРКА СЕСІЇ
+  // якщо користувач вже залогінений → редірект
+  // ---------------------------
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data } = await supabase.auth.getSession()
+      if (data.session) {
+        navigate('/')
+      }
+    }
+
+    checkSession()
+  }, [navigate])
+
+  // ---------------------------
+  // РЕЄСТРАЦІЯ
+  // ---------------------------
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    setLoading(true)
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    })
-
-    if (error) setError(error.message)
-
-    setLoading(false)
-  }
-
-  // SIGNUP
-  const handleSignup = async (e: any) => {
-    e.preventDefault()
-    setError('')
-
+    // перевірка паролів
     if (password !== confirmPassword) {
       setError('Паролі не співпадають')
       return
     }
 
+    // мінімальна перевірка
+    if (password.length < 6) {
+      setError('Мінімум 6 символів')
+      return
+    }
+
     setLoading(true)
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password
-    })
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+      })
 
-    if (error) setError(error.message)
+      if (error) throw error
 
-    setLoading(false)
-  }
-
-  // GOOGLE
-  const handleGoogle = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'google'
-    })
-  }
-
-  // APPLE
-  const handleApple = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'apple'
-    })
+      // після реєстрації → на логін
+      navigate('/login')
+    } catch (err: any) {
+      setError(err.message || 'Помилка реєстрації')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#1a1f24] p-4">
-      <div className="w-full max-w-md bg-[#222831] p-8 rounded-2xl">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-[#1a1f24]">
+      <Card className="w-full max-w-md p-8">
 
-        <div className="text-center mb-6">
-          <Logo />
+        {/* ---------------------------
+            ЛОГО + ЗАГОЛОВОК
+        --------------------------- */}
+        <div className="mb-8 flex flex-col items-center">
+          <Logo variant="glass" size="lg" className="mb-6" />
+          <p className="text-sm text-white/60">
+            Створити акаунт
+          </p>
         </div>
 
-        <h2 className="text-white text-xl text-center mb-6">
-          {mode === 'login' ? 'Увійти' : 'Реєстрація'}
-        </h2>
+        {/* ---------------------------
+            ФОРМА
+            ❗ autoComplete="on" важливо
+        --------------------------- */}
+        <form onSubmit={handleSignup} autoComplete="on" className="space-y-5">
 
-        {error && (
-          <div className="mb-4 text-red-400 text-sm">{error}</div>
-        )}
+          {/* ---------------------------
+              ПОМИЛКА
+          --------------------------- */}
+          {error && (
+            <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-lg">
+              <p className="text-sm text-red-400">{error}</p>
+            </div>
+          )}
 
-        <form
-          onSubmit={mode === 'login' ? handleLogin : handleSignup}
-          autoComplete="on"
-          className="space-y-4"
-        >
+          {/* ---------------------------
+              EMAIL
+              ❗ ВЗЯТО З Auth.jsx
+              ❗ ключ = autoComplete="username"
+          --------------------------- */}
+          <div>
+            <label className="block text-sm text-white/70 mb-2">
+              Email
+            </label>
 
-          {/* EMAIL */}
-          <input
-            type="email"
-            name="email"
-            autoComplete="username"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
-            className="w-full p-3 rounded bg-black/40 text-white"
-          />
-
-          {/* PASSWORD */}
-          <input
-            type="password"
-            name="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Пароль"
-            className="w-full p-3 rounded bg-black/40 text-white"
-          />
-
-          {/* CONFIRM */}
-          {mode === 'signup' && (
             <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="username"   // ❗ ГОЛОВНЕ
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="user@example.com"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500"
+              required
+            />
+          </div>
+
+          {/* ---------------------------
+              PASSWORD
+              ❗ current-password щоб викликати менеджер паролів
+          --------------------------- */}
+          <div>
+            <label className="block text-sm text-white/70 mb-2">
+              Пароль
+            </label>
+
+            <input
+              id="password"
+              name="password"
               type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-orange-500"
+              required
+            />
+          </div>
+
+          {/* ---------------------------
+              CONFIRM PASSWORD
+              ❗ той самий autocomplete
+          --------------------------- */}
+          <div>
+            <label className="block text-sm text-white/70 mb-2">
+              Підтвердіть пароль
+            </label>
+
+            <input
+              id="confirm_password"
               name="confirm_password"
+              type="password"
               autoComplete="current-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Підтвердіть пароль"
-              className="w-full p-3 rounded bg-black/40 text-white"
+              placeholder="••••••••"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-orange-500"
+              required
             />
-          )}
+          </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full p-3 bg-orange-500 rounded text-white"
-          >
-            {loading
-              ? '...'
-              : mode === 'login'
-              ? 'Увійти'
-              : 'Зареєструватися'}
-          </button>
+          {/* ---------------------------
+              КНОПКА
+          --------------------------- */}
+          <Button type="submit" disabled={loading} className="w-full">
+            {loading ? 'Завантаження...' : 'Зареєструватися'}
+          </Button>
         </form>
 
-        {/* GOOGLE / APPLE */}
-        <div className="mt-4 space-y-2">
-          <button onClick={handleGoogle} className="w-full p-3 bg-white text-black rounded">
-            Google
-          </button>
-          <button onClick={handleApple} className="w-full p-3 bg-black text-white rounded">
-            Apple
-          </button>
+        {/* ---------------------------
+            ПЕРЕХІД НА LOGIN
+        --------------------------- */}
+        <div className="mt-6 text-center">
+          <p className="text-sm text-white/60">
+            Вже є акаунт?{' '}
+            <Link to="/login" className="text-orange-400 hover:text-orange-300">
+              Увійти
+            </Link>
+          </p>
         </div>
 
-        {/* SWITCH */}
-        <div className="mt-6 text-center text-white/60">
-          {mode === 'login' ? (
-            <>
-              Немає акаунту?{' '}
-              <button onClick={() => setMode('signup')} className="text-orange-400">
-                Реєстрація
-              </button>
-            </>
-          ) : (
-            <>
-              Вже є акаунт?{' '}
-              <button onClick={() => setMode('login')} className="text-orange-400">
-                Увійти
-              </button>
-            </>
-          )}
-        </div>
-
-      </div>
+      </Card>
     </div>
   )
 }
