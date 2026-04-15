@@ -1,28 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Logo } from '../components/Logo';
+import { supabase } from '../lib/supabase';
+import { useLanguage } from '../contexts/LanguageContext';
 
 // --------------------------------------------------
-// ПРОСТА І СТАБІЛЬНА СТОРІНКА РЕЄСТРАЦІЇ
-// Потрібна для швидкого відновлення додатка,
-// щоб Vite знову зібрав проект без білого екрана.
+// Сторінка входу.
+// Використовує звичайні HTML input,
+// щоб браузер правильно розпізнавав логін-форму
+// і коректно підтягував збережені логіни/паролі.
 // --------------------------------------------------
-export const Signup: React.FC = () => {
+export const Login: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
-  // Стани форми
+  // --------------------------------------------
+  // Стани полів форми
+  // --------------------------------------------
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
 
+  // --------------------------------------------
   // Стани інтерфейсу
-  const [loading, setLoading] = useState(false);
+  // --------------------------------------------
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
+  // --------------------------------------------
   // Якщо користувач уже увійшов — перекидаємо на головну
+  // --------------------------------------------
   useEffect(() => {
     const checkSession = async () => {
       const { data, error } = await supabase.auth.getSession();
@@ -40,8 +48,10 @@ export const Signup: React.FC = () => {
     void checkSession();
   }, [navigate]);
 
-  // Реєстрація через email + пароль
-  const handleSignup = async (e: React.FormEvent) => {
+  // --------------------------------------------
+  // Обробка входу
+  // --------------------------------------------
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -57,42 +67,27 @@ export const Signup: React.FC = () => {
       return;
     }
 
-    if (password.length < 6) {
-      setError('Пароль має містити мінімум 6 символів');
-      return;
-    }
-
-    if (!confirmPassword) {
-      setError('Підтвердіть пароль');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError('Паролі не співпадають');
-      return;
-    }
-
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email: normalizedEmail,
         password,
       });
 
-      if (error) {
-        throw error;
+      if (signInError) {
+        throw signInError;
       }
 
-      if (data.user) {
-        navigate('/login');
+      if (data.session) {
+        navigate('/');
         return;
       }
 
-      setError('Не вдалося створити обліковий запис');
+      setError('Не вдалося увійти');
     } catch (err: any) {
-      console.error('SIGNUP ERROR:', err);
-      setError(err?.message || 'Помилка реєстрації');
+      console.error('LOGIN ERROR:', err);
+      setError(err?.message || 'Помилка входу');
     } finally {
       setLoading(false);
     }
@@ -101,71 +96,74 @@ export const Signup: React.FC = () => {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-[#1a1f24]">
       <Card className="w-full max-w-md p-8">
-        <div className="mb-8 flex flex-col items-center">
+        <div className="flex flex-col items-center mb-8">
           <Logo variant="glass" size="lg" className="mb-6" />
-          <h1 className="text-xl font-semibold text-white mb-2">Реєстрація</h1>
-          <p className="text-sm text-white/60">Створіть новий обліковий запис</p>
+          <h1 className="text-xl font-semibold text-white mb-2">
+            {t('login') || 'Увійти'}
+          </h1>
+          <p className="text-white/60 text-sm text-center">
+            {t('loginTitle') || 'Увійдіть у свій обліковий запис'}
+          </p>
         </div>
 
-        <form onSubmit={handleSignup} autoComplete="on" className="space-y-5">
+        {/* 
+          ВАЖЛИВО:
+          autoComplete="on" + правильні name/autoComplete
+          дають браузеру зрозуміти, що це login форма.
+        */}
+        <form onSubmit={handleLogin} autoComplete="on" className="space-y-5">
           {error && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/20 p-3">
+            <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-xl">
               <p className="text-sm text-red-400">{error}</p>
             </div>
           )}
 
+          {/* Поле email / username */}
           <div>
-            <label className="mb-2 block text-sm text-white/70">Email</label>
+            <label className="block text-sm text-white/70 mb-2">
+              {t('email') || 'Email'}
+            </label>
+
             <input
+              name="username"
               type="email"
-              name="email"
               autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20"
               placeholder="your@email.com"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
               required
             />
           </div>
 
+          {/* Поле поточного пароля */}
           <div>
-            <label className="mb-2 block text-sm text-white/70">Пароль</label>
+            <label className="block text-sm text-white/70 mb-2">
+              {t('password') || 'Пароль'}
+            </label>
+
             <input
+              name="password"
               type="password"
-              name="new-password"
-              autoComplete="new-password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20"
               placeholder="••••••••"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm text-white/70">Підтвердіть пароль</label>
-            <input
-              type="password"
-              name="confirm-new-password"
-              autoComplete="new-password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500/60 focus:ring-2 focus:ring-orange-500/20"
-              placeholder="••••••••"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
               required
             />
           </div>
 
           <Button type="submit" disabled={loading} className="w-full">
-            {loading ? 'Завантаження...' : 'Зареєструватися'}
+            {loading ? (t('loading') || 'Завантаження') + '...' : t('login') || 'Увійти'}
           </Button>
         </form>
 
         <div className="mt-6 text-center">
           <p className="text-sm text-white/60">
-            Вже є акаунт?{' '}
-            <Link to="/login" className="font-medium text-orange-400 hover:text-orange-300">
-              Увійти
+            {t('noAccount') || 'Немає облікового запису?'}{' '}
+            <Link to="/signup" className="text-orange-400 hover:text-orange-300 font-medium">
+              {t('signup') || 'Зареєструватися'}
             </Link>
           </p>
         </div>
