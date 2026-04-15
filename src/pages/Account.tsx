@@ -25,7 +25,7 @@ export const Account: React.FC = () => {
       p.delete('billing');
       setSearchParams(p, { replace: true });
     }
-  }, []);
+  }, [searchParams, setSearchParams, showSuccess]);
 
   const [formData, setFormData] = useState({
     company_name: 'Sovban BAU',
@@ -42,16 +42,24 @@ export const Account: React.FC = () => {
 
   const [uploading, setUploading] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string>('');
+  const [logoStoragePath, setLogoStoragePath] = useState<string>('');
   const [googleClientIdsError, setGoogleClientIdsError] = useState<string>('');
 
+  // --------------------------------------------------
+  // Поточна сесія
+  // --------------------------------------------------
   const { data: session } = useQuery({
     queryKey: ['session'],
     queryFn: async () => {
-      const { data } = await supabase.auth.getSession();
+      const { data, error } = await supabase.auth.getSession();
+      if (error) throw error;
       return data.session;
     },
   });
 
+  // --------------------------------------------------
+  // Профіль компанії
+  // --------------------------------------------------
   const { data: profile } = useQuery({
     queryKey: ['profile', session?.user?.id],
     queryFn: async () => {
@@ -60,100 +68,46 @@ export const Account: React.FC = () => {
         .select('*')
         .eq('user_id', session?.user?.id || '')
         .maybeSingle();
+
       if (error && error.code !== 'PGRST116') throw error;
       return data;
     },
     enabled: !!session?.user?.id,
   });
 
-
+  // --------------------------------------------------
+  // Підставляємо дані профілю в форму
+  // --------------------------------------------------
   useEffect(() => {
-    if (profile) {
-      setFormData({
-        company_name: profile.company_name || '',
-        logo_url: profile.logo_url || '',
-        address: profile.address || '',
-        phone: profile.phone || '',
-        email: profile.email || '',
-        bank_name: profile.bank_name || '',
-        iban: profile.iban || '',
-        bic: profile.bic || '',
-        tax_number: profile.tax_number || '',
-        google_client_ids: profile.google_client_ids || '',
-      });
-      setLogoPreview(profile.logo_url || '');
-    }
+    if (!profile) return;
+
+    setFormData({
+      company_name: profile.company_name || '',
+      logo_url: profile.logo_url || '',
+      address: profile.address || '',
+      phone: profile.phone || '',
+      email: profile.email || '',
+      bank_name: profile.bank_name || '',
+      iban: profile.iban || '',
+      bic: profile.bic || '',
+      tax_number: profile.tax_number || '',
+      google_client_ids: profile.google_client_ids || '',
+    });
+
+    setLogoPreview(profile.logo_url || '');
+    setLogoStoragePath(profile.logo_path || '');
   }, [profile]);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !session?.user?.id) return;
-
-    if (!file.type.startsWith('image/')) {
-      showError(t('uploadImageOnly'));
-      return;
-    }
-
-    if (file.size > 2 * 1024 * 1024) {
-      showError(t('fileSizeLimit'));
-      return;
-    }
-
-    setUploading(true);
-
-    try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${session.user.id}/logo.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('company-logos')
-        .upload(fileName, file, {
-          upsert: true,
-          contentType: file.type,
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('company-logos')
-        .getPublicUrl(fileName);
-
-      setFormData({ ...formData, logo_url: publicUrl });
-      setLogoPreview(publicUrl);
-      showSuccess(t('logoUploaded') || 'Logo uploaded successfully');
-    } catch (error) {
-      console.error('Upload error:', error);
-      showError(t('failedUploadLogo'));
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleRemoveLogo = async () => {
-    if (!session?.user?.id || !formData.logo_url) return;
-
-    try {
-      const fileName = formData.logo_url.split('/').pop();
-      if (fileName) {
-        await supabase.storage
-          .from('company-logos')
-          .remove([`${session.user.id}/${fileName}`]);
-      }
-
-      setFormData({ ...formData, logo_url: '' });
-      setLogoPreview('');
-    } catch (error) {
-      console.error('Remove error:', error);
-    }
-  };
-
+  // --------------------------------------------------
+  // Перевірка Google Client IDs
+  // --------------------------------------------------
   const validateGoogleClientIds = (value: string): boolean => {
     if (!value.trim()) {
       setGoogleClientIdsError('');
       return true;
     }
 
-    const ids = value.split(',').map(id => id.trim()).filter(id => id);
+    const ids = value.split(',').map(id => id.trim()).filter(Boolean);
 
     const validPatterns = [
       /^[a-zA-Z0-9][a-zA-Z0-9._-]*\.[a-zA-Z0-9._-]+$/,
@@ -174,46 +128,175 @@ export const Account: React.FC = () => {
   };
 
   const handleGoogleClientIdsChange = (value: string) => {
-    const trimmedValue = value.split(',').map(id => id.trim()).join(', ');
-    setFormData({ ...formData, google_client_ids: trimmedValue });
+    const trimmedValue = value
+      .split(',')
+      .map(id => id.trim())
+      .filter(Boolean)
+      .join(', ');
+
+    setFormData(prev => ({ ...prev, google_client_ids: trimmedValue }));
     validateGoogleClientIds(value);
   };
 
+  // --------------------------------------------------
+  // Завантаження логотипа
+  // --------------------------------------------------
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !session?.user?.id) return;
+
+    if (!file.type.startsWith('image/')) {
+      showError(t('uploadImageOnly') || 'Дозволені лише зображення');
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      showError(t('fileSizeLimit') || 'Файл завеликий. Максимум 2 МБ');
+      return;
+    }
+
+    setUploading(true);
+
+    try {
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const safeExt = ext === 'jpeg' ? 'jpg' : ext;
+      const storagePath = `${session.user.id}/logo-${Date.now()}.${safeExt}`;
+
+      // якщо був старий логотип — видаляємо його
+      if (logoStoragePath) {
+        const { error: removeOldError } = await supabase.storage
+          .from('company-logos')
+          .remove([logoStoragePath]);
+
+        if (removeOldError) {
+          console.warn('Не вдалося видалити старий логотип:', removeOldError.message);
+        }
+      }
+
+      const { error: uploadError } = await supabase.storage
+        .from('company-logos')
+        .upload(storagePath, file, {
+          upsert: false,
+          contentType: file.type,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('company-logos').getPublicUrl(storagePath);
+
+      // cache buster, щоб браузер не показував старий логотип
+      const previewUrl = `${publicUrl}?v=${Date.now()}`;
+
+      setLogoStoragePath(storagePath);
+      setLogoPreview(previewUrl);
+      setFormData(prev => ({
+        ...prev,
+        logo_url: publicUrl,
+      }));
+
+      showSuccess(t('logoUploaded') || 'Логотип успішно завантажено');
+    } catch (error: any) {
+      console.error('Upload logo error:', error);
+
+      // показуємо реальну причину
+      showError(
+        error?.message ||
+          t('failedUploadLogo') ||
+          'Не вдалося завантажити логотип'
+      );
+    } finally {
+      setUploading(false);
+
+      // щоб можна було завантажити той самий файл ще раз
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // --------------------------------------------------
+  // Видалення логотипа
+  // --------------------------------------------------
+  const handleRemoveLogo = async () => {
+    if (!session?.user?.id) return;
+
+    try {
+      if (logoStoragePath) {
+        const { error } = await supabase.storage
+          .from('company-logos')
+          .remove([logoStoragePath]);
+
+        if (error) throw error;
+      }
+
+      setFormData(prev => ({ ...prev, logo_url: '' }));
+      setLogoPreview('');
+      setLogoStoragePath('');
+
+      showSuccess(t('logoRemoved') || 'Логотип видалено');
+    } catch (error: any) {
+      console.error('Remove logo error:', error);
+      showError(error?.message || 'Не вдалося видалити логотип');
+    }
+  };
+
+  // --------------------------------------------------
+  // Збереження профілю
+  // --------------------------------------------------
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!session?.user?.id) {
+        throw new Error('Користувач не авторизований');
+      }
+
       if (!validateGoogleClientIds(formData.google_client_ids)) {
         throw new Error(t('invalidGoogleClientIdsFormat'));
       }
 
+      const payload = {
+        ...formData,
+        logo_path: logoStoragePath,
+        user_id: session.user.id,
+        updated_at: new Date().toISOString(),
+      };
+
       if (profile) {
         const { error } = await supabase
           .from('company_profile')
-          .update({ ...formData, updated_at: new Date().toISOString() })
-          .eq('user_id', session?.user?.id || '');
+          .update(payload)
+          .eq('user_id', session.user.id);
+
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from('company_profile')
-          .insert([{ ...formData, user_id: session?.user?.id }]);
+          .insert([payload]);
+
         if (error) throw error;
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
-      showSuccess(t('profileSaved'));
+      showSuccess(t('profileSaved') || 'Профіль збережено');
     },
     onError: (error: Error) => {
       if (error.message.includes('Google Client IDs')) {
         showError(googleClientIdsError || t('invalidGoogleClientIdsFormat'));
       } else {
-        showError(t('errorSavingProfile'));
+        showError(error.message || t('errorSavingProfile') || 'Помилка збереження профілю');
       }
     },
   });
 
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-semibold text-white mb-6">{t('account')}</h1>
+      <h1 className="text-2xl font-semibold text-white mb-6">
+        {t('account') || 'Акаунт'}
+      </h1>
 
       {billingSuccess && (
         <div className="mb-4 flex items-center gap-3 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-sm">
@@ -229,21 +312,25 @@ export const Account: React.FC = () => {
               <Building2 className="h-6 w-6 text-orange-400" />
             </div>
             <div>
-              <h2 className="font-medium text-white">{t('companyProfile')}</h2>
-              <p className="text-sm text-white/60">{t('updateCompanyInfo')}</p>
+              <h2 className="font-medium text-white">
+                {t('companyProfile') || 'Профіль компанії'}
+              </h2>
+              <p className="text-sm text-white/60">
+                {t('updateCompanyInfo') || 'Оновіть інформацію про компанію'}
+              </p>
             </div>
           </div>
 
           <div className="space-y-5">
             <Input
-              label={t('companyName')}
+              label={t('companyName') || 'Назва компанії'}
               value={formData.company_name}
-              onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
+              onChange={(e) => setFormData(prev => ({ ...prev, company_name: e.target.value }))}
             />
 
             <div>
               <label className="block text-sm font-medium text-white/70 mb-2">
-                {t('companyLogo')}
+                {t('companyLogo') || 'Логотип компанії'}
               </label>
 
               {logoPreview ? (
@@ -270,7 +357,9 @@ export const Account: React.FC = () => {
                 >
                   <Upload className="h-5 w-5" />
                   <span className="text-sm">
-                    {uploading ? t('uploading') : t('uploadLogo')}
+                    {uploading
+                      ? (t('uploading') || 'Завантаження...')
+                      : (t('uploadLogo') || 'Завантажити логотип')}
                   </span>
                 </button>
               )}
@@ -278,70 +367,75 @@ export const Account: React.FC = () => {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/png,image/jpeg,image/jpg,image/webp"
                 onChange={handleFileUpload}
                 className="hidden"
               />
+
               <p className="text-xs text-white/50 mt-2">
-                {t('pngJpgUpTo2mb')}
+                {t('pngJpgUpTo2mb') || 'PNG, JPG до 2МБ'}
               </p>
             </div>
 
             <Input
-              label={t('address')}
+              label={t('address') || 'Адреса'}
               value={formData.address}
-              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+              onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
             />
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input
-                label={t('phone')}
+                label={t('phone') || 'Телефон'}
                 value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
               />
               <Input
-                label={t('email')}
+                label={t('email') || 'Email'}
                 type="email"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
               />
             </div>
+
             <Input
-              label={t('bankName')}
+              label={t('bankName') || 'Назва банку'}
               value={formData.bank_name}
-              onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+              onChange={(e) => setFormData(prev => ({ ...prev, bank_name: e.target.value }))}
             />
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input
-                label={t('iban')}
+                label={t('iban') || 'IBAN'}
                 value={formData.iban}
-                onChange={(e) => setFormData({ ...formData, iban: e.target.value })}
+                onChange={(e) => setFormData(prev => ({ ...prev, iban: e.target.value }))}
               />
               <Input
-                label={t('bic')}
+                label={t('bic') || 'BIC'}
                 value={formData.bic}
-                onChange={(e) => setFormData({ ...formData, bic: e.target.value })}
+                onChange={(e) => setFormData(prev => ({ ...prev, bic: e.target.value }))}
               />
             </div>
+
             <Input
-              label={t('taxNumber')}
+              label={t('taxNumber') || 'Податковий номер'}
               value={formData.tax_number}
-              onChange={(e) => setFormData({ ...formData, tax_number: e.target.value })}
+              onChange={(e) => setFormData(prev => ({ ...prev, tax_number: e.target.value }))}
             />
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                {t('googleClientIds')}
+              <label className="block text-sm font-medium text-white/70 mb-2">
+                {t('googleClientIds') || 'Google Client ID'}
               </label>
               <Input
-                placeholder={t('googleClientIdsPlaceholder')}
+                placeholder={t('googleClientIdsPlaceholder') || 'Введіть ID через кому'}
                 value={formData.google_client_ids}
                 onChange={(e) => handleGoogleClientIdsChange(e.target.value)}
               />
               {googleClientIdsError && (
                 <p className="text-xs text-red-500 mt-1">{googleClientIdsError}</p>
               )}
-              <p className="text-xs text-slate-500 mt-1">
-                {t('googleClientIdsHelp')}
+              <p className="text-xs text-white/50 mt-1">
+                {t('googleClientIdsHelp') || 'Введіть ID клієнтів Google OAuth або ідентифікатори застосунків через кому'}
               </p>
             </div>
           </div>
@@ -352,7 +446,9 @@ export const Account: React.FC = () => {
             className="w-full mt-6"
           >
             <Save className="h-4 w-4 mr-2" />
-            {saveMutation.isPending ? t('saving') : t('save')}
+            {saveMutation.isPending
+              ? (t('saving') || 'Збереження...')
+              : (t('save') || 'Зберегти')}
           </Button>
         </Card>
       </div>
