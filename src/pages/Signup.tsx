@@ -4,23 +4,30 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Logo } from '../components/Logo';
 import { supabase } from '../lib/supabase';
-import { useLanguage } from '../contexts/LanguageContext';
 
 // --------------------------------------------------
-// Сторінка входу.
-// Використовує звичайні HTML input,
-// щоб браузер правильно розпізнавав логін-форму
-// і коректно підтягував збережені логіни/паролі.
+// Сторінка реєстрації.
+// Побудована в тому самому стилі, що й Login,
+// щоб не було конфлікту між формами.
+// Тут також використані звичайні HTML input,
+// а не кастомний Input компонент.
 // --------------------------------------------------
-export const Login: React.FC = () => {
+export const Signup: React.FC = () => {
   const navigate = useNavigate();
-  const { t } = useLanguage();
 
   // --------------------------------------------
   // Стани полів форми
   // --------------------------------------------
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  // --------------------------------------------
+  // Додаткові згоди
+  // Взяті з твого робочого Auth.jsx
+  // --------------------------------------------
+  const [gdprConsent, setGdprConsent] = useState(false);
+  const [termsConsent, setTermsConsent] = useState(false);
 
   // --------------------------------------------
   // Стани інтерфейсу
@@ -29,10 +36,10 @@ export const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   // --------------------------------------------
-  // Якщо користувач уже увійшов — перекидаємо на головну
+  // Якщо вже залогінений — на головну
   // --------------------------------------------
   useEffect(() => {
-    const checkSession = async () => {
+    const check = async () => {
       const { data, error } = await supabase.auth.getSession();
 
       if (error) {
@@ -45,13 +52,20 @@ export const Login: React.FC = () => {
       }
     };
 
-    void checkSession();
+    void check();
   }, [navigate]);
 
   // --------------------------------------------
-  // Обробка входу
+  // Перевірка email
   // --------------------------------------------
-  const handleLogin = async (e: React.FormEvent) => {
+  const validateEmail = (value: string) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  };
+
+  // --------------------------------------------
+  // Реєстрація
+  // --------------------------------------------
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -62,32 +76,69 @@ export const Login: React.FC = () => {
       return;
     }
 
+    if (!validateEmail(normalizedEmail)) {
+      setError('Невірний формат електронної пошти');
+      return;
+    }
+
     if (!password) {
       setError('Введіть пароль');
+      return;
+    }
+
+    if (password.length < 8) {
+      setError('Пароль повинен містити мінімум 8 символів');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError('Паролі не співпадають');
+      return;
+    }
+
+    if (!gdprConsent || !termsConsent) {
+      setError('Необхідно прийняти умови для продовження');
       return;
     }
 
     setLoading(true);
 
     try {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
+        options: {
+          emailRedirectTo: window.location.origin,
+          data: {
+            accepted_privacy_policy: true,
+            accepted_terms: true,
+            consent_timestamp: new Date().toISOString(),
+          },
+        },
       });
 
-      if (signInError) {
-        throw signInError;
+      if (error) {
+        throw error;
       }
 
-      if (data.session) {
-        navigate('/');
+      if (data.user) {
+        navigate('/login');
         return;
       }
 
-      setError('Не вдалося увійти');
+      setError('Помилка реєстрації');
     } catch (err: any) {
-      console.error('LOGIN ERROR:', err);
-      setError(err?.message || 'Помилка входу');
+      console.error('SIGNUP ERROR:', err);
+
+      if (
+        err?.message?.includes('already registered') ||
+        err?.message?.includes('User already registered') ||
+        err?.message?.includes('already been registered')
+      ) {
+        setError('Користувач з такою електронною поштою вже існує');
+      } else {
+        setError(err?.message || 'Помилка реєстрації');
+      }
     } finally {
       setLoading(false);
     }
@@ -96,32 +147,30 @@ export const Login: React.FC = () => {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-[#1a1f24]">
       <Card className="w-full max-w-md p-8">
-        <div className="flex flex-col items-center mb-8">
+        <div className="mb-8 flex flex-col items-center">
           <Logo variant="glass" size="lg" className="mb-6" />
-          <h1 className="text-xl font-semibold text-white mb-2">
-            {t('login') || 'Увійти'}
-          </h1>
-          <p className="text-white/60 text-sm text-center">
-            {t('loginTitle') || 'Увійдіть у свій обліковий запис'}
+          <p className="text-sm text-white/60">
+            Створити акаунт
           </p>
         </div>
 
         {/* 
           ВАЖЛИВО:
-          autoComplete="on" + правильні name/autoComplete
-          дають браузеру зрозуміти, що це login форма.
+          Це signup-форма.
+          Тут email має бути username,
+          а паролі — new-password.
         */}
-        <form onSubmit={handleLogin} autoComplete="on" className="space-y-5">
+        <form onSubmit={handleSignup} autoComplete="on" className="space-y-5">
           {error && (
-            <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-xl">
+            <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-lg">
               <p className="text-sm text-red-400">{error}</p>
             </div>
           )}
 
-          {/* Поле email / username */}
+          {/* EMAIL */}
           <div>
             <label className="block text-sm text-white/70 mb-2">
-              {t('email') || 'Email'}
+              Email
             </label>
 
             <input
@@ -136,34 +185,95 @@ export const Login: React.FC = () => {
             />
           </div>
 
-          {/* Поле поточного пароля */}
+          {/* PASSWORD */}
           <div>
             <label className="block text-sm text-white/70 mb-2">
-              {t('password') || 'Пароль'}
+              Пароль
             </label>
 
             <input
-              name="password"
+              name="new-password"
               type="password"
-              autoComplete="current-password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/40 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
               required
             />
           </div>
 
-          <Button type="submit" disabled={loading} className="w-full">
-            {loading ? (t('loading') || 'Завантаження') + '...' : t('login') || 'Увійти'}
+          {/* CONFIRM PASSWORD */}
+          <div>
+            <label className="block text-sm text-white/70 mb-2">
+              Підтвердіть пароль
+            </label>
+
+            <input
+              name="confirm-new-password"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
+              required
+            />
+          </div>
+
+          {/* GDPR */}
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={gdprConsent}
+              onChange={(e) => setGdprConsent(e.target.checked)}
+              className="mt-1 h-4 w-4 accent-orange-500"
+            />
+            <span className="text-xs leading-relaxed text-white/60">
+              Я погоджуюся на обробку моїх персональних даних відповідно до{' '}
+              <a
+                href="/privacy-policy.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-orange-400 underline"
+              >
+                Політики конфіденційності
+              </a>
+            </span>
+          </label>
+
+          {/* TERMS */}
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={termsConsent}
+              onChange={(e) => setTermsConsent(e.target.checked)}
+              className="mt-1 h-4 w-4 accent-orange-500"
+            />
+            <span className="text-xs leading-relaxed text-white/60">
+              Я приймаю{' '}
+              <a
+                href="/terms-of-service.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-orange-400 underline"
+              >
+                Умови використання
+              </a>
+            </span>
+          </label>
+
+          <Button type="submit" disabled={loading || !gdprConsent || !termsConsent} className="w-full">
+            {loading ? 'Завантаження...' : 'Зареєструватися'}
           </Button>
         </form>
 
+        {/* ПЕРЕХІД НА ЛОГІН */}
         <div className="mt-6 text-center">
           <p className="text-sm text-white/60">
-            {t('noAccount') || 'Немає облікового запису?'}{' '}
-            <Link to="/signup" className="text-orange-400 hover:text-orange-300 font-medium">
-              {t('signup') || 'Зареєструватися'}
+            Вже є акаунт?{' '}
+            <Link to="/login" className="text-orange-400 hover:text-orange-300">
+              Увійти
             </Link>
           </p>
         </div>
