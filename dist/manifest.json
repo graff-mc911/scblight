@@ -23,6 +23,8 @@
     }
   ],
   "categories": ["business", "productivity", "utilities"],
+  "lang": "uk",
+  "dir": "ltr",
   "shortcuts": [
     {
       "name": "New Invoice",
