@@ -72,13 +72,13 @@ export const ReceiptForm: React.FC = () => {
       setDocType('document');
       setDocTitle('АКТ ПРИЙОМУ-ПЕРЕДАЧІ РОБІТ');
       setDocSubtitle("Об'єкт: Ремонтно-будівельні роботи");
-      setDocContent("Ми, що нижче підписалися, підтверджуємо виконання робіт у повному обсязі.\n\n1. Електромонтажні роботи: 100%\n2. Внутрішнє оздоблення: 100%\n\nПретензій до якості та термінів немає.");
+      setDocContent("Ми, що нижче підписалися, підтверджуємо виконання робіт у повному обсязі.\n\n1. Електромонтажні роботи\n2. Сантехнічні роботи\n3. Оздоблювальні роботи\n\nВсі роботи виконані якісно та вчасно.");
       setDocFooter('Виконавець: __________ / Замовник: __________');
     } else if (type === 'letter') {
       setDocType('document');
       setDocTitle('ОФІЦІЙНЕ ЗВЕРНЕННЯ');
       setDocSubtitle('Щодо виконання будівельного проєкту');
-      setDocContent('Повідомляємо про успішне завершення запланованого етапу робіт.\n\nПросимо переглянути додані звіти та надати погодження.');
+      setDocContent('Повідомляємо про успішне завершення запланованого етапу робіт.\n\nПросимо переглянути додані документи та схвалити результати.\n\nЗ повагою,\nКоманда проекту');
       setDocFooter('З повагою, команда проекту');
     } else if (type === 'presentation') {
       setDocType('presentation');
@@ -93,7 +93,7 @@ export const ReceiptForm: React.FC = () => {
   const handleGeneratePDF = async () => {
     setIsGenerating(true);
     try {
-      generateCustomPDF({
+      await generateCustomPDF({
         type: docType,
         title: docTitle,
         subtitle: docSubtitle,
