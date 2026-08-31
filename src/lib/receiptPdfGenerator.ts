@@ -24,6 +24,23 @@ export interface ReceiptPdfData {
   signature_data?: string;
 }
 
+export type DocumentType = 'document' | 'images' | 'presentation' | 'receipt';
+
+export interface PDFOptions {
+  type: DocumentType;
+  title?: string;
+  subtitle?: string;
+  content?: string;
+  footer?: string;
+  date?: string;
+  number?: string;
+  storeName?: string;
+  totalAmount?: string;
+  category?: string;
+  images?: string[];
+  slides?: Array<{ title: string; text: string }>;
+}
+
 function formatAmount(amount: number, currency = 'EUR'): string {
   const symbols: Record<string, string> = { EUR: '€', USD: '$', GBP: '£', CHF: 'CHF', PLN: 'zł', CZK: 'Kč', UAH: '₴' };
   const sym = symbols[currency] || currency;
@@ -119,17 +136,17 @@ function buildQuittungHtml(r: ReceiptPdfData): string {
           ${showVat ? `
           <tr>
             <td style="font-size:13px;color:#666;padding:4px 0;">Nettobetrag</td>
-            <td style="font-size:13px;color:#1e2228;font-weight:600;text-align:right;padding:4px 0;">${formatAmount(net, currency)}</td>
+            <td style="font-size:13px;color:#1e2228;font-weight:600;text-align:right;padding:4px 0;">${formatAmount(net, r.currency || 'EUR')}</td>
           </tr>
           <tr>
             <td style="font-size:13px;color:#666;padding:4px 0;">MwSt. (${vatRate} %)</td>
-            <td style="font-size:13px;color:#1e2228;font-weight:600;text-align:right;padding:4px 0;">${formatAmount(vatAmt, currency)}</td>
+            <td style="font-size:13px;color:#1e2228;font-weight:600;text-align:right;padding:4px 0;">${formatAmount(vatAmt, r.currency || 'EUR')}</td>
           </tr>
           <tr><td colspan="2"><div style="border-top:2px solid #e5e7eb;margin:8px 0;"></div></td></tr>
           ` : ''}
           <tr>
             <td style="font-size:16px;font-weight:700;color:#1e2228;padding:4px 0;">Gesamtbetrag</td>
-            <td style="font-size:22px;font-weight:700;color:#e6641e;text-align:right;padding:4px 0;">${formatAmount(gross, currency)}</td>
+            <td style="font-size:22px;font-weight:700;color:#e6641e;text-align:right;padding:4px 0;">${formatAmount(gross, r.currency || 'EUR')}</td>
           </tr>
         </table>
 
@@ -170,6 +187,202 @@ function loadImageAsDataUrl(url: string): Promise<string> {
     img.src = url;
   });
 }
+
+/**
+ * NEW: Universal PDF generator supporting multiple document types
+ * Replaces direct PDF generation code with centralized logic
+ */
+export async function generateCustomPDF(options: PDFOptions): Promise<void> {
+  const {
+    type,
+    title = 'Document',
+    subtitle = '',
+    content = '',
+    footer = '',
+    date = new Date().toISOString().split('T')[0],
+    number = '001',
+    storeName = '',
+    totalAmount = '0',
+    category = '',
+    images = [],
+    slides = [],
+  } = options;
+
+  let filename = title.replace(/[^\w\s]/g, '').replace(/\s+/g, '_') || 'document';
+
+  if (type === 'presentation') {
+    // Landscape A4 for presentations
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+    slides.forEach((slide, idx) => {
+      if (idx > 0) doc.addPage();
+
+      // Background
+      doc.setFillColor(245, 247, 250);
+      doc.rect(0, 0, 297, 210, 'F');
+
+      // Top accent bar (gold/amber)
+      doc.setFillColor(255, 215, 0);
+      doc.rect(0, 0, 297, 8, 'F');
+
+      // Title
+      doc.setFontSize(28);
+      doc.setTextColor(33, 37, 41);
+      doc.text(slide.title, 20, 35);
+
+      // Divider line
+      doc.setDrawColor(200, 200, 200);
+      doc.line(20, 42, 277, 42);
+
+      // Content
+      doc.setFontSize(14);
+      doc.setTextColor(70, 70, 70);
+      const splitText = doc.splitTextToSize(slide.text, 257);
+      doc.text(splitText, 20, 58);
+
+      // Page number
+      doc.setFontSize(10);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Слайд ${idx + 1} з ${slides.length}`, 277, 195, { align: 'right' });
+    });
+
+    doc.save(`${filename}_presentation.pdf`);
+  } else if (type === 'images') {
+    // Portrait A4 for images
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    if (images.length === 0) {
+      doc.setFontSize(12);
+      doc.text('Зображення відсутні', 20, 20);
+    } else {
+      for (const img of images) {
+        if (images.indexOf(img) > 0) doc.addPage();
+
+        // Try to add as JPEG, fallback to PNG
+        try {
+          doc.addImage(img, 'JPEG', 15, 15, 180, 240, undefined, 'FAST');
+        } catch {
+          doc.addImage(img, 'PNG', 15, 15, 180, 240);
+        }
+      }
+    }
+
+    doc.save(`${filename}_images.pdf`);
+  } else if (type === 'receipt') {
+    // Portrait A4 for receipts
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    const pageWidth = 210;
+    const pageHeight = 297;
+    let yPosition = 20;
+
+    // Header
+    doc.setFillColor(30, 34, 40);
+    doc.rect(0, 0, pageWidth, 35, 'F');
+
+    doc.setFontSize(18);
+    doc.setTextColor(255, 255, 255);
+    doc.text('ЧЕК / ВИТРАТА', 15, 22);
+
+    // Content area
+    doc.setFontSize(11);
+    doc.setTextColor(40, 40, 40);
+
+    yPosition += 15;
+
+    // Store name
+    if (storeName) {
+      doc.setFontSize(12);
+      doc.setFont(undefined, 'bold');
+      doc.text(`Магазин: ${storeName}`, 15, yPosition);
+      yPosition += 10;
+    }
+
+    // Date
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'normal');
+    doc.text(`Дата: ${formatDate(date)}`, 15, yPosition);
+    yPosition += 8;
+
+    // Category
+    if (category) {
+      doc.text(`Категорія: ${category}`, 15, yPosition);
+      yPosition += 8;
+    }
+
+    // Amount
+    doc.setFontSize(14);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(230, 100, 30);
+    doc.text(`Сума: ${totalAmount}`, 15, yPosition);
+
+    // Footer
+    yPosition = pageHeight - 30;
+    doc.setFontSize(9);
+    doc.setTextColor(150, 150, 150);
+    doc.text(footer || `Документ створено: ${formatDate(date)}`, 15, yPosition);
+
+    doc.save(`${filename}_receipt.pdf`);
+  } else {
+    // type === 'document': Portrait A4 with text content
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    const pageWidth = 210;
+    const marginLeft = 20;
+    const marginRight = 20;
+    const contentWidth = pageWidth - marginLeft - marginRight;
+    let yPosition = 25;
+
+    // Title
+    doc.setFontSize(18);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(30, 34, 40);
+    const titleLines = doc.splitTextToSize(title, contentWidth);
+    doc.text(titleLines, marginLeft, yPosition);
+    yPosition += titleLines.length * 8 + 5;
+
+    // Subtitle (if present)
+    if (subtitle) {
+      doc.setFontSize(11);
+      doc.setFont(undefined, 'normal');
+      doc.setTextColor(100, 100, 100);
+      const subtitleLines = doc.splitTextToSize(subtitle, contentWidth);
+      doc.text(subtitleLines, marginLeft, yPosition);
+      yPosition += subtitleLines.length * 6 + 5;
+
+      // Divider line
+      doc.setDrawColor(220, 220, 220);
+      doc.line(marginLeft, yPosition - 3, pageWidth - marginRight, yPosition - 3);
+      yPosition += 5;
+    }
+
+    // Content
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(40, 40, 40);
+    const contentLines = doc.splitTextToSize(content, contentWidth);
+    doc.text(contentLines, marginLeft, yPosition);
+
+    // Footer
+    if (footer) {
+      doc.setFontSize(9);
+      doc.setFont(undefined, 'normal');
+      doc.setTextColor(130, 130, 130);
+      const footerLines = doc.splitTextToSize(footer, contentWidth);
+      const footerY = 290 - footerLines.length * 5;
+      doc.text(footerLines, marginLeft, footerY);
+    }
+
+    // Page number and date
+    doc.setFontSize(8);
+    doc.setTextColor(180, 180, 180);
+    doc.text(`${number} • ${formatDate(date)}`, marginLeft, 293);
+
+    doc.save(`${filename}_document.pdf`);
+  }
+}
+
+// ====== BACKWARD COMPATIBILITY ======
 
 export async function convertImageToPDF(imageUrl: string, filename?: string): Promise<void> {
   const dataUrl = await loadImageAsDataUrl(imageUrl);
