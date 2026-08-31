@@ -9,13 +9,13 @@ export const BottomNav: React.FC = () => {
   const navItems = [
     { to: '/', icon: Home, label: t('nav.home') || 'Головна' },
     { to: '/invoices', icon: FileText, label: t('nav.invoices') || 'Рахунки' },
-    { to: '/pdf-creator', icon: FilePlus, label: t('nav.createPdf') || 'Створити PDF' }, // ✅ Веде на конструктор PDF
+    { to: '/pdf-creator', icon: FilePlus, label: t('nav.createPdf') || 'Створити PDF' },
     { to: '/receipts', icon: Receipt, label: t('nav.receipts') || 'Витрати' },
     { to: '/clients', icon: Users, label: t('nav.clients') || 'Клієнти' }
   ];
 
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 px-2 py-1.5">
+    <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-lg border-t border-slate-800 px-2 py-1.5">
       <nav className="flex items-center justify-around">
         {navItems.map((item) => (
           <NavLink
