@@ -329,10 +329,10 @@ export const Home: React.FC = () => {
       onClick: () => navigate('/invoices/new'),
     },
     {
-      label: t('createPdfBtn') || 'Новий документ витрат',
+      label: t('createPdfBtn') || 'Створити PDF',
       icon: FileText,
       color: 'text-cyan-400',
-      onClick: () => navigate('/receipt/new'),
+      onClick: () => navigate('/pdf-creator'),
     },
     {
       label: t('newClient') || 'Новий клієнт',
