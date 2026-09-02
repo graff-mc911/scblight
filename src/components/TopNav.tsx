@@ -12,12 +12,20 @@ export const TopNav: React.FC = () => {
   const location = useLocation();
   const { t, language, setLanguage } = useLanguage();
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    return saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  });
 
   useEffect(() => {
-    const saved = localStorage.getItem('theme');
-    const dark = saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    document.documentElement.classList.toggle('dark', dark);
-  }, []);
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDark]);
 
   const navItems = React.useMemo(
     () => [
@@ -31,10 +39,17 @@ export const TopNav: React.FC = () => {
     [t],
   );
 
-  const isActive = (path: string) =>
-    path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate('/login');
+  };
 
-  const currentLanguage = languages.find((l) => l.code === language) || languages[0];
+  const isActive = (path: string) => {
+    if (path === '/') return location.pathname === '/';
+    return location.pathname.startsWith(path);
+  };
+
+  const currentLanguage = languages.find((lang) => lang.code === language) || languages[0];
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-white/10 backdrop-blur-xl border-b border-white/10">
@@ -43,20 +58,23 @@ export const TopNav: React.FC = () => {
           <div className="flex items-center gap-6">
             <Logo variant="glass" size="md" />
             <div className="hidden md:flex items-center gap-1">
-              {navItems.map((item) => (
-                <button
-                  key={item.path}
-                  type="button"
-                  onClick={() => navigate(item.path)}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${
-                    isActive(item.path)
-                      ? 'text-white bg-orange-500/20 border border-orange-500/30'
-                      : 'text-white/70 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
+              {navItems.map((item) => {
+                const active = isActive(item.path);
+                return (
+                  <button
+                    key={item.path}
+                    type="button"
+                    onClick={() => navigate(item.path)}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${
+                      active
+                        ? 'text-white bg-orange-500/20 border border-orange-500/30'
+                        : 'text-white/70 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -88,7 +106,9 @@ export const TopNav: React.FC = () => {
                             setShowLanguageMenu(false);
                           }}
                           className={`text-left px-3 py-2 text-sm hover:bg-white/10 rounded-lg transition-all flex items-center gap-2 ${
-                            language === lang.code ? 'text-orange-500 bg-orange-500/10' : 'text-white/70'
+                            language === lang.code
+                              ? 'text-orange-500 bg-orange-500/10'
+                              : 'text-white/70'
                           }`}
                         >
                           <span>{lang.flag}</span>
@@ -101,16 +121,18 @@ export const TopNav: React.FC = () => {
               </AnimatePresence>
             </div>
 
-            <button type="button" onClick={() => navigate('/settings')} className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg">
-              <Settings className="h-4 w-4" />
-            </button>
             <button
               type="button"
-              onClick={async () => {
-                await supabase.auth.signOut();
-                navigate('/login');
-              }}
-              className="p-2 text-white/70 hover:text-red-400 hover:bg-white/10 rounded-lg"
+              onClick={() => navigate('/settings')}
+              className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              className="p-2 text-white/70 hover:text-red-400 hover:bg-white/10 rounded-lg transition-all"
             >
               <LogOut className="h-4 w-4" />
             </button>
