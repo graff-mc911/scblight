@@ -22,7 +22,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { UniversalDocumentEditor } from '../components/documentEditor/UniversalDocumentEditor';
-import { PdfOcrPanel } from '../components/documentEditor/PdfOcrPanel';
+import { PdfOcrPanel } from '../components/PdfOcrPanel';
 import {
   createQuickTemplate,
   type QuickTemplateId,
