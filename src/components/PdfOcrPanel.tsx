@@ -54,7 +54,6 @@ export const PdfOcrPanel: React.FC<Props> = ({ onOpenInEditor }) => {
         for (let p = 1; p <= pageCount; p += 1) {
           setStatus(`PDF: сторінка ${p}/${pageCount}`);
           setProgress(Math.round(((p - 1) / pageCount) * 100));
-          // Рендер сторінки → JPEG → OCR
           const dataUrl = await renderPdfPageToDataUrl(file, p, 2, 0.9);
           const { data } = await worker.recognize(dataUrl);
           const pageText = data.text.trim();
