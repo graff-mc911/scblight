@@ -1,9 +1,9 @@
 import React, { useRef, useState } from 'react';
 import { createWorker } from 'tesseract.js';
 import { Loader2, ScanText, Upload } from 'lucide-react';
-import type { UniversalDocument } from '../../lib/documentEditor/types';
-import { createDocumentFromText } from '../../lib/documentEditor/templates';
-import { getPdfPageCount, renderPdfPageToDataUrl } from '../../lib/documentEditor/pdfTools';
+import type { UniversalDocument } from '../lib/documentEditor/types';
+import { createDocumentFromText } from '../lib/documentEditor/templates';
+import { getPdfPageCount, renderPdfPageToDataUrl } from '../lib/documentEditor/pdfTools';
 
 interface Props {
   onOpenInEditor: (doc: UniversalDocument) => void;
@@ -138,3 +138,5 @@ export const PdfOcrPanel: React.FC<Props> = ({ onOpenInEditor }) => {
     </div>
   );
 };
+
+export default PdfOcrPanel;
