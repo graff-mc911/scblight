@@ -5,7 +5,8 @@ import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
 import { ToastProvider, useToastContext } from './contexts/ToastContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { AppNav } from './components/AppNav';
+import { TopNav } from './components/TopNav';
+import { MobileTopNav } from './components/MobileTopNav';
 import { Loading } from './components/Loading';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { Home } from './pages/Home';
@@ -106,8 +107,9 @@ function RootPage() {
 
   return (
     <>
-      <AppNav />
-      <div className="pt-16">
+      <TopNav />
+      <MobileTopNav />
+      <div className="pt-16 lg:pt-0">
         <Home />
       </div>
     </>
@@ -133,11 +135,14 @@ function AppContent() {
 
       {!isAuthPage && (
         <ProtectedRoute>
-          <AppNav />
+          <>
+            <TopNav />
+            <MobileTopNav />
+          </>
         </ProtectedRoute>
       )}
 
-      <div className={isAuthPage ? '' : 'pt-16'}>
+      <div className={isAuthPage ? '' : 'pt-16 lg:pt-0'}>
         <Suspense fallback={<Loading />}>
           <Routes>
             <Route path="/onboarding" element={<Onboarding />} />
@@ -147,129 +152,24 @@ function AppContent() {
             <Route path="/terms" element={<TermsOfService />} />
             <Route path="/" element={<RootPage />} />
 
-            <Route
-              path="/invoices"
-              element={
-                <ProtectedRoute>
-                  <Invoices />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/invoices/new"
-              element={
-                <ProtectedRoute>
-                  <InvoiceForm />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/invoices/:id"
-              element={
-                <ProtectedRoute>
-                  <InvoiceForm />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/invoices/:id/view"
-              element={
-                <ProtectedRoute>
-                  <InvoiceView />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/invoices" element={<ProtectedRoute><Invoices /></ProtectedRoute>} />
+            <Route path="/invoices/new" element={<ProtectedRoute><InvoiceForm /></ProtectedRoute>} />
+            <Route path="/invoices/:id" element={<ProtectedRoute><InvoiceForm /></ProtectedRoute>} />
+            <Route path="/invoices/:id/view" element={<ProtectedRoute><InvoiceView /></ProtectedRoute>} />
 
-            <Route
-              path="/clients"
-              element={
-                <ProtectedRoute>
-                  <Clients />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/clients/new"
-              element={
-                <ProtectedRoute>
-                  <ClientForm />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/clients/:id/edit"
-              element={
-                <ProtectedRoute>
-                  <ClientForm />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/clients/:id/invoices"
-              element={
-                <ProtectedRoute>
-                  <ClientInvoices />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
+            <Route path="/clients/new" element={<ProtectedRoute><ClientForm /></ProtectedRoute>} />
+            <Route path="/clients/:id/edit" element={<ProtectedRoute><ClientForm /></ProtectedRoute>} />
+            <Route path="/clients/:id/invoices" element={<ProtectedRoute><ClientInvoices /></ProtectedRoute>} />
 
-            <Route
-              path="/receipts"
-              element={
-                <ProtectedRoute>
-                  <Receipts />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/receipt/:id"
-              element={
-                <ProtectedRoute>
-                  <ReceiptForm />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/pdf-creator"
-              element={
-                <ProtectedRoute>
-                  <PdfCreator />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/receipts" element={<ProtectedRoute><Receipts /></ProtectedRoute>} />
+            <Route path="/receipt/:id" element={<ProtectedRoute><ReceiptForm /></ProtectedRoute>} />
+            <Route path="/pdf-creator" element={<ProtectedRoute><PdfCreator /></ProtectedRoute>} />
 
-            <Route
-              path="/account"
-              element={
-                <ProtectedRoute>
-                  <Account />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/language"
-              element={
-                <ProtectedRoute>
-                  <Language />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <ProtectedRoute>
-                  <Settings />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/paywall"
-              element={
-                <ProtectedRoute>
-                  <Paywall />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/account" element={<ProtectedRoute><Account /></ProtectedRoute>} />
+            <Route path="/language" element={<ProtectedRoute><Language /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/paywall" element={<ProtectedRoute><Paywall /></ProtectedRoute>} />
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
