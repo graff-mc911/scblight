@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { Home, FileText, FilePlus, Receipt, Users } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 
-export const BottomNav: React.FC = () => {
+export const Sidebar: React.FC = () => {
   const { t } = useLanguage();
 
   const navItems = [
@@ -11,7 +11,7 @@ export const BottomNav: React.FC = () => {
     { to: '/invoices', icon: FileText, label: t('nav.invoices') || 'Рахунки' },
     { to: '/pdf-creator', icon: FilePlus, label: t('nav.createPdf') || 'Створити PDF' },
     { to: '/receipts', icon: Receipt, label: t('nav.receipts') || 'Витрати' },
-    { to: '/clients', icon: Users, label: t('nav.clients') || 'Клієнти' }
+    { to: '/clients', icon: Users, label: t('nav.clients') || 'Клієнти' },
   ];
 
   return (
@@ -23,9 +23,7 @@ export const BottomNav: React.FC = () => {
             to={item.to}
             className={({ isActive }) =>
               `flex flex-col items-center py-1 px-2 rounded-lg text-xs font-medium transition-colors ${
-                isActive
-                  ? 'text-amber-400'
-                  : 'text-slate-400 hover:text-slate-200'
+                isActive ? 'text-amber-400' : 'text-slate-400 hover:text-slate-200'
               }`
             }
           >
