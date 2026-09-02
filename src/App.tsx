@@ -5,8 +5,7 @@ import { LanguageProvider, useLanguage } from './contexts/LanguageContext';
 import { ToastProvider, useToastContext } from './contexts/ToastContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { TopNav } from './components/TopNav';
-import { MobileTopNav } from './components/MobileTopNav';
+import { AppNav } from './components/AppNav';
 import { Loading } from './components/Loading';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { Home } from './pages/Home';
@@ -107,8 +106,7 @@ function RootPage() {
 
   return (
     <>
-      <TopNav />
-      <MobileTopNav />
+      <AppNav />
       <div className="pt-16">
         <Home />
       </div>
@@ -135,10 +133,7 @@ function AppContent() {
 
       {!isAuthPage && (
         <ProtectedRoute>
-          <>
-            <TopNav />
-            <MobileTopNav />
-          </>
+          <AppNav />
         </ProtectedRoute>
       )}
 
