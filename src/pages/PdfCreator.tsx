@@ -26,13 +26,14 @@ import { useToastContext } from '../contexts/ToastContext';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { generateCustomPDF, type DocumentType } from '../lib/receiptPdfGenerator';
+import { UniversalDocumentEditor } from '../components/documentEditor/UniversalDocumentEditor';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
   import.meta.url,
 ).toString();
 
-type PageMode = 'create' | 'upload';
+type PageMode = 'create' | 'upload' | 'editor';
 type FileKind = 'image' | 'pdf' | 'other';
 
 interface UploadedFile {
@@ -383,12 +384,21 @@ export default function PdfCreator() {
     other: <FileText size={18} className="text-white/50" />,
   };
 
+  const isWideLayout = pageMode === 'editor';
+
   return (
-    <div className="min-h-screen pt-20 pb-28 px-4 md:px-6 max-w-3xl mx-auto">
+    <div
+      className={`min-h-screen pt-20 pb-28 px-4 md:px-6 mx-auto ${
+        isWideLayout ? 'max-w-7xl' : 'max-w-3xl'
+      }`}
+    >
       <div className="flex items-center gap-3 mb-6">
         <button
           type="button"
-          onClick={() => (editorOpen ? setEditorOpen(false) : navigate('/'))}
+          onClick={() => {
+            if (editorOpen) setEditorOpen(false);
+            else navigate('/');
+          }}
           className="p-2 rounded-xl bg-white/8 border border-white/10 text-white/60 hover:bg-white/15 hover:text-white transition-all active:scale-95"
         >
           <ArrowLeft size={18} />
@@ -398,7 +408,9 @@ export default function PdfCreator() {
             {t('createPdfBtn') || 'Створити PDF файл'}
           </h2>
           <p className="text-white/50 text-sm mt-0.5">
-            Створіть документ з нуля або конвертуйте файли в PDF
+            {pageMode === 'editor'
+              ? 'Універсальний редактор: документ, презентація або книга в одному файлі'
+              : 'Створіть документ з нуля або конвертуйте файли в PDF'}
           </p>
         </div>
       </div>
@@ -419,6 +431,18 @@ export default function PdfCreator() {
           </button>
           <button
             type="button"
+            onClick={() => setPageMode('editor')}
+            className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-medium transition-all ${
+              pageMode === 'editor'
+                ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Layout size={16} className="inline mr-2 -mt-0.5" />
+            Редактор
+          </button>
+          <button
+            type="button"
             onClick={() => setPageMode('upload')}
             className={`flex-1 py-2.5 px-4 rounded-xl text-sm font-medium transition-all ${
               pageMode === 'upload'
@@ -427,10 +451,12 @@ export default function PdfCreator() {
             }`}
           >
             <Upload size={16} className="inline mr-2 -mt-0.5" />
-            Конвертувати файли
+            Конвертувати
           </button>
         </div>
       )}
+
+      {pageMode === 'editor' && !editorOpen && <UniversalDocumentEditor />}
 
       {pageMode === 'create' && !editorOpen && (
         <div className="space-y-4">
