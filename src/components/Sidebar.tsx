@@ -7,11 +7,11 @@ export const Sidebar: React.FC = () => {
   const { t } = useLanguage();
 
   const navItems = [
-    { to: '/', icon: Home, label: t('nav.home') || 'Головна' },
-    { to: '/invoices', icon: FileText, label: t('nav.invoices') || 'Рахунки' },
-    { to: '/pdf-creator', icon: FilePlus, label: t('nav.createPdf') || 'Створити PDF' },
-    { to: '/receipts', icon: Receipt, label: t('nav.receipts') || 'Витрати' },
-    { to: '/clients', icon: Users, label: t('nav.clients') || 'Клієнти' },
+    { to: '/', icon: Home, label: t('home') || 'Головна' },
+    { to: '/invoices', icon: FileText, label: t('invoices') || 'Рахунки' },
+    { to: '/pdf-creator', icon: FilePlus, label: t('createPdfBtn') || 'Створити PDF' },
+    { to: '/receipts', icon: Receipt, label: t('receipts') || 'Витрати' },
+    { to: '/clients', icon: Users, label: t('clients') || 'Клієнти' },
   ];
 
   return (
