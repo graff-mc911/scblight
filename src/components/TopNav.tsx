@@ -47,7 +47,7 @@ export const TopNav: React.FC = () => {
   return (
     <header
       ref={navRef}
-      className="hidden lg:block fixed top-0 left-0 right-0 z-50 bg-white/10 backdrop-blur-xl border-b border-white/10"
+      className="fixed top-0 left-0 right-0 z-50 bg-white/10 backdrop-blur-xl border-b border-white/10"
     >
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-8 min-w-0">
@@ -62,8 +62,8 @@ export const TopNav: React.FC = () => {
                 className={({ isActive }) =>
                   `px-4 py-2 text-sm font-medium tracking-tight rounded-xl whitespace-nowrap transition-all ${
                     isActive
-                      ? 'text-white bg-white/10 shadow-[inset_0_-2px_0_0_rgba(249,115,22,0.8)]'
-                      : 'text-white/60 hover:text-white hover:bg-white/5'
+                      ? 'text-white bg-[#4a4038]/80'
+                      : 'text-white/70 hover:text-white hover:bg-white/5'
                   }`
                 }
               >
