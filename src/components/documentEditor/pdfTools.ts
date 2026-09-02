@@ -1,6 +1,3 @@
-/**
- * Спільні утиліти для PDF: рендер сторінок, стиснення (через JPEG quality + scale).
- */
 import * as pdfjsLib from 'pdfjs-dist';
 import jsPDF from 'jspdf';
 
@@ -42,7 +39,6 @@ export async function getPdfPageCount(file: File): Promise<number> {
   return pdf.numPages;
 }
 
-/** Стискає один або кілька PDF/зображень у менший PDF через зниження якості JPEG. */
 export async function compressFilesToPdf(
   files: File[],
   quality: CompressQuality,
