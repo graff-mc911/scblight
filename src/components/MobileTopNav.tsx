@@ -69,7 +69,7 @@ export const MobileTopNav: React.FC = () => {
     currencies.find((item) => item.code === defaultCurrency) || currencies[0];
 
   return (
-    <nav className="lg:hidden fixed top-0 left-0 right-0 bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 z-50 shadow-lg">
+    <nav className="fixed top-0 left-0 right-0 bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 z-50 shadow-lg">
       <div className="flex items-center justify-between px-4 h-16">
         <Logo variant="glass" size="sm" />
 
