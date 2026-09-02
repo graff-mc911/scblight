@@ -109,7 +109,7 @@ function RootPage() {
     <>
       <TopNav />
       <MobileTopNav />
-      <div className="pt-16 lg:pt-0">
+      <div className="pt-16">
         <Home />
       </div>
     </>
@@ -142,7 +142,7 @@ function AppContent() {
         </ProtectedRoute>
       )}
 
-      <div className={isAuthPage ? '' : 'pt-16 lg:pt-0'}>
+      <div className={isAuthPage ? '' : 'pt-16'}>
         <Suspense fallback={<Loading />}>
           <Routes>
             <Route path="/onboarding" element={<Onboarding />} />
