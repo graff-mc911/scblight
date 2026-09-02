@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { LogOut, Globe, Settings } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { supabase } from '../lib/supabase';
@@ -7,34 +7,33 @@ import { languages } from '../lib/languages';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Logo } from './Logo';
 
-function languageShortCode(code: string): string {
-  if (code === 'uk') return 'UA';
-  return code.toUpperCase();
-}
-
 export const TopNav: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { t, language, setLanguage } = useLanguage();
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
-  const navRef = useRef<HTMLElement>(null);
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    return saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  });
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (!navRef.current?.contains(event.target as Node)) {
-        setShowLanguageMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDark]);
 
   const navItems = React.useMemo(
     () => [
-      { to: '/', label: t('home') || 'Головна', end: true },
-      { to: '/invoices', label: t('invoices') || 'Рахунки' },
-      { to: '/clients', label: t('clients') || 'Контакти' },
-      { to: '/receipts', label: t('receipts') || 'Чеки' },
-      { to: '/account', label: t('account') || 'Акаунт' },
+      { path: '/', label: t('home') },
+      { path: '/invoices', label: t('invoices') },
+      { path: '/clients', label: t('clients') },
+      { path: '/receipts', label: t('receipts') },
+      { path: '/account', label: t('account') },
     ],
     [t],
   );
@@ -44,98 +43,102 @@ export const TopNav: React.FC = () => {
     navigate('/login');
   };
 
+  const isActive = (path: string) => {
+    if (path === '/') return location.pathname === '/';
+    return location.pathname.startsWith(path);
+  };
+
+  const currentLanguage = languages.find((lang) => lang.code === language) || languages[0];
+
   return (
-    <header
-      ref={navRef}
-      className="fixed top-0 left-0 right-0 z-50 bg-white/10 backdrop-blur-xl border-b border-white/10"
-    >
-      <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-8 min-w-0">
-          <Logo variant="glass" size="sm" />
+    <nav className="fixed top-0 left-0 right-0 z-50 bg-white/10 backdrop-blur-xl border-b border-white/10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16">
+          <div className="flex items-center gap-6">
+            <Logo variant="glass" size="md" />
 
-          <nav className="flex items-center gap-2">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                className={({ isActive }) =>
-                  `px-4 py-2 text-sm font-medium tracking-tight rounded-xl whitespace-nowrap transition-all ${
-                    isActive
-                      ? 'text-white bg-[#4a4038]/80'
-                      : 'text-white/70 hover:text-white hover:bg-white/5'
-                  }`
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
-        </div>
-
-        <div className="flex items-center gap-4 shrink-0">
-          <div className="relative">
-            <button
-              type="button"
-              aria-label={t('language') || 'Мова'}
-              onClick={() => setShowLanguageMenu((open) => !open)}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all"
-            >
-              <Globe className="h-4 w-4" />
-              <span>{languageShortCode(language)}</span>
-            </button>
-            <AnimatePresence>
-              {showLanguageMenu && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  className="absolute right-0 top-full mt-2 w-80 bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-lg overflow-hidden p-2 z-50"
-                >
-                  <div className="grid grid-cols-2 gap-1 max-h-80 overflow-y-auto">
-                    {languages.map((lang) => (
-                      <button
-                        key={lang.code}
-                        type="button"
-                        onClick={() => {
-                          setLanguage(lang.code);
-                          setShowLanguageMenu(false);
-                        }}
-                        className={`text-left px-3 py-2 text-sm rounded-lg transition-all flex items-center gap-2 ${
-                          language === lang.code
-                            ? 'text-orange-400 bg-orange-500/10'
-                            : 'text-white/70 hover:bg-white/10'
-                        }`}
-                      >
-                        <span>{lang.flag}</span>
-                        <span className="truncate">{lang.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <div className="hidden md:flex items-center gap-1">
+              {navItems.map((item) => {
+                const active = isActive(item.path);
+                return (
+                  <button
+                    key={item.path}
+                    type="button"
+                    onClick={() => navigate(item.path)}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all ${
+                      active
+                        ? 'text-white bg-orange-500/20 border border-orange-500/30'
+                        : 'text-white/70 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <button
-            type="button"
-            aria-label={t('settings') || 'Налаштування'}
-            onClick={() => navigate('/settings')}
-            className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all"
-          >
-            <Settings className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+              >
+                <Globe className="h-4 w-4" />
+                <span className="hidden sm:inline">{currentLanguage.flag}</span>
+              </button>
+              <AnimatePresence>
+                {showLanguageMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="absolute right-0 top-full mt-2 w-80 bg-white/10 backdrop-blur-xl border border-white/10 rounded-xl shadow-lg overflow-hidden p-2 z-50"
+                  >
+                    <div className="grid grid-cols-2 gap-1">
+                      {languages.map((lang) => (
+                        <button
+                          key={lang.code}
+                          type="button"
+                          onClick={() => {
+                            setLanguage(lang.code);
+                            setShowLanguageMenu(false);
+                          }}
+                          className={`text-left px-3 py-2 text-sm hover:bg-white/10 rounded-lg transition-all flex items-center gap-2 ${
+                            language === lang.code
+                              ? 'text-orange-500 bg-orange-500/10'
+                              : 'text-white/70'
+                          }`}
+                        >
+                          <span>{lang.flag}</span>
+                          <span className="truncate">{lang.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
-          <button
-            type="button"
-            aria-label={t('logout') || 'Вийти'}
-            onClick={() => void handleLogout()}
-            className="p-2 text-white/70 hover:text-red-400 hover:bg-white/10 rounded-xl transition-all"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
+            <button
+              type="button"
+              onClick={() => navigate('/settings')}
+              className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              className="p-2 text-white/70 hover:text-red-400 hover:bg-white/10 rounded-lg transition-all"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
-    </header>
+    </nav>
   );
 };
