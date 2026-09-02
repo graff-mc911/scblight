@@ -24,6 +24,7 @@ import {
   FileJson,
   FileText,
   FolderOpen,
+  GripVertical,
   Layout,
   Loader2,
   MonitorPlay,
@@ -68,9 +69,13 @@ const extensions = [
 
 interface Props {
   onClose?: () => void;
+  /** Документ для відкриття ззовні (шаблон, OCR тощо) */
+  initialDocument?: UniversalDocument | null;
+  /** Зміна ключа перемонтовує редактор */
+  documentKey?: string;
 }
 
-export const UniversalDocumentEditor: React.FC<Props> = ({ onClose }) => {
+export const UniversalDocumentEditor: React.FC<Props> = ({ onClose, initialDocument, documentKey }) => {
   const [doc, setDoc] = useState<UniversalDocument | null>(null);
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
@@ -81,6 +86,8 @@ export const UniversalDocumentEditor: React.FC<Props> = ({ onClose }) => {
   const [presenting, setPresenting] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [dragBlockId, setDragBlockId] = useState<string | null>(null);
+  const [dragOverBlockId, setDragOverBlockId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeBlocks = (): ContentBlock[] => {
@@ -172,6 +179,11 @@ export const UniversalDocumentEditor: React.FC<Props> = ({ onClose }) => {
     }
     setShowLibrary(false);
   };
+
+  useEffect(() => {
+    if (initialDocument) openDoc(initialDocument);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentKey]);
 
   const addBlock = (type: ContentBlock['type']) => {
     if (!doc) return;
@@ -271,6 +283,33 @@ export const UniversalDocumentEditor: React.FC<Props> = ({ onClose }) => {
         const swap = idx + dir;
         if (swap < 0 || swap >= next.length) return blocks;
         [next[idx], next[swap]] = [next[swap], next[idx]];
+        return next;
+      };
+      if (d.mode === 'document' && d.sections) {
+        return { ...d, sections: d.sections.map((s) => (s.id === activeSectionId ? { ...s, blocks: reorder(s.blocks) } : s)) };
+      }
+      if (d.mode === 'presentation' && d.slides) {
+        return { ...d, slides: d.slides.map((s) => (s.id === activeSlideId ? { ...s, blocks: reorder(s.blocks) } : s)) };
+      }
+      if (d.chapters) {
+        return { ...d, chapters: d.chapters.map((c) => (c.id === activeChapterId ? { ...c, blocks: reorder(c.blocks) } : c)) };
+      }
+      return d;
+    });
+  };
+
+  /** Переміщення блоку drag-and-drop: вставити before targetId */
+  const moveBlockBefore = (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    updateDoc((d) => {
+      const reorder = (blocks: ContentBlock[]) => {
+        const fromIdx = blocks.findIndex((b) => b.id === fromId);
+        const toIdx = blocks.findIndex((b) => b.id === toId);
+        if (fromIdx < 0 || toIdx < 0) return blocks;
+        const next = [...blocks];
+        const [item] = next.splice(fromIdx, 1);
+        const insertAt = next.findIndex((b) => b.id === toId);
+        next.splice(insertAt < 0 ? next.length : insertAt, 0, item);
         return next;
       };
       if (d.mode === 'document' && d.sections) {
@@ -392,6 +431,7 @@ export const UniversalDocumentEditor: React.FC<Props> = ({ onClose }) => {
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] min-h-[500px]">
+      {/* Top bar */}
       <div className="flex flex-wrap items-center gap-2 mb-3 pb-3 border-b border-white/10">
         <input
           type="text"
@@ -400,11 +440,11 @@ export const UniversalDocumentEditor: React.FC<Props> = ({ onClose }) => {
           className="bg-transparent text-white font-semibold text-lg border-none focus:outline-none min-w-[120px]"
         />
         <div className="flex flex-wrap gap-1 ml-auto">
-          <button type="button" onClick={() => void saveDocumentToApp(doc)} className="toolbar-btn">
-            <Save size={14} /> Зберегти
+          <button type="button" onClick={() => void saveDocumentToApp(doc)} className="toolbar-btn" title="IndexedDB у браузері">
+            <Save size={14} /> В додатку
           </button>
-          <button type="button" onClick={() => exportDocumentJson(doc)} className="toolbar-btn">
-            <Download size={14} /> JSON
+          <button type="button" onClick={() => exportDocumentJson(doc)} className="toolbar-btn" title="Файл .scbdoc.json">
+            <Download size={14} /> На пристрій
           </button>
           <button
             type="button"
@@ -467,6 +507,7 @@ export const UniversalDocumentEditor: React.FC<Props> = ({ onClose }) => {
       {shareUrl && <p className="text-xs text-green-400 mb-2 truncate">Посилання скопійовано: {shareUrl}</p>}
 
       <div className="flex flex-1 gap-4 min-h-0 overflow-hidden">
+        {/* Left panel */}
         <aside className="w-48 lg:w-56 shrink-0 overflow-y-auto bg-white/5 border border-white/10 rounded-xl p-2 hidden sm:block">
           <p className="text-white/40 text-xs uppercase tracking-wider px-2 mb-2">
             {doc.mode === 'document' ? 'Структура' : doc.mode === 'presentation' ? 'Слайди' : 'Зміст'}
@@ -549,6 +590,7 @@ export const UniversalDocumentEditor: React.FC<Props> = ({ onClose }) => {
           </button>
         </aside>
 
+        {/* Editor */}
         <main className="flex-1 overflow-y-auto min-w-0">
           {activeTextBlock && editor && (
             <EditorToolbar
@@ -564,12 +606,49 @@ export const UniversalDocumentEditor: React.FC<Props> = ({ onClose }) => {
             {blocks.map((block, idx) => (
               <div
                 key={block.id}
+                draggable
+                onDragStart={(e) => {
+                  setDragBlockId(block.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', block.id);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (dragOverBlockId !== block.id) setDragOverBlockId(block.id);
+                }}
+                onDragLeave={() => {
+                  if (dragOverBlockId === block.id) setDragOverBlockId(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const fromId = e.dataTransfer.getData('text/plain') || dragBlockId;
+                  if (fromId) moveBlockBefore(fromId, block.id);
+                  setDragBlockId(null);
+                  setDragOverBlockId(null);
+                }}
+                onDragEnd={() => {
+                  setDragBlockId(null);
+                  setDragOverBlockId(null);
+                }}
                 className={`rounded-xl border transition-all ${
                   activeBlockId === block.id ? 'border-orange-500/50 bg-white/8' : 'border-white/10 bg-white/5'
+                } ${dragBlockId === block.id ? 'opacity-50' : ''} ${
+                  dragOverBlockId === block.id && dragBlockId !== block.id
+                    ? 'border-t-4 border-t-orange-400'
+                    : ''
                 }`}
               >
                 <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/5">
-                  <span className="text-white/40 text-xs uppercase">{block.type}</span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="cursor-grab active:cursor-grabbing text-white/30 hover:text-white/70 p-0.5"
+                      title="Перетягніть блок"
+                    >
+                      <GripVertical size={16} />
+                    </span>
+                    <span className="text-white/40 text-xs uppercase">{block.type}</span>
+                  </div>
                   <div className="flex gap-1">
                     <button type="button" onClick={() => moveBlock(block.id, -1)} disabled={idx === 0} className="p-1 text-white/40 hover:text-white disabled:opacity-30">
                       <ChevronUp size={14} />
