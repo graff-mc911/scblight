@@ -1,9 +1,11 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { translations } from './languages';
+import { calculateLineTotal, parseMaterialAmount } from './invoiceTotals';
 
 interface InvoiceItem {
   description: string;
+  material?: string | number;
   quantity: number;
   unit: string;
   price: number;
@@ -180,7 +182,26 @@ export const generateInvoicePDF = async (
   doc.text(detailLines, leftMargin, currentY);
   currentY += (detailLines.length * 5) + 10;
 
-  const tableData = invoice.items.map((item, index) => [
+  const normalizedItems = invoice.items.map((item) => {
+    const total =
+      item.total != null && Number.isFinite(Number(item.total))
+        ? Number(item.total)
+        : calculateLineTotal(item.quantity, item.price, item.material);
+
+    const materialAmount = parseMaterialAmount(item.material);
+    const materialLabel =
+      materialAmount !== 0
+        ? `\n${tStr('material')}: ${materialAmount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : '';
+
+    return {
+      ...item,
+      total,
+      description: `${item.description || ''}${materialLabel}`,
+    };
+  });
+
+  const tableData = normalizedItems.map((item, index) => [
     (index + 1).toString(),
     item.description,
     item.quantity.toLocaleString('de-DE'),
@@ -220,7 +241,7 @@ export const generateInvoicePDF = async (
 
   currentY = (doc as any).lastAutoTable.finalY + 5;
 
-  const netTotal = invoice.items.reduce((sum, item) => sum + item.total, 0);
+  const netTotal = normalizedItems.reduce((sum, item) => sum + item.total, 0);
   const vatAmount = invoice.vat_enabled ? (netTotal * invoice.vat_rate) / 100 : 0;
   const grossTotal = netTotal + vatAmount;
 

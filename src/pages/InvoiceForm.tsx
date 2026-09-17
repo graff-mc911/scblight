@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Eye, Save } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/ui/Button';
@@ -12,6 +12,7 @@ import { currencies, units, statuses } from '../lib/languages';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { safeEval } from '../lib/calculator';
+import { calculateLineTotal } from '../lib/invoiceTotals';
 
 interface InvoiceItem {
   quantity: number;
@@ -25,6 +26,7 @@ interface InvoiceItem {
 
 export const InvoiceForm: React.FC = () => {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t, language } = useLanguage();
@@ -33,6 +35,8 @@ export const InvoiceForm: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [showClientSuggestions, setShowClientSuggestions] = useState(false);
+  const clientFieldRef = useRef<HTMLDivElement>(null);
 
   // --------------------------------------------------
   // Клієнти та профіль компанії
@@ -45,6 +49,7 @@ export const InvoiceForm: React.FC = () => {
   // --------------------------------------------------
   const [formData, setFormData] = useState({
     client_id: '',
+    client_name: '',
     document_number: '',
     date: new Date().toISOString().split('T')[0],
     work_period_start: new Date().toISOString().split('T')[0],
@@ -78,18 +83,41 @@ export const InvoiceForm: React.FC = () => {
     void init();
   }, [id]);
 
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      if (!clientFieldRef.current?.contains(event.target as Node)) {
+        setShowClientSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, []);
+
   // --------------------------------------------------
   // Початкове завантаження
   // --------------------------------------------------
   const init = async () => {
     try {
       setLoading(true);
-      await Promise.all([fetchClients(), fetchCompanyProfile()]);
+      const loadedClients = await fetchClients();
+      await fetchCompanyProfile();
 
       if (id) {
-        await fetchInvoice();
+        await fetchInvoice(loadedClients);
       } else {
         await generateDocumentNumber();
+
+        const preselectedClientId = searchParams.get('client_id');
+        if (preselectedClientId && loadedClients?.length) {
+          const match = loadedClients.find((c) => c.id === preselectedClientId);
+          if (match) {
+            setFormData((prev) => ({
+              ...prev,
+              client_id: match.id,
+              client_name: match.name || '',
+            }));
+          }
+        }
       }
     } finally {
       setLoading(false);
@@ -104,7 +132,7 @@ export const InvoiceForm: React.FC = () => {
       data: { user },
     } = await supabase.auth.getUser();
 
-    if (!user) return;
+    if (!user) return [];
 
     const { data, error } = await supabase
       .from('clients')
@@ -114,7 +142,10 @@ export const InvoiceForm: React.FC = () => {
 
     if (!error && data) {
       setClients(data);
+      return data;
     }
+
+    return [];
   };
 
   // --------------------------------------------------
@@ -177,7 +208,7 @@ export const InvoiceForm: React.FC = () => {
   // --------------------------------------------------
   // Завантаження існуючого інвойсу
   // --------------------------------------------------
-  const fetchInvoice = async () => {
+  const fetchInvoice = async (loadedClients: any[] = []) => {
     const { data: invoiceData, error } = await supabase
       .from('invoices')
       .select('*')
@@ -189,8 +220,12 @@ export const InvoiceForm: React.FC = () => {
       return;
     }
 
+    const linkedClient =
+      loadedClients.find((c) => c.id === invoiceData.client_id) || null;
+
     setFormData({
       client_id: invoiceData.client_id || '',
+      client_name: linkedClient?.name || invoiceData.client_name || '',
       document_number: invoiceData.document_no || '',
       date: invoiceData.date || new Date().toISOString().split('T')[0],
       work_period_start:
@@ -219,17 +254,50 @@ export const InvoiceForm: React.FC = () => {
 
     if (itemsData && itemsData.length > 0) {
       setItems(
-        itemsData.map((item) => ({
-          quantity: Number(item.quantity),
-          quantityDisplay: String(item.quantity),
-          unit: item.unit || 'm²',
-          price: Number(item.price),
-          material: item.material || '',
-          description: item.description || '',
-          total: Number(item.total),
-        }))
+        itemsData.map((item) => {
+          const quantity = Number(item.quantity) || 0;
+          const price = Number(item.price) || 0;
+          const material = item.material || '';
+          return {
+            quantity,
+            quantityDisplay: String(item.quantity ?? ''),
+            unit: item.unit || 'm²',
+            price,
+            material,
+            description: item.description || '',
+            total: calculateLineTotal(quantity, price, material),
+          };
+        })
       );
     }
+  };
+
+  const filteredClients = useMemo(() => {
+    const query = formData.client_name.trim().toLowerCase();
+    if (!query) return clients;
+    return clients.filter((c) => String(c.name || '').toLowerCase().includes(query));
+  }, [clients, formData.client_name]);
+
+  const handleClientInputChange = (value: string) => {
+    const exactMatch = clients.find(
+      (c) => String(c.name || '').toLowerCase() === value.trim().toLowerCase()
+    );
+
+    setFormData((prev) => ({
+      ...prev,
+      client_name: value,
+      client_id: exactMatch?.id || '',
+    }));
+    setShowClientSuggestions(true);
+  };
+
+  const handleSelectClient = (client: any) => {
+    setFormData((prev) => ({
+      ...prev,
+      client_id: client.id,
+      client_name: client.name || '',
+    }));
+    setShowClientSuggestions(false);
   };
 
   // --------------------------------------------------
@@ -240,10 +308,11 @@ export const InvoiceForm: React.FC = () => {
       const next = [...prev];
       const updated = { ...next[index], [field]: value };
 
-      if (field === 'quantity' || field === 'price') {
+      if (field === 'quantity' || field === 'price' || field === 'material') {
         const qty = field === 'quantity' ? Number(value) : Number(updated.quantity);
         const price = field === 'price' ? Number(value) : Number(updated.price);
-        updated.total = qty * price;
+        const material = field === 'material' ? value : updated.material;
+        updated.total = calculateLineTotal(qty, price, material);
 
         if (field === 'quantity') {
           updated.quantityDisplay = String(value);
@@ -338,6 +407,8 @@ export const InvoiceForm: React.FC = () => {
       }
 
       const selectedClient = clients.find((c) => c.id === formData.client_id);
+      const clientName =
+        formData.client_name.trim() || selectedClient?.name || '';
 
       const totalProjectArea = formData.project_area ? parseFloat(formData.project_area) : 0;
       const totalAreaNet = items.reduce((sum, item) => sum + item.quantity, 0);
@@ -350,7 +421,7 @@ export const InvoiceForm: React.FC = () => {
       const invoicePayload = {
         user_id: user.id,
         client_id: formData.client_id || null,
-        client_name: selectedClient?.name || '',
+        client_name: clientName,
         client_number: selectedClient?.client_number || null,
         document_no: formData.document_number,
         date: formData.date,
@@ -424,7 +495,7 @@ export const InvoiceForm: React.FC = () => {
           price: item.price,
           material: item.material,
           description: item.description || '',
-          total: item.total,
+          total: calculateLineTotal(item.quantity, item.price, item.material),
           sort_order: index,
         }));
 
@@ -495,15 +566,37 @@ export const InvoiceForm: React.FC = () => {
         -------------------------------------------------- */}
         <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-lg">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Select
-              label={t('client')}
-              options={[
-                { value: '', label: t('chooseClient') },
-                ...clients.map((c) => ({ value: c.id, label: c.name })),
-              ]}
-              value={formData.client_id}
-              onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
-            />
+            <div ref={clientFieldRef} className="relative">
+              <Input
+                label={t('client')}
+                value={formData.client_name}
+                onChange={(e) => handleClientInputChange(e.target.value)}
+                onFocus={() => setShowClientSuggestions(true)}
+                placeholder={t('clientOrContactPlaceholder') || t('chooseClient')}
+                autoComplete="off"
+              />
+              {showClientSuggestions && filteredClients.length > 0 && (
+                <div className="absolute z-30 mt-1 w-full max-h-56 overflow-auto rounded-xl border border-white/10 bg-slate-900/95 backdrop-blur-xl shadow-xl">
+                  {filteredClients.map((client) => (
+                    <button
+                      key={client.id}
+                      type="button"
+                      onClick={() => handleSelectClient(client)}
+                      className="w-full px-3 py-2.5 text-left text-sm text-white hover:bg-white/10 transition-colors"
+                    >
+                      <span className="font-medium">{client.name}</span>
+                      {client.client_number ? (
+                        <span className="ml-2 text-white/40">{client.client_number}</span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="mt-1.5 text-xs text-white/40">
+                {t('clientOrContactHint') ||
+                  'Type a name or pick from Contacts'}
+              </p>
+            </div>
 
             <Input
               label={t('documentNumber')}
@@ -628,8 +721,11 @@ export const InvoiceForm: React.FC = () => {
                       {t('material')}
                     </label>
                     <Input
-                      value={item.material}
+                      type="number"
+                      step="0.01"
+                      value={item.material === '' || item.material == null ? '' : item.material}
                       onChange={(e) => handleItemChange(index, 'material', e.target.value)}
+                      placeholder="0.00"
                     />
                   </div>
 
@@ -792,11 +888,15 @@ export const InvoiceForm: React.FC = () => {
             date: formData.date,
             work_period_start: formData.work_period_start,
             work_period_end: formData.work_period_end,
+            client_name: formData.client_name,
             client_number: clients.find((c) => c.id === formData.client_id)?.client_number || '',
             currency: formData.currency,
             items,
             vat_enabled: formData.vat_enabled,
             vat_rate: formData.vat_rate,
+            net_total: netTotal,
+            gross_total: grossTotal,
+            vat_amount: vatAmount,
             object_address: formData.object_address,
             notes: formData.notes,
             invoice_language: language,
@@ -814,7 +914,12 @@ export const InvoiceForm: React.FC = () => {
             executor_bic: companyProfile?.bic || '',
             executor_tax_number: companyProfile?.tax_number || '',
           }}
-          client={clients.find((c) => c.id === formData.client_id)}
+          client={
+            clients.find((c) => c.id === formData.client_id) ||
+            (formData.client_name
+              ? { name: formData.client_name }
+              : undefined)
+          }
           companyProfile={companyProfile}
           onClose={() => setIsPreviewOpen(false)}
         />
