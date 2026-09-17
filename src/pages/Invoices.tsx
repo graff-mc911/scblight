@@ -14,6 +14,10 @@ import {
   ExternalLink,
   Pencil,
   Sparkles,
+  Share2,
+  Save,
+  X,
+  Check,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -27,6 +31,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { exportInvoicesToCSV } from '../lib/exportData';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { offlineStore } from '../lib/offlineStore';
+import { downloadPdfFiles, shareOrDownloadPdfs } from '../lib/shareInvoice';
+import { resolveInvoicePdfFiles } from '../lib/resolveInvoicePdf';
 
 /**
  * Назва bucket у Supabase Storage для завантажених зовнішніх PDF.
@@ -817,10 +823,12 @@ export const Invoices: React.FC = () => {
 
   // Стани UI
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [invoiceToDelete, setInvoiceToDelete] = useState<string | null>(null);
+  const [invoicesToDelete, setInvoicesToDelete] = useState<string[]>([]);
   const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [editUploadedInvoice, setEditUploadedInvoice] = useState<Record<string, any> | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectionBusy, setSelectionBusy] = useState(false);
 
   /**
    * Отримуємо поточну сесію користувача.
@@ -907,46 +915,189 @@ export const Invoices: React.FC = () => {
   }, [invoices, showSuccess, showError, t]);
 
   /**
-   * Підтвердження видалення рахунку.
+   * Фільтрований список рахунків по активній вкладці.
+   */
+  const filteredInvoices =
+    activeFilter === 'all' ? invoices : invoices.filter((inv) => inv.status === activeFilter);
+
+  const selectionCount = selectedIds.size;
+  const allFilteredSelected =
+    filteredInvoices.length > 0 && filteredInvoices.every((inv) => selectedIds.has(inv.id));
+
+  const toggleInvoiceSelection = useCallback((invoiceId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(invoiceId)) {
+        next.delete(invoiceId);
+      } else {
+        next.add(invoiceId);
+      }
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const toggleSelectAllFiltered = useCallback(() => {
+    setSelectedIds((prev) => {
+      const allSelected =
+        filteredInvoices.length > 0 && filteredInvoices.every((inv) => prev.has(inv.id));
+
+      if (allSelected) {
+        return new Set();
+      }
+
+      return new Set(filteredInvoices.map((inv) => inv.id));
+    });
+  }, [filteredInvoices]);
+
+  const loadCompanyProfile = useCallback(async () => {
+    const userId = session?.user?.id;
+    if (!userId) return null;
+
+    const { data } = await supabase
+      .from('company_profile')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    return data;
+  }, [session?.user?.id]);
+
+  const prepareSelectedPdfFiles = useCallback(async () => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      throw new Error(t('shareFailed') || 'Could not share invoice');
+    }
+
+    const targets = invoices.filter((inv) => selectedIds.has(inv.id));
+    if (targets.length === 0) {
+      throw new Error(t('noInvoicesSelected') || 'No invoices selected');
+    }
+
+    const companyProfile = await loadCompanyProfile();
+    return resolveInvoicePdfFiles(targets, userId, companyProfile);
+  }, [session?.user?.id, invoices, selectedIds, loadCompanyProfile, t]);
+
+  /**
+   * Поділитися обраними рахунками (Web Share API / завантаження).
+   */
+  const handleShareSelected = useCallback(async () => {
+    if (selectionCount === 0) {
+      showError(t('selectInvoicesToShare') || 'Select invoices to share');
+      return;
+    }
+
+    setSelectionBusy(true);
+    try {
+      const files = await prepareSelectedPdfFiles();
+      const result = await shareOrDownloadPdfs({
+        files,
+        title:
+          files.length === 1
+            ? `${t('invoiceTitle') || 'Invoice'} ${files[0].fileName}`
+            : t('invoices') || 'Invoices',
+        text:
+          files.length === 1
+            ? `${t('invoiceTitle') || 'Invoice'} ${files[0].fileName}`
+            : `${t('invoices') || 'Invoices'}: ${files.map((f) => f.fileName).join(', ')}`,
+        openMailtoFallback: true,
+      });
+
+      if (result === 'downloaded') {
+        showSuccess(t('invoicesSaved') || t('pdfDownloaded') || 'PDF saved to device');
+      } else {
+        showSuccess(
+          files.length === 1
+            ? t('invoiceShared') || 'Invoice shared'
+            : t('invoicesShared') || 'Invoices shared'
+        );
+      }
+    } catch (error: any) {
+      if (error?.name === 'AbortError') return;
+      console.error('SHARE SELECTED ERROR:', error);
+      showError(error?.message || t('shareFailed') || 'Could not share invoice');
+    } finally {
+      setSelectionBusy(false);
+    }
+  }, [selectionCount, prepareSelectedPdfFiles, showError, showSuccess, t]);
+
+  /**
+   * Зберегти PDF обраних рахунків на пристрій.
+   */
+  const handleSaveSelected = useCallback(async () => {
+    if (selectionCount === 0) {
+      showError(t('noInvoicesSelected') || 'No invoices selected');
+      return;
+    }
+
+    setSelectionBusy(true);
+    try {
+      const files = await prepareSelectedPdfFiles();
+      downloadPdfFiles(files);
+      showSuccess(
+        files.length === 1
+          ? t('pdfDownloaded') || 'PDF saved to device'
+          : t('invoicesSaved') || 'Invoices saved to device'
+      );
+    } catch (error: any) {
+      console.error('SAVE SELECTED ERROR:', error);
+      showError(error?.message || t('exportFailed') || 'Failed to save invoices');
+    } finally {
+      setSelectionBusy(false);
+    }
+  }, [selectionCount, prepareSelectedPdfFiles, showError, showSuccess, t]);
+
+  /**
+   * Підтвердження видалення одного або кількох рахунків.
    * Для uploaded invoice також пробуємо видалити пов’язану витрату.
    */
   const handleDeleteConfirm = useCallback(async () => {
-    if (!invoiceToDelete) return;
+    if (invoicesToDelete.length === 0) return;
 
     try {
-      if (!navigator.onLine) {
-        await offlineStore.deleteInvoice(invoiceToDelete);
-        await offlineStore.enqueueMutation({
-          table: 'invoices',
-          operation: 'delete',
-          data: { id: invoiceToDelete },
-          timestamp: Date.now(),
-        });
-
-        showSuccess(t('invoiceDeleted') || 'Invoice deleted successfully');
-        queryClient.invalidateQueries({ queryKey: ['invoices'] });
-        return;
-      }
-
-      // Якщо це uploaded invoice, прибираємо і пов’язану витрату
-      const invoiceToRemove = invoices.find((inv) => inv.id === invoiceToDelete);
-      if (invoiceToRemove?.source === 'uploaded') {
-        const { error: expenseDeleteError } = await supabase
-          .from('expense_documents')
-          .delete()
-          .eq('invoice_id', invoiceToDelete);
-
-        if (expenseDeleteError) {
-          console.error('DELETE EXPENSE ERROR:', expenseDeleteError);
+      for (const invoiceId of invoicesToDelete) {
+        if (!navigator.onLine) {
+          await offlineStore.deleteInvoice(invoiceId);
+          await offlineStore.enqueueMutation({
+            table: 'invoices',
+            operation: 'delete',
+            data: { id: invoiceId },
+            timestamp: Date.now(),
+          });
+          continue;
         }
+
+        const invoiceToRemove = invoices.find((inv) => inv.id === invoiceId);
+        if (invoiceToRemove?.source === 'uploaded') {
+          const { error: expenseDeleteError } = await supabase
+            .from('expense_documents')
+            .delete()
+            .eq('invoice_id', invoiceId);
+
+          if (expenseDeleteError) {
+            console.error('DELETE EXPENSE ERROR:', expenseDeleteError);
+          }
+        }
+
+        const { error } = await supabase.from('invoices').delete().eq('id', invoiceId);
+        if (error) throw error;
+
+        await offlineStore.deleteInvoice(invoiceId);
       }
 
-      const { error } = await supabase.from('invoices').delete().eq('id', invoiceToDelete);
-      if (error) throw error;
-
-      await offlineStore.deleteInvoice(invoiceToDelete);
-
-      showSuccess(t('invoiceDeleted') || 'Invoice deleted successfully');
+      showSuccess(
+        invoicesToDelete.length === 1
+          ? t('invoiceDeleted') || 'Invoice deleted successfully'
+          : t('invoicesDeleted') || 'Invoices deleted'
+      );
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        invoicesToDelete.forEach((id) => next.delete(id));
+        return next;
+      });
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
       queryClient.invalidateQueries({ queryKey: ['expense_documents'] });
     } catch (error) {
@@ -954,9 +1105,9 @@ export const Invoices: React.FC = () => {
       showError(t('deleteFailed') || 'Failed to delete invoice');
     } finally {
       setDeleteDialogOpen(false);
-      setInvoiceToDelete(null);
+      setInvoicesToDelete([]);
     }
-  }, [invoiceToDelete, invoices, showSuccess, showError, t, queryClient]);
+  }, [invoicesToDelete, invoices, showSuccess, showError, t, queryClient]);
 
   /**
    * Вкладки фільтрації.
@@ -969,12 +1120,6 @@ export const Invoices: React.FC = () => {
     { key: 'overdue', label: t('overdue') },
   ];
 
-  /**
-   * Фільтрований список рахунків по активній вкладці.
-   */
-  const filteredInvoices =
-    activeFilter === 'all' ? invoices : invoices.filter((inv) => inv.status === activeFilter);
-
   return (
     <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-2xl mx-auto">
       {/* Верхній заголовок сторінки */}
@@ -986,6 +1131,19 @@ export const Invoices: React.FC = () => {
 
         {/* Кнопки дій */}
         <div className="flex gap-2">
+          <button
+            onClick={handleShareSelected}
+            disabled={selectionBusy || selectionCount === 0}
+            className={`p-2.5 rounded-xl backdrop-blur-xl border transition-all active:scale-95 disabled:opacity-40 ${
+              selectionCount > 0
+                ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/25'
+                : 'bg-white/10 border-white/10 text-gray-300 hover:text-white hover:bg-white/20'
+            }`}
+            title={t('share') || 'Поділитися'}
+          >
+            <Share2 size={16} />
+          </button>
+
           <button
             onClick={handleExportCSV}
             disabled={!invoices.length}
@@ -1012,6 +1170,74 @@ export const Invoices: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Панель дій для обраних рахунків */}
+      <AnimatePresence>
+        {selectionCount > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="mb-4 flex items-center justify-between gap-3 px-3 py-2.5 rounded-2xl bg-white/8 border border-white/10 backdrop-blur-xl"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <button
+                onClick={toggleSelectAllFiltered}
+                className={`w-5 h-5 rounded-md border flex items-center justify-center flex-shrink-0 transition-colors ${
+                  allFilteredSelected
+                    ? 'bg-cyan-500 border-cyan-400 text-white'
+                    : 'border-white/30 bg-white/5 text-transparent'
+                }`}
+                title={t('selectAll') || 'Select all'}
+                type="button"
+              >
+                <Check size={12} className={allFilteredSelected ? 'opacity-100' : 'opacity-0'} />
+              </button>
+              <p className="text-sm text-white/80 truncate">
+                {t('selectedCount') || 'Selected'}: {selectionCount}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button
+                onClick={handleShareSelected}
+                disabled={selectionBusy}
+                className="p-2 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/25 transition-all disabled:opacity-50 active:scale-95"
+                title={t('share') || 'Поділитися'}
+              >
+                <Share2 size={15} />
+              </button>
+              <button
+                onClick={handleSaveSelected}
+                disabled={selectionBusy}
+                className="p-2 rounded-xl bg-white/10 border border-white/10 text-white/80 hover:bg-white/15 transition-all disabled:opacity-50 active:scale-95"
+                title={t('saveToDevice') || 'Save to device'}
+              >
+                <Save size={15} />
+              </button>
+              <button
+                onClick={() => {
+                  setInvoicesToDelete(Array.from(selectedIds));
+                  setDeleteDialogOpen(true);
+                }}
+                disabled={selectionBusy}
+                className="p-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 hover:bg-red-500/20 transition-all disabled:opacity-50 active:scale-95"
+                title={t('deleteSelected') || 'Delete selected'}
+              >
+                <Trash2 size={15} />
+              </button>
+              <button
+                onClick={clearSelection}
+                disabled={selectionBusy}
+                className="p-2 rounded-xl text-white/40 hover:text-white/70 hover:bg-white/10 transition-all disabled:opacity-50 active:scale-95"
+                title={t('clearSelection') || 'Clear selection'}
+              >
+                <X size={15} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Фільтри по статусах */}
       <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1 scrollbar-hide">
@@ -1092,6 +1318,7 @@ export const Invoices: React.FC = () => {
           <div>
             {filteredInvoices.map((invoice, index) => {
               const isUploaded = invoice.source === 'uploaded';
+              const isSelected = selectedIds.has(invoice.id);
 
               return (
                 <motion.div
@@ -1100,8 +1327,29 @@ export const Invoices: React.FC = () => {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.04 }}
                 >
-                  <div className={`flex items-center group ${isUploaded ? 'bg-teal-500/5' : ''}`}>
-                    <div className="pl-4 flex-shrink-0">
+                  <div
+                    className={`flex items-center group ${
+                      isSelected ? 'bg-cyan-500/10' : isUploaded ? 'bg-teal-500/5' : ''
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleInvoiceSelection(invoice.id);
+                      }}
+                      className={`ml-3 w-5 h-5 rounded-md border flex items-center justify-center flex-shrink-0 transition-colors ${
+                        isSelected
+                          ? 'bg-cyan-500 border-cyan-400 text-white'
+                          : 'border-white/30 bg-white/5 hover:border-white/50'
+                      }`}
+                      aria-label={t('select') || 'Select'}
+                      aria-pressed={isSelected}
+                    >
+                      {isSelected && <Check size={12} />}
+                    </button>
+
+                    <div className="pl-3 flex-shrink-0">
                       {isUploaded ? (
                         <div className="w-12 h-14 rounded-lg bg-teal-500/15 border border-teal-500/25 flex-shrink-0 flex items-center justify-center">
                           <FileText size={20} className="text-teal-400" />
@@ -1192,7 +1440,7 @@ export const Invoices: React.FC = () => {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setInvoiceToDelete(invoice.id);
+                        setInvoicesToDelete([invoice.id]);
                         setDeleteDialogOpen(true);
                       }}
                       className="pr-4 pl-2 py-4 text-white/30 hover:text-red-400 transition-colors active:scale-90 md:opacity-0 md:group-hover:opacity-100"
@@ -1202,7 +1450,7 @@ export const Invoices: React.FC = () => {
                     </button>
                   </div>
 
-                  {index < filteredInvoices.length - 1 && <div className="ml-20 border-b border-white/5" />}
+                  {index < filteredInvoices.length - 1 && <div className="ml-24 border-b border-white/5" />}
                 </motion.div>
               );
             })}
@@ -1212,12 +1460,22 @@ export const Invoices: React.FC = () => {
 
       <ConfirmDialog
         open={deleteDialogOpen}
-        onClose={() => setDeleteDialogOpen(false)}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setInvoicesToDelete([]);
+        }}
         onConfirm={handleDeleteConfirm}
-        title={t('deleteInvoice') || 'Delete Invoice'}
+        title={
+          invoicesToDelete.length > 1
+            ? t('deleteSelected') || 'Delete selected'
+            : t('deleteInvoice') || 'Delete Invoice'
+        }
         description={
-          t('deleteInvoiceConfirm') ||
-          'Are you sure you want to delete this invoice? This action cannot be undone.'
+          invoicesToDelete.length > 1
+            ? t('deleteSelectedConfirm') ||
+              'Are you sure you want to delete the selected invoices? This action cannot be undone.'
+            : t('deleteInvoiceConfirm') ||
+              'Are you sure you want to delete this invoice? This action cannot be undone.'
         }
       />
 
