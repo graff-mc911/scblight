@@ -3,6 +3,7 @@ import { X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { InvoiceDocument } from './InvoiceDocument';
 import { useLanguage } from '../contexts/LanguageContext';
 import { generateInvoicePDFBlob } from '../lib/pdfGenerator';
+import { calculateLineTotal } from '../lib/invoiceTotals';
 
 interface InvoicePreviewProps {
   invoice: any;
@@ -145,13 +146,24 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
 
       currency: invoice?.currency || 'EUR',
 
-      items: (invoice?.items || []).map((i: any) => ({
-        description: i.description || i.material || '',
-        quantity: i.quantity,
-        unit: i.unit,
-        price: i.price,
-        total: i.total,
-      })),
+      items: (invoice?.items || []).map((i: any) => {
+        const quantity = Number(i.quantity) || 0;
+        const price = Number(i.price) || 0;
+        const material = i.material ?? '';
+        const total =
+          i.total != null && Number.isFinite(Number(i.total))
+            ? Number(i.total)
+            : calculateLineTotal(quantity, price, material);
+
+        return {
+          description: i.description || '',
+          material,
+          quantity,
+          unit: i.unit,
+          price,
+          total,
+        };
+      }),
 
       vat_enabled: !!invoice?.vat_enabled,
       vat_rate: invoice?.vat_rate || 0,
@@ -244,6 +256,29 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   // Inline режим без modal
   // --------------------------------------------------
   if (!onClose) {
+    if (isMobile) {
+      return (
+        <div className="w-full overflow-hidden rounded-2xl border border-white/10 bg-neutral-900" style={{ minHeight: '70vh', height: '70vh' }}>
+          {loadingPdf ? (
+            <div className="flex h-full items-center justify-center text-white/70">
+              {t('loading') || 'Loading...'}
+            </div>
+          ) : pdfUrl ? (
+            <iframe
+              src={`${pdfUrl}#toolbar=0&navpanes=0&view=FitH`}
+              title="Invoice PDF"
+              className="h-full w-full border-0 bg-white"
+              style={{ width: '100%', height: '100%', minHeight: '100%' }}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center text-white/70 px-4 text-center">
+              PDF preview error
+            </div>
+          )}
+        </div>
+      );
+    }
+
     return (
       <div className="w-full overflow-auto">
         <div
@@ -266,7 +301,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     >
       <div className="flex h-full w-full flex-col overflow-hidden">
         {/* Верхня панель */}
-        <div className="flex items-center justify-between bg-black/70 p-3">
+        <div className="flex items-center justify-between bg-black/70 p-3 flex-shrink-0">
           <span className="text-white text-sm sm:text-base">
             {t('preview')}
           </span>
@@ -309,7 +344,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
         </div>
 
         {/* Контент */}
-        <div className="flex-1 overflow-auto bg-neutral-900">
+        <div className="relative flex-1 min-h-0 overflow-hidden bg-neutral-900">
           {isMobile ? (
             loadingPdf ? (
               <div className="flex h-full items-center justify-center text-white/70">
@@ -317,9 +352,10 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
               </div>
             ) : pdfUrl ? (
               <iframe
-                src={pdfUrl}
+                src={`${pdfUrl}#toolbar=0&navpanes=0&view=FitH`}
                 title="Invoice PDF Preview"
-                className="h-full w-full border-0 bg-white"
+                className="absolute inset-0 h-full w-full border-0 bg-white"
+                style={{ width: '100%', height: '100%', minHeight: '100%' }}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-white/70 px-4 text-center">
@@ -327,23 +363,25 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
               </div>
             )
           ) : (
-            <div className="flex justify-center p-4">
-              <div
-                style={{
-                  width: `${794 * zoom}px`,
-                  minHeight: `${1123 * zoom}px`,
-                  overflow: 'hidden',
-                }}
-              >
+            <div className="h-full overflow-auto">
+              <div className="flex justify-center p-4">
                 <div
                   style={{
-                    width: '794px',
-                    minHeight: '1123px',
-                    transform: `scale(${zoom})`,
-                    transformOrigin: 'top left',
+                    width: `${794 * zoom}px`,
+                    minHeight: `${1123 * zoom}px`,
+                    overflow: 'hidden',
                   }}
                 >
-                  <InvoiceDocument data={invoiceData} />
+                  <div
+                    style={{
+                      width: '794px',
+                      minHeight: '1123px',
+                      transform: `scale(${zoom})`,
+                      transformOrigin: 'top left',
+                    }}
+                  >
+                    <InvoiceDocument data={invoiceData} />
+                  </div>
                 </div>
               </div>
             </div>

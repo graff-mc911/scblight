@@ -15,6 +15,7 @@ import {
   Eye,
   Receipt,
   ScanLine,
+  Share2,
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { InvoicePreview } from '../components/InvoicePreview';
@@ -25,6 +26,9 @@ import { useToastContext } from '../contexts/ToastContext';
 import { AnimatePresence } from 'framer-motion';
 import ReceiptScanReview from '../components/ReceiptScanReview';
 import { ScannedReceiptData } from '../lib/receiptOCR';
+import { calculateLineTotal } from '../lib/invoiceTotals';
+import { fetchPdfBlob, shareOrDownloadPdf } from '../lib/shareInvoice';
+import { generateInvoicePDFBlob } from '../lib/pdfGenerator';
 
 type InvoiceAttachment = {
   id: string;
@@ -97,6 +101,7 @@ export const InvoiceView: React.FC = () => {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [showFullScreenPDF, setShowFullScreenPDF] = useState(false);
   const [pdfZoom, setPdfZoom] = useState(100);
+  const [sharing, setSharing] = useState(false);
 
   const attachInputRef = useRef<HTMLInputElement>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
@@ -171,15 +176,20 @@ export const InvoiceView: React.FC = () => {
         signed_by: invoiceData.signed_by,
         signed_at: invoiceData.signed_at,
         items:
-          itemsData?.map((item) => ({
-            quantity: Number(item.quantity),
-            quantityDisplay: String(item.quantity),
-            unit: item.unit,
-            price: Number(item.price),
-            material: item.material,
-            description: item.description || '',
-            total: Number(item.total),
-          })) || [],
+          itemsData?.map((item) => {
+            const quantity = Number(item.quantity) || 0;
+            const price = Number(item.price) || 0;
+            const material = item.material || '';
+            return {
+              quantity,
+              quantityDisplay: String(item.quantity ?? ''),
+              unit: item.unit,
+              price,
+              material,
+              description: item.description || '',
+              total: calculateLineTotal(quantity, price, material),
+            };
+          }) || [],
       };
 
       setInvoice(invoiceWithItems);
@@ -498,6 +508,96 @@ export const InvoiceView: React.FC = () => {
     }
   };
 
+  const buildShareInvoiceData = () => {
+    if (!invoice) return null;
+
+    return {
+      document_number: invoice.document_no || invoice.document_number || 'invoice',
+      date: invoice.date,
+      client_name: client?.name || invoice.client_name || '',
+      client_address: client?.address || invoice.client_address || '',
+      client_tax_number: client?.tax_number || invoice.client_tax_number || '',
+      client_number: invoice.client_number || client?.client_number || '',
+      currency: invoice.currency || 'EUR',
+      items: (invoice.items || []).map((item: any) => ({
+        description: item.description || '',
+        material: item.material,
+        quantity: Number(item.quantity) || 0,
+        unit: item.unit,
+        price: Number(item.price) || 0,
+        total: calculateLineTotal(item.quantity, item.price, item.material),
+      })),
+      vat_enabled: !!invoice.vat_enabled || Number(invoice.tax_percent || 0) > 0,
+      vat_rate: invoice.vat_rate || invoice.tax_percent || 0,
+      notes: invoice.notes || '',
+      signature_data_url: invoice.signature_data_url || '',
+      signed_by: invoice.signed_by || '',
+      service_period_start: invoice.work_period_start,
+      service_period_end: invoice.work_period_end,
+      object_address: invoice.object_address || '',
+      invoice_language: invoice.invoice_language || '',
+    };
+  };
+
+  const handleShareInvoice = async () => {
+    if (!invoice) return;
+
+    setSharing(true);
+    try {
+      const docNo = invoice.document_no || invoice.document_number || 'invoice';
+      const fileName = `Invoice_${docNo}.pdf`;
+      let blob: Blob | null = null;
+
+      if (pdfUrl) {
+        try {
+          blob = await fetchPdfBlob(pdfUrl);
+        } catch (error) {
+          console.warn('Could not fetch stored PDF, generating locally', error);
+        }
+      }
+
+      if (!blob) {
+        const invoicePayload = buildShareInvoiceData();
+        if (!invoicePayload) {
+          throw new Error('Invoice data missing');
+        }
+
+        const companyData = {
+          company_name: invoice.executor_name || companyProfile?.company_name || '',
+          company_address: invoice.executor_address || companyProfile?.address || '',
+          company_phone: invoice.executor_phone || companyProfile?.phone || '',
+          company_email: invoice.executor_email || companyProfile?.email || '',
+          company_tax_number: invoice.executor_tax_number || companyProfile?.tax_number || '',
+          company_bank: invoice.executor_bank || companyProfile?.bank_name || '',
+          company_iban: invoice.executor_iban || companyProfile?.iban || '',
+          company_bic: invoice.executor_bic || companyProfile?.bic || '',
+        };
+
+        const logoUrl = invoice.executor_logo_url || companyProfile?.logo_url || '';
+        blob = await generateInvoicePDFBlob(invoicePayload, companyData, logoUrl);
+      }
+
+      const result = await shareOrDownloadPdf({
+        blob,
+        fileName,
+        title: `${t('invoiceTitle') || 'Invoice'} ${docNo}`,
+        text: `${t('invoiceTitle') || 'Invoice'} ${docNo}`,
+      });
+
+      if (result === 'downloaded') {
+        showSuccess(t('pdfDownloaded') || t('downloadPdf') || 'PDF downloaded');
+      } else {
+        showSuccess(t('invoiceShared') || t('share') || 'Shared');
+      }
+    } catch (error: any) {
+      if (error?.name === 'AbortError') return;
+      console.error('Share invoice error:', error);
+      showError(error?.message || t('shareFailed') || 'Could not share invoice');
+    } finally {
+      setSharing(false);
+    }
+  };
+
   const totalInvoiceAmount = Number(invoice?.gross_total || invoice?.total_gross || 0);
   const totalInvoiceExpenses = useMemo(() => {
     if (!invoiceExpenses) return 0;
@@ -569,6 +669,16 @@ export const InvoiceView: React.FC = () => {
                 <Eye size={18} />
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={() => void handleShareInvoice()}
+              disabled={sharing}
+              className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-cyan-400 transition-all active:scale-95 disabled:opacity-60"
+              title={t('share') || 'Поділитися'}
+            >
+              <Share2 size={18} />
+            </button>
 
             {!invoice.signature_data_url && (
               <button
@@ -642,6 +752,16 @@ export const InvoiceView: React.FC = () => {
             </h3>
 
             <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => void handleShareInvoice()}
+                disabled={sharing}
+                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-cyan-400 transition-all disabled:opacity-60"
+                title={t('share') || 'Поділитися'}
+              >
+                <Share2 size={20} />
+              </button>
+
               <a
                 href={pdfUrl}
                 target="_blank"
@@ -663,12 +783,21 @@ export const InvoiceView: React.FC = () => {
             </div>
           </div>
 
-          {!isMobile && (
+          {!isMobile ? (
             <div className="rounded-xl overflow-hidden">
               <iframe
                 src={`${pdfUrl}#view=FitH`}
                 className="w-full border-0"
                 style={{ height: '800px' }}
+                title="Invoice PDF"
+              />
+            </div>
+          ) : (
+            <div className="rounded-xl overflow-hidden" style={{ height: '70vh' }}>
+              <iframe
+                src={`${pdfUrl}#toolbar=1&navpanes=0&view=FitH`}
+                className="h-full w-full border-0 bg-white"
+                style={{ width: '100%', height: '100%' }}
                 title="Invoice PDF"
               />
             </div>
@@ -956,64 +1085,65 @@ export const InvoiceView: React.FC = () => {
               </h3>
             </div>
 
-            {!isMobile && (
-              <div className="flex items-center gap-1 md:gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPdfZoom((prev) => Math.max(50, prev - 10))}
-                  disabled={pdfZoom <= 50}
-                  className="p-2 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ZoomOut className="text-white" size={18} />
-                </button>
+            <div className="flex items-center gap-1 md:gap-2">
+              {!isMobile && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setPdfZoom((prev) => Math.max(50, prev - 10))}
+                    disabled={pdfZoom <= 50}
+                    className="p-2 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ZoomOut className="text-white" size={18} />
+                  </button>
 
-                <span className="text-white font-medium text-sm min-w-[60px] text-center">
-                  {pdfZoom}%
-                </span>
+                  <span className="text-white font-medium text-sm min-w-[60px] text-center">
+                    {pdfZoom}%
+                  </span>
 
-                <button
-                  type="button"
-                  onClick={() => setPdfZoom((prev) => Math.min(200, prev + 10))}
-                  disabled={pdfZoom >= 200}
-                  className="p-2 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ZoomIn className="text-white" size={18} />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setPdfZoom((prev) => Math.min(200, prev + 10))}
+                    disabled={pdfZoom >= 200}
+                    className="p-2 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ZoomIn className="text-white" size={18} />
+                  </button>
+                </>
+              )}
 
-                <a
-                  href={pdfUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                >
-                  <Download className="text-white" size={18} />
-                </a>
-              </div>
-            )}
+              <button
+                type="button"
+                onClick={() => void handleShareInvoice()}
+                disabled={sharing}
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-60"
+                title={t('share') || 'Поділитися'}
+              >
+                <Share2 className="text-cyan-400" size={18} />
+              </button>
+
+              <a
+                href={pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                title={t('download') || 'Завантажити'}
+              >
+                <Download className="text-white" size={18} />
+              </a>
+            </div>
           </div>
 
-          <div className="flex-1 overflow-auto bg-slate-800">
+          <div className="relative flex-1 min-h-0 overflow-hidden bg-slate-800">
             {isMobile ? (
-              <div className="flex flex-col items-center justify-center h-full p-6 gap-4">
-                <FileText className="text-orange-400" size={56} />
-                <p className="text-white font-semibold text-lg text-center">
-                  {invoice.document_no || invoice.document_number}
-                </p>
-                <p className="text-white/60 text-sm text-center">
-                  {t('tapToOpen') || 'Натисніть кнопку нижче, щоб відкрити PDF у браузері'}
-                </p>
-                <a
-                  href={pdfUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-semibold transition-all text-base"
-                >
-                  <Download size={20} />
-                  {t('openPdf') || 'Відкрити PDF'}
-                </a>
-              </div>
+              <iframe
+                src={`${pdfUrl}#toolbar=1&navpanes=0&view=FitH`}
+                className="absolute inset-0 h-full w-full border-0 bg-white"
+                style={{ width: '100%', height: '100%', minHeight: '100%' }}
+                title="Invoice PDF Fullscreen"
+              />
             ) : (
-              <div className="p-4 flex justify-center">
+              <div className="h-full overflow-auto p-4 flex justify-center">
                 <div
                   className="bg-white shadow-2xl"
                   style={{

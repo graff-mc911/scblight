@@ -1,9 +1,11 @@
 import React from 'react';
 import { currencies, translations } from '../lib/languages';
 import { useLanguage } from '../contexts/LanguageContext';
+import { calculateLineTotal, parseMaterialAmount } from '../lib/invoiceTotals';
 
 interface InvoiceItem {
   description: string;
+  material?: string | number;
   quantity: number;
   unit: string;
   price: number;
@@ -70,7 +72,15 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
     return `${amount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
-  const netTotal = data.items.reduce((sum, item) => sum + item.total, 0);
+  const lineItems = data.items.map((item) => ({
+    ...item,
+    total:
+      item.total != null && Number.isFinite(Number(item.total))
+        ? Number(item.total)
+        : calculateLineTotal(item.quantity, item.price, item.material),
+  }));
+
+  const netTotal = lineItems.reduce((sum, item) => sum + item.total, 0);
   const vatAmount = data.vat_enabled ? (netTotal * data.vat_rate) / 100 : 0;
   const grossTotal = netTotal + vatAmount;
 
@@ -196,10 +206,17 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
             </tr>
           </thead>
           <tbody>
-            {data.items.map((item, index) => (
+            {lineItems.map((item, index) => (
               <tr key={index}>
                 <td style={{ padding: '2mm', textAlign: 'left', border: '1pt solid #000' }}>{index + 1}</td>
-                <td style={{ padding: '2mm', textAlign: 'left', fontWeight: 'bold', border: '1pt solid #000' }}>{item.description}</td>
+                <td style={{ padding: '2mm', textAlign: 'left', fontWeight: 'bold', border: '1pt solid #000' }}>
+                  {item.description}
+                  {parseMaterialAmount(item.material) !== 0 ? (
+                    <div style={{ fontWeight: 'normal', marginTop: '1mm' }}>
+                      {tInvoice('material')}: {formatCurrency(parseMaterialAmount(item.material))}
+                    </div>
+                  ) : null}
+                </td>
                 <td style={{ padding: '2mm', textAlign: 'right', border: '1pt solid #000' }}>{item.quantity}</td>
                 <td style={{ padding: '2mm', textAlign: 'center', border: '1pt solid #000' }}>{item.unit}</td>
                 <td style={{ padding: '2mm', textAlign: 'right', border: '1pt solid #000' }}>{formatCurrency(item.price)}</td>
