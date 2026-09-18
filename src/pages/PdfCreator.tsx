@@ -51,11 +51,11 @@ interface UploadedFile {
   type: FileKind;
 }
 
-const HUB_TABS: { id: HubMode; label: string; icon: typeof PenLine }[] = [
-  { id: 'edit', label: 'Редагування', icon: PenLine },
-  { id: 'merge', label: "Об'єднання", icon: Layers },
-  { id: 'convert', label: 'Перетворення', icon: RefreshCw },
-  { id: 'ocr', label: 'OCR', icon: ScanText },
+const HUB_TABS: { id: HubMode; labelKey: string; icon: typeof PenLine }[] = [
+  { id: 'edit', labelKey: 'pdfHubEdit', icon: PenLine },
+  { id: 'merge', labelKey: 'pdfHubMerge', icon: Layers },
+  { id: 'convert', labelKey: 'pdfHubConvert', icon: RefreshCw },
+  { id: 'ocr', labelKey: 'pdfHubOcr', icon: ScanText },
 ];
 
 const QUICK_TEMPLATES: { id: QuickTemplateId; icon: typeof FileText; title: string; desc: string }[] = [
@@ -272,10 +272,10 @@ export default function PdfCreator() {
   };
 
   const hubSubtitle: Record<HubMode, string> = {
-    edit: 'Універсальний редактор: документ, презентація, книга — збереження в додатку та на пристрій',
-    merge: "Об'єднайте PDF, фото та текстові файли в один документ",
-    convert: 'Швидкі шаблони та перетворення файлів',
-    ocr: 'Розпізнайте текст зі скану, фото або PDF-сторінок',
+    edit: t('pdfEditorSubtitle'),
+    merge: t('pdfHubMerge'),
+    convert: t('pdfHubConvert'),
+    ocr: t('pdfHubOcr'),
   };
 
   return (
@@ -290,15 +290,15 @@ export default function PdfCreator() {
         </button>
         <div>
           <h2 className="text-2xl font-semibold text-white">
-            {t('createPdfBtn') || 'PDF інструменти'}
+            {t('createPdfBtn') || 'PDF'}
           </h2>
           <p className="text-white/50 text-sm mt-0.5">{hubSubtitle[hubMode]}</p>
         </div>
       </div>
 
-      {/* Soda PDF–style tabs */}
+      {/* PDF tools tabs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-6">
-        {HUB_TABS.map(({ id, label, icon: Icon }) => (
+        {HUB_TABS.map(({ id, labelKey, icon: Icon }) => (
           <button
             key={id}
             type="button"
@@ -310,7 +310,7 @@ export default function PdfCreator() {
             }`}
           >
             <Icon size={18} />
-            {label}
+            {t(labelKey)}
           </button>
         ))}
       </div>

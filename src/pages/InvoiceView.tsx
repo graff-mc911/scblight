@@ -886,7 +886,7 @@ export const InvoiceView: React.FC = () => {
               />
               <span className="bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-flex items-center gap-2">
                 <ScanLine size={16} />
-                Розпізнати чек
+                {t('scanReceiptTitle')}
               </span>
             </label>
           </div>
@@ -971,7 +971,7 @@ export const InvoiceView: React.FC = () => {
                 />
                 <span className="bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-flex items-center gap-2">
                   <ScanLine size={16} />
-                  Розпізнати чек
+                  {t('scanReceiptTitle')}
                 </span>
               </label>
             </div>

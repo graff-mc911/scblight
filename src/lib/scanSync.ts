@@ -39,9 +39,16 @@ export async function uploadScannedFileWithFallback(file: File): Promise<string>
   }
 }
 
+export type SaveExpenseFromScanOptions = {
+  /** Link receipt costs to a specific invoice (job). */
+  invoiceId?: string | null;
+  clientId?: string | null;
+};
+
 export async function saveExpenseFromScan(
   data: ScannedReceiptData,
   fileUrl: string,
+  options?: SaveExpenseFromScanOptions,
 ): Promise<string> {
   const {
     data: { user },
@@ -73,6 +80,8 @@ export async function saveExpenseFromScan(
       original_file_url: fileUrl || null,
       ocr_raw_text: data.items || null,
       notes: data.items || null,
+      invoice_id: options?.invoiceId || null,
+      client_id: options?.clientId || null,
     })
     .select('id')
     .single();

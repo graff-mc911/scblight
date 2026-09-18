@@ -3,20 +3,20 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Camera,
-  CheckCircle2,
   ChevronRight,
-  UploadCloud,
   FileImage,
+  FolderOpen,
   ImagePlus,
+  Link2,
   Loader2,
   RefreshCw,
-  ScanLine,
+  Save,
+  Send,
   Trash2,
-  Wifi,
   WifiOff,
   X,
 } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { ScanCropEditor } from '../components/ScanCropEditor';
@@ -30,7 +30,13 @@ import {
   serializeOcr,
 } from '../lib/scanQueue';
 import { recognizeReceiptSmart } from '../lib/openaiReceiptOCR';
-import { saveExpenseFromScan, uploadScannedFileWithFallback } from '../lib/scanSync';
+import {
+  saveExpenseFromScan,
+  uploadScannedFileWithFallback,
+} from '../lib/scanSync';
+import { supabase } from '../lib/supabase';
+import { downloadPdfFiles } from '../lib/shareInvoice';
+import type { ScannedReceiptData } from '../lib/receiptOCR';
 
 function QueueThumb({ item }: { item: ScanQueueItem }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -48,52 +54,6 @@ function QueueThumb({ item }: { item: ScanQueueItem }) {
   }
   return <img src={url} alt="" className="w-full h-full object-cover" />;
 }
-
-type FeatureBlock = {
-  id: string;
-  titleKey: string;
-  descKey: string;
-  bullets: string[];
-  icon: React.ElementType;
-};
-
-const FEATURES: FeatureBlock[] = [
-  {
-    id: 'digitize',
-    titleKey: 'scanDigitizeTitle',
-    descKey: 'scanDigitizeDesc',
-    bullets: ['scanDigitizeBenefit1', 'scanDigitizeBenefit2', 'scanDigitizeBenefit3'],
-    icon: Camera,
-  },
-  {
-    id: 'recognize',
-    titleKey: 'scanRecognitionTitle',
-    descKey: 'scanRecognitionDesc',
-    bullets: ['scanRecognitionBenefit1', 'scanRecognitionBenefit2', 'scanRecognitionBenefit3'],
-    icon: ScanLine,
-  },
-  {
-    id: 'batch',
-    titleKey: 'scanBatchTitle',
-    descKey: 'scanBatchDesc',
-    bullets: ['scanBatchBenefit1', 'scanBatchBenefit2', 'scanBatchBenefit3'],
-    icon: UploadCloud,
-  },
-  {
-    id: 'sync',
-    titleKey: 'scanSyncTitle',
-    descKey: 'scanSyncDesc',
-    bullets: ['scanSyncBenefit1', 'scanSyncBenefit2', 'scanSyncBenefit3'],
-    icon: CheckCircle2,
-  },
-  {
-    id: 'offline',
-    titleKey: 'scanOfflineTitle',
-    descKey: 'scanOfflineDesc',
-    bullets: ['scanOfflineBenefit1', 'scanOfflineBenefit2', 'scanOfflineBenefit3'],
-    icon: Wifi,
-  },
-];
 
 function statusLabel(status: ScanQueueItem['status'], t: (k: string) => string) {
   switch (status) {
@@ -116,6 +76,15 @@ function statusLabel(status: ScanQueueItem['status'], t: (k: string) => string) 
   }
 }
 
+type PendingSave = {
+  data: ScannedReceiptData;
+  fileUrl: string;
+  file: File;
+  queueItem: ScanQueueItem;
+};
+
+type ActionStep = 'menu' | 'pickInvoice';
+
 export default function ScanReceipt() {
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -125,6 +94,7 @@ export default function ScanReceipt() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const processingRef = useRef(false);
+  const autoStartedRef = useRef(false);
 
   const [items, setItems] = useState<ScanQueueItem[]>([]);
   const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -132,7 +102,34 @@ export default function ScanReceipt() {
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [reviewItem, setReviewItem] = useState<ScanQueueItem | null>(null);
   const [liveStream, setLiveStream] = useState<MediaStream | null>(null);
+  const [pendingSave, setPendingSave] = useState<PendingSave | null>(null);
+  const [actionStep, setActionStep] = useState<ActionStep>('menu');
+  const [actionBusy, setActionBusy] = useState(false);
+  const [invoiceSearch, setInvoiceSearch] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  const { data: session } = useQuery({
+    queryKey: ['session'],
+    queryFn: async () => {
+      const { data } = await supabase.auth.getSession();
+      return data.session;
+    },
+  });
+
+  const { data: invoices = [] } = useQuery({
+    queryKey: ['invoices-for-scan', session?.user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('id, document_no, client_name, date, clients(name), object_address')
+        .eq('user_id', session?.user?.id || '')
+        .order('date', { ascending: false })
+        .limit(80);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!session?.user?.id && !!pendingSave && actionStep === 'pickInvoice',
+  });
 
   const refresh = useCallback(async () => {
     const list = await scanQueue.list();
@@ -310,6 +307,13 @@ export default function ScanReceipt() {
     }
   }, []);
 
+  // Spec §1: open camera/scanner in working mode immediately — no marketing page.
+  useEffect(() => {
+    if (autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    void startLiveCamera();
+  }, [startLiveCamera]);
+
   const captureFromLive = useCallback(async () => {
     const video = videoRef.current;
     if (!video) return;
@@ -333,31 +337,135 @@ export default function ScanReceipt() {
     if (fresh) setReviewItem(fresh);
   };
 
+  const finishAndNavigate = useCallback(
+    async (queueItem: ScanQueueItem, fileUrl: string, goToReceipts = true) => {
+      await scanQueue.put({ ...queueItem, status: 'synced', fileUrl });
+      await scanQueue.remove(queueItem.id);
+      setReviewItem(null);
+      setPendingSave(null);
+      setActionStep('menu');
+      setInvoiceSearch('');
+      queryClient.invalidateQueries({ queryKey: ['expense_documents'] });
+      await refresh();
+      if (goToReceipts) navigate('/receipts');
+    },
+    [navigate, queryClient, refresh],
+  );
+
   const handleReviewConfirm = async (
-    data: Parameters<typeof saveExpenseFromScan>[0],
+    data: ScannedReceiptData,
     fileUrl: string,
   ) => {
     if (!reviewItem) return;
     try {
       let url = fileUrl || reviewItem.fileUrl || '';
+      const file = arrayBufferToFile(
+        reviewItem.blob,
+        reviewItem.fileName,
+        reviewItem.mimeType,
+      );
       if (!url) {
-        const file = arrayBufferToFile(
-          reviewItem.blob,
-          reviewItem.fileName,
-          reviewItem.mimeType,
-        );
         url = await uploadScannedFileWithFallback(file);
       }
-      await saveExpenseFromScan(data, url);
-      await scanQueue.put({ ...reviewItem, status: 'synced', fileUrl: url });
-      await scanQueue.remove(reviewItem.id);
+      setPendingSave({ data, fileUrl: url, file, queueItem: reviewItem });
+      setActionStep('menu');
       setReviewItem(null);
-      showSuccess(t('scanSavedToExpenses'));
-      queryClient.invalidateQueries({ queryKey: ['expense_documents'] });
-      await refresh();
-      navigate('/receipts');
     } catch (err: unknown) {
       showError(err instanceof Error ? err.message : t('errorSavingReceipt'));
+    }
+  };
+
+  const persistExpense = async (
+    pending: PendingSave,
+    options?: { invoiceId?: string; clientId?: string | null },
+  ) => {
+    await saveExpenseFromScan(pending.data, pending.fileUrl, {
+      invoiceId: options?.invoiceId,
+      clientId: options?.clientId,
+    });
+  };
+
+  const handleSaveGeneral = async () => {
+    if (!pendingSave) return;
+    setActionBusy(true);
+    try {
+      await persistExpense(pendingSave);
+      showSuccess(t('scanSavedToExpenses'));
+      await finishAndNavigate(pendingSave.queueItem, pendingSave.fileUrl);
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : t('errorSavingReceipt'));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleAttachInvoice = async (invoice: {
+    id: string;
+    clients?: { name?: string } | null;
+  }) => {
+    if (!pendingSave) return;
+    setActionBusy(true);
+    try {
+      await persistExpense(pendingSave, { invoiceId: invoice.id });
+      showSuccess(t('scanAttachedToInvoice'));
+      await finishAndNavigate(pendingSave.queueItem, pendingSave.fileUrl, false);
+      navigate(`/invoices/${invoice.id}/view`);
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : t('errorSavingReceipt'));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleSend = async () => {
+    if (!pendingSave) return;
+    setActionBusy(true);
+    try {
+      await persistExpense(pendingSave);
+      const file = pendingSave.file;
+      let shared = false;
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        const payload = {
+          files: [file],
+          title: pendingSave.data.store_name || t('scanReceiptTitle'),
+          text: pendingSave.data.store_name || t('receipt'),
+        };
+        if (!navigator.canShare || navigator.canShare(payload)) {
+          try {
+            await navigator.share(payload);
+            shared = true;
+          } catch (err: unknown) {
+            if ((err as { name?: string })?.name === 'AbortError') {
+              setActionBusy(false);
+              return;
+            }
+          }
+        }
+      }
+      if (!shared) {
+        downloadPdfFiles([{ blob: file, fileName: file.name }]);
+      }
+      showSuccess(shared ? t('scanSent') : t('scanSavedToDevice'));
+      await finishAndNavigate(pendingSave.queueItem, pendingSave.fileUrl);
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : t('shareFailed'));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleSaveDevice = async () => {
+    if (!pendingSave) return;
+    setActionBusy(true);
+    try {
+      await persistExpense(pendingSave);
+      downloadPdfFiles([{ blob: pendingSave.file, fileName: pendingSave.file.name }]);
+      showSuccess(t('scanSavedToDevice'));
+      await finishAndNavigate(pendingSave.queueItem, pendingSave.fileUrl);
+    } catch (err: unknown) {
+      showError(err instanceof Error ? err.message : t('errorSavingReceipt'));
+    } finally {
+      setActionBusy(false);
     }
   };
 
@@ -376,16 +484,34 @@ export default function ScanReceipt() {
     reviewItem &&
     arrayBufferToFile(reviewItem.blob, reviewItem.fileName, reviewItem.mimeType);
 
+  const filteredInvoices = invoices.filter((inv) => {
+    const q = invoiceSearch.trim().toLowerCase();
+    if (!q) return true;
+    const name = (inv.clients as { name?: string } | null)?.name || inv.client_name || '';
+    const hay = [
+      inv.document_no,
+      name,
+      inv.date,
+      inv.object_address,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return hay.includes(q);
+  });
+
   return (
     <div className="min-h-screen pt-20 pb-28 px-4 md:px-6 max-w-2xl mx-auto">
-      <div className="mb-6">
-        <p className="text-orange-400/80 text-xs font-medium uppercase tracking-wider mb-1">
-          {t('scanner')}
-        </p>
-        <h1 className="text-2xl sm:text-3xl font-semibold text-white leading-tight">
-          {t('scanReceiptTitle')}
-        </h1>
-        <p className="text-white/55 text-sm mt-2 max-w-prose">{t('scanPageSubtitle')}</p>
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold text-white">{t('scanReceiptTitle')}</h1>
+        <button
+          type="button"
+          onClick={() => void startLiveCamera()}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl bg-orange-500/20 border border-orange-500/35 text-orange-300 text-sm font-medium"
+        >
+          <Camera size={16} />
+          {t('takePhoto')}
+        </button>
       </div>
 
       {!online && (
@@ -395,9 +521,9 @@ export default function ScanReceipt() {
         </div>
       )}
 
-      <section className="mb-8" aria-labelledby="scan-capture-heading">
+      <section className="mb-6" aria-labelledby="scan-capture-heading">
         <h2 id="scan-capture-heading" className="sr-only">
-          {t('scanDigitizeTitle')}
+          {t('scanReceiptTitle')}
         </h2>
         <div className="grid grid-cols-2 gap-3">
           <button
@@ -419,7 +545,6 @@ export default function ScanReceipt() {
             </span>
           </button>
         </div>
-        <p className="text-white/35 text-xs mt-3 text-center">{t('captureNextHint')}</p>
 
         <label className="mt-4 flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/5 border border-white/8 cursor-pointer">
           <input
@@ -460,11 +585,7 @@ export default function ScanReceipt() {
             return;
           }
           files.forEach((f) => {
-            if (f.type.startsWith('image/') && files.length === 1) {
-              handlePickedFile(f);
-            } else {
-              void enqueueFile(f);
-            }
+            void enqueueFile(f);
           });
         }}
       />
@@ -548,39 +669,6 @@ export default function ScanReceipt() {
         )}
       </section>
 
-      <div className="space-y-8">
-        {FEATURES.map((feature, index) => (
-          <motion.section
-            key={feature.id}
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-40px' }}
-            transition={{ delay: index * 0.04 }}
-            aria-labelledby={`feature-${feature.id}`}
-          >
-            <div className="flex items-start gap-3 mb-2">
-              <div className="w-9 h-9 rounded-xl bg-white/8 border border-white/10 flex items-center justify-center flex-shrink-0">
-                <feature.icon size={18} className="text-orange-400" />
-              </div>
-              <div>
-                <h2 id={`feature-${feature.id}`} className="text-lg font-semibold text-white">
-                  {t(feature.titleKey)}
-                </h2>
-                <p className="text-white/50 text-sm mt-1">{t(feature.descKey)}</p>
-              </div>
-            </div>
-            <ul className="ml-12 space-y-1.5">
-              {feature.bullets.map((key) => (
-                <li key={key} className="text-white/65 text-sm flex gap-2">
-                  <span className="text-orange-400/80 mt-1.5 w-1 h-1 rounded-full bg-orange-400 flex-shrink-0" />
-                  {t(key)}
-                </li>
-              ))}
-            </ul>
-          </motion.section>
-        ))}
-      </div>
-
       <AnimatePresence>
         {liveStream && (
           <motion.div
@@ -608,7 +696,7 @@ export default function ScanReceipt() {
               <button
                 type="button"
                 onClick={() => void captureFromLive()}
-                className="w-18 h-18 rounded-full border-4 border-white/80 bg-orange-500 active:scale-95 transition-transform"
+                className="rounded-full border-4 border-white/80 bg-orange-500 active:scale-95 transition-transform"
                 style={{ width: 72, height: 72 }}
                 aria-label={t('capture')}
               />
@@ -639,6 +727,137 @@ export default function ScanReceipt() {
             initialData={reviewItem.ocrData ? deserializeOcr(reviewItem.ocrData) : undefined}
             initialFileUrl={reviewItem.fileUrl}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {pendingSave && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[80] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 24, opacity: 0 }}
+              className="w-full max-w-md rounded-2xl bg-[#1a1a1a] border border-white/10 p-4 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-white font-semibold text-lg">
+                  {actionStep === 'pickInvoice'
+                    ? t('scanPickInvoice')
+                    : t('scanAfterActions')}
+                </h2>
+                <button
+                  type="button"
+                  disabled={actionBusy}
+                  onClick={() => {
+                    setPendingSave(null);
+                    setActionStep('menu');
+                  }}
+                  className="p-2 rounded-lg text-white/40 hover:text-white"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {actionStep === 'menu' ? (
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    disabled={actionBusy}
+                    onClick={() => setActionStep('pickInvoice')}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/6 border border-white/10 text-left hover:bg-white/10"
+                  >
+                    <Link2 size={18} className="text-teal-400" />
+                    <span className="text-white text-sm font-medium">{t('scanAttachInvoice')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionBusy}
+                    onClick={() => void handleSaveGeneral()}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/6 border border-white/10 text-left hover:bg-white/10"
+                  >
+                    <FolderOpen size={18} className="text-orange-400" />
+                    <span className="text-white text-sm font-medium">{t('scanSaveGeneral')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionBusy}
+                    onClick={() => void handleSend()}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/6 border border-white/10 text-left hover:bg-white/10"
+                  >
+                    <Send size={18} className="text-cyan-400" />
+                    <span className="text-white text-sm font-medium">{t('scanSend')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionBusy}
+                    onClick={() => void handleSaveDevice()}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/6 border border-white/10 text-left hover:bg-white/10"
+                  >
+                    <Save size={18} className="text-green-400" />
+                    <span className="text-white text-sm font-medium">{t('scanSaveDevice')}</span>
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <input
+                    type="search"
+                    value={invoiceSearch}
+                    onChange={(e) => setInvoiceSearch(e.target.value)}
+                    placeholder={t('searchInvoices')}
+                    className="w-full mb-3 px-3 py-2.5 rounded-xl bg-white/6 border border-white/10 text-white text-sm outline-none focus:border-orange-400/50"
+                  />
+                  <div className="max-h-64 overflow-y-auto space-y-1.5">
+                    {filteredInvoices.length === 0 ? (
+                      <p className="text-white/45 text-sm py-6 text-center">{t('noInvoices')}</p>
+                    ) : (
+                      filteredInvoices.map((inv) => {
+                        const name =
+                          (inv.clients as { name?: string } | null)?.name ||
+                          inv.client_name ||
+                          t('noClient');
+                        return (
+                          <button
+                            key={inv.id}
+                            type="button"
+                            disabled={actionBusy}
+                            onClick={() => void handleAttachInvoice(inv)}
+                            className="w-full text-left px-3 py-2.5 rounded-xl bg-white/5 border border-white/8 hover:bg-white/10"
+                          >
+                            <p className="text-white text-sm font-medium truncate">{name}</p>
+                            <p className="text-white/40 text-xs mt-0.5 truncate">
+                              {[inv.document_no, inv.date, inv.object_address]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </p>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={actionBusy}
+                    onClick={() => setActionStep('menu')}
+                    className="mt-3 w-full py-2.5 rounded-xl text-sm text-white/60 hover:text-white"
+                  >
+                    {t('back')}
+                  </button>
+                </div>
+              )}
+
+              {actionBusy && (
+                <div className="mt-3 flex items-center justify-center gap-2 text-orange-300 text-sm">
+                  <Loader2 size={14} className="animate-spin" />
+                  {t('saving')}
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

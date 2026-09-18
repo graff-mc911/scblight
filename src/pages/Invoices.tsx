@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   Plus,
   FileText,
-  Download,
   ChevronRight,
   CheckCircle,
   Clock,
@@ -17,6 +16,8 @@ import {
   Save,
   X,
   Check,
+  FileSpreadsheet,
+  Search,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -854,6 +855,8 @@ export const Invoices: React.FC = () => {
   const [editUploadedInvoice, setEditUploadedInvoice] = useState<Record<string, any> | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionBusy, setSelectionBusy] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [groupMode, setGroupMode] = useState<'none' | 'month' | 'year'>('month');
 
   /**
    * Отримуємо поточну сесію користувача.
@@ -940,10 +943,63 @@ export const Invoices: React.FC = () => {
   }, [invoices, showSuccess, showError, t]);
 
   /**
-   * Фільтрований список рахунків по активній вкладці.
+   * Фільтрований список: статус + пошук (номер, ім'я, дата, адреса).
    */
-  const filteredInvoices =
-    activeFilter === 'all' ? invoices : invoices.filter((inv) => inv.status === activeFilter);
+  const filteredInvoices = React.useMemo(() => {
+    const byStatus =
+      activeFilter === 'all' ? invoices : invoices.filter((inv) => inv.status === activeFilter);
+
+    const q = searchQuery.trim().toLowerCase();
+    const searched = !q
+      ? byStatus
+      : byStatus.filter((inv) => {
+          const hay = [
+            inv.document_no,
+            inv.document_number,
+            inv.clients?.name,
+            inv.client_name,
+            inv.date,
+            inv.object_address,
+            inv.project_area,
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+          return hay.includes(q);
+        });
+
+    return [...searched].sort((a, b) => {
+      const da = new Date(a.date || a.created_at || 0).getTime();
+      const db = new Date(b.date || b.created_at || 0).getTime();
+      return db - da;
+    });
+  }, [invoices, activeFilter, searchQuery]);
+
+  const groupedInvoices = React.useMemo(() => {
+    if (groupMode === 'none') {
+      return [{ key: 'all', label: '', items: filteredInvoices }];
+    }
+
+    const groups = new Map<string, typeof filteredInvoices>();
+    for (const inv of filteredInvoices) {
+      const d = new Date(inv.date || inv.created_at || Date.now());
+      const key =
+        groupMode === 'year'
+          ? String(d.getFullYear())
+          : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(inv);
+    }
+
+    return Array.from(groups.entries()).map(([key, items]) => {
+      const [y, m] = key.split('-');
+      const label =
+        groupMode === 'year'
+          ? y
+          : format(new Date(Number(y), Number(m) - 1, 1), 'MMMM yyyy');
+      return { key, label, items };
+    });
+  }, [filteredInvoices, groupMode]);
 
   const selectionCount = selectedIds.size;
   const allFilteredSelected =
@@ -1154,28 +1210,15 @@ export const Invoices: React.FC = () => {
           <p className="text-white/60 text-sm mt-1">{t('manageInvoices')}</p>
         </div>
 
-        {/* Кнопки дій */}
+        {/* Кнопки дій — лише робочі іконки; Share/Save/Delete з’являються при виборі */}
         <div className="flex gap-2">
-          <button
-            onClick={handleShareSelected}
-            disabled={selectionBusy || selectionCount === 0}
-            className={`p-2.5 rounded-xl backdrop-blur-xl border transition-all active:scale-95 disabled:opacity-40 ${
-              selectionCount > 0
-                ? 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/25'
-                : 'bg-white/10 border-white/10 text-gray-300 hover:text-white hover:bg-white/20'
-            }`}
-            title={t('share') || 'Поділитися'}
-          >
-            <ShareIcon size={16} />
-          </button>
-
           <button
             onClick={handleExportCSV}
             disabled={!invoices.length}
             className="p-2.5 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/20 transition-all disabled:opacity-50 active:scale-95"
-            title={t('export')}
+            title={t('export') || 'CSV'}
           >
-            <Download size={16} />
+            <FileSpreadsheet size={16} />
           </button>
 
           <button
@@ -1228,7 +1271,7 @@ export const Invoices: React.FC = () => {
                 onClick={handleShareSelected}
                 disabled={selectionBusy}
                 className="p-2 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/25 transition-all disabled:opacity-50 active:scale-95"
-                title={t('share') || 'Поділитися'}
+                title={t('sendToAccountant') || t('share') || 'Поділитися'}
               >
                 <ShareIcon size={15} />
               </button>
@@ -1263,6 +1306,42 @@ export const Invoices: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Пошук архіву + групування за датою */}
+      <div className="mb-3 space-y-2">
+        <div className="relative">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/35" />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t('invoiceArchiveSearch') || t('searchInvoices')}
+            className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-white/6 border border-white/10 text-white text-sm outline-none focus:border-orange-400/40"
+          />
+        </div>
+        <div className="flex gap-1.5">
+          {(
+            [
+              { key: 'month' as const, label: t('groupByMonth') },
+              { key: 'year' as const, label: t('groupByYear') },
+              { key: 'none' as const, label: t('allStatuses') || 'All' },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => setGroupMode(opt.key)}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all ${
+                groupMode === opt.key
+                  ? 'bg-white/15 text-white'
+                  : 'bg-white/5 text-white/45 hover:text-white/70'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Фільтри по статусах */}
       <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1 scrollbar-hide">
@@ -1341,7 +1420,16 @@ export const Invoices: React.FC = () => {
           </div>
         ) : (
           <div>
-            {filteredInvoices.map((invoice, index) => {
+            {groupedInvoices.map((group) => (
+              <div key={group.key}>
+                {group.label ? (
+                  <div className="px-4 py-2 bg-white/5 border-b border-white/5">
+                    <p className="text-xs font-medium uppercase tracking-wider text-white/45">
+                      {group.label}
+                    </p>
+                  </div>
+                ) : null}
+                {group.items.map((invoice, index) => {
               const isUploaded = invoice.source === 'uploaded';
               const isSelected = selectedIds.has(invoice.id);
 
@@ -1350,7 +1438,7 @@ export const Invoices: React.FC = () => {
                   key={invoice.id}
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.04 }}
+                  transition={{ delay: Math.min(index * 0.03, 0.3) }}
                 >
                   <div
                     className={`flex items-center group ${
@@ -1455,30 +1543,21 @@ export const Invoices: React.FC = () => {
                           e.stopPropagation();
                           setEditUploadedInvoice(invoice);
                         }}
-                        className="pl-2 py-4 text-white/30 hover:text-teal-400 transition-colors active:scale-90"
+                        className="pr-4 pl-2 py-4 text-white/30 hover:text-teal-400 transition-colors active:scale-90"
                         title={t('edit') || 'Редагувати'}
                       >
                         <Pencil size={15} />
                       </button>
                     )}
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setInvoicesToDelete([invoice.id]);
-                        setDeleteDialogOpen(true);
-                      }}
-                      className="pr-4 pl-2 py-4 text-white/30 hover:text-red-400 transition-colors active:scale-90 md:opacity-0 md:group-hover:opacity-100"
-                      title={t('delete')}
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {!isUploaded && <div className="w-3 flex-shrink-0" />}
                   </div>
 
-                  {index < filteredInvoices.length - 1 && <div className="ml-24 border-b border-white/5" />}
+                  {index < group.items.length - 1 && <div className="ml-24 border-b border-white/5" />}
                 </motion.div>
               );
-            })}
+                })}
+              </div>
+            ))}
           </div>
         )}
       </div>

@@ -329,14 +329,14 @@ export const UniversalDocumentEditor: React.FC<Props> = ({ onClose, initialDocum
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h3 className="text-xl font-semibold text-white">Універсальний редактор документів</h3>
+          <h3 className="text-xl font-semibold text-white">PDF</h3>
           {onClose && (
             <button type="button" onClick={onClose} className="p-2 text-white/50 hover:text-white">
               <X size={20} />
             </button>
           )}
         </div>
-        <p className="text-white/50 text-sm">Документ · Презентація · Книга — все в одному файлі</p>
+        <p className="text-white/50 text-sm">PDF reader & editor — document, presentation, book</p>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {(

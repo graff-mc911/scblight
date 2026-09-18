@@ -165,6 +165,7 @@ function AppContent() {
 
             <Route path="/receipts" element={<ProtectedRoute><Receipts /></ProtectedRoute>} />
             <Route path="/scan" element={<ProtectedRoute><ScanReceipt /></ProtectedRoute>} />
+            <Route path="/scanner" element={<Navigate to="/scan" replace />} />
             <Route path="/receipt/:id" element={<ProtectedRoute><ReceiptForm /></ProtectedRoute>} />
             <Route path="/pdf-creator" element={<ProtectedRoute><PdfCreator /></ProtectedRoute>} />
 
