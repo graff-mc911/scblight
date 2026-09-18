@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { createWorker } from 'tesseract.js';
+import { parseDateFromText } from './receiptDateParse';
 
 // Налаштування воркера pdf.js (обов'язково для браузерного середовища)
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
@@ -20,6 +21,11 @@ export interface ScannedReceiptData {
   category: string;
   confidence: number;
   detectedFields: Set<string>;
+  /** Soft OCR/AI warning for review UI (e.g. Edge 503). */
+  warning?: {
+    code: string;
+    message: string;
+  };
 }
 
 export type ScanProgressCallback = (progress: number, status: string) => void;
@@ -51,6 +57,14 @@ const KNOWN_STORES: [RegExp, string][] = [
   [/\bMEDIA\s*MARKT\b/i, 'MediaMarkt'],
   [/\bSATURN\b/i, 'Saturn'],
   [/\bAMAZON\b/i, 'Amazon'],
+  [/\bAVANZA\s+LEVANTE\b/i, 'AVANZA LEVANTE'],
+  [/\bAVANZA\b/i, 'AVANZA'],
+  [/\bMERCADONA\b/i, 'Mercadona'],
+  [/\bCARREFOUR\b/i, 'Carrefour'],
+  [/\bDIA\b/i, 'DIA'],
+  [/\bEL\s+CORTE\s+INGL[EÉ]S\b/i, 'El Corte Inglés'],
+  [/\bREPSOL\b/i, 'Repsol'],
+  [/\bCEPSA\b/i, 'Cepsa'],
 ];
 
 const fmt2 = (n: number) => n.toFixed(2);
@@ -100,12 +114,23 @@ async function preprocessImage(file: File, onProgress?: ScanProgressCallback): P
 
         const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const d = data.data;
+        // Mild contrast stretch (avoid hard binarization that wipes thermal-print text)
+        let min = 255;
+        let max = 0;
         for (let i = 0; i < d.length; i += 4) {
           const g = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
-          const bin = g > 140 ? 255 : 0;
-          d[i] = bin;
-          d[i + 1] = bin;
-          d[i + 2] = bin;
+          if (g < min) min = g;
+          if (g > max) max = g;
+          d[i] = g;
+          d[i + 1] = g;
+          d[i + 2] = g;
+        }
+        const range = Math.max(1, max - min);
+        for (let i = 0; i < d.length; i += 4) {
+          const stretched = Math.round(((d[i] - min) / range) * 255);
+          d[i] = stretched;
+          d[i + 1] = stretched;
+          d[i + 2] = stretched;
           d[i + 3] = 255;
         }
         ctx.putImageData(data, 0, 0);
@@ -175,7 +200,8 @@ async function extractTextFromImage(file: File, onProgress?: ScanProgressCallbac
   }
 
   onProgress?.(13, 'Завантаження OCR...');
-  const worker = await createWorker('deu+eng', 1, {
+  // eng+spa+deu: Spanish receipts (AGO months, TOTAL) + DE/EN fallbacks
+  const worker = await createWorker('eng+spa+deu', 1, {
     logger: (m: any) => {
       if (m.status === 'recognizing text') {
         onProgress?.(15 + Math.round(m.progress * 62), 'Розпізнаємо текст...');
@@ -186,7 +212,9 @@ async function extractTextFromImage(file: File, onProgress?: ScanProgressCallbac
   try {
     await worker.setParameters({
       tessedit_pageseg_mode: '4' as any,
-      tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÄÖÜäöüß.,:-€/*#+%@&()[]{}!\'"/ ',
+      // Keep whitelist broad enough for Spanish/German merchant names & totals
+      tessedit_char_whitelist:
+        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÄÖÜäöüßÁÉÍÓÚÑáéíóúñ.,:-€$£/*#+%@&()[]{}!\\'\"/ ",
     } as any);
     const { data } = await worker.recognize(src);
     onProgress?.(80, 'Аналіз даних...');
@@ -210,41 +238,45 @@ function fixOCRErrors(text: string): string {
     .trim();
 }
 
-// Парсинг дати
+// Парсинг дати (incl. Spanish 14/AGO/26)
 function parseDate(text: string): string {
-  const m = text.match(/\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b/);
-  if (!m) return '';
-  const dd = m[1].padStart(2, '0');
-  const mm = m[2].padStart(2, '0');
-  const yy = m[3].length === 2 ? `20${m[3]}` : m[3].padStart(4, '20');
-  return `${yy}-${mm}-${dd}`;
+  return parseDateFromText(text);
 }
 
 // Парсинг підсумкової суми (з фокусом на низ чеку)
 function parseTotal(text: string): string {
-  const numberRx = /(-?\d{1,7}(?:[.,]\d{2})?)(?:\s*(?:€|EUR))?/g;
+  const numberRx = /(-?\d{1,7}(?:[.,]\d{2})?)(?:\s*(?:€|EUR|USD|\$))?/g;
   const lines = text.split('\n');
   let best = '';
   let bestScore = -1;
 
   const scoreLine = (line: string, idx: number) => {
     let s = 0;
-    if (/gesamt|summe|total|betrag|brutto|zahlbetrag|zu\s*zahlen|payable|amount\s*due/i.test(line)) s += 5;
-    if (/eur|€/.test(line)) s += 1;
+    if (
+      /gesamt|summe|total|betrag|brutto|zahlbetrag|zu\s*zahlen|payable|amount\s*due|importe|total\s*a\s*pagar|a\s*pagar|suma|total\s*eur|total\s*€/i.test(
+        line,
+      )
+    ) {
+      s += 5;
+    }
+    if (/eur|€|usd|\$/.test(line)) s += 1;
     if (line.length < 60) s += 1;
     const fromBottom = lines.length - idx;
-    if (fromBottom < 10) s += 2; // пріоритетнизу
+    if (fromBottom < 10) s += 2;
     return s;
   };
 
   lines.forEach((line, idx) => {
-    if (/mwst|ust|steuer/i.test(line)) return; // не беремо ПДВ рядки
+    if (/mwst|ust|steuer|iva\b|i\.?v\.?a\.?/i.test(line) && !/total|importe|suma|gesamt/i.test(line)) {
+      return;
+    }
     let m: RegExpExecArray | null;
+    numberRx.lastIndex = 0;
     while ((m = numberRx.exec(line)) !== null) {
       const value = toNum(m[1]);
       if (value <= 0 || value > 100000) continue;
       const score = scoreLine(line, idx);
-      if (score > bestScore) {
+      if (score > bestScore || (score === bestScore && value > toNum(best))) {
         bestScore = score;
         best = m[1];
       }
@@ -282,7 +314,11 @@ function parseStoreName(text: string, fileName?: string): string {
 
   for (const line of lines.slice(0, 15)) {
     if (skip.test(line)) continue;
-    if (/[A-ZÄÖÜ]{3}/.test(line) && line.length <= 40 && !/nr\.?|no\.?|bon|beleg|rechnung/i.test(line)) {
+    if (
+      (/[A-ZÄÖÜÁÉÍÓÚÑ]{3}/.test(line) || /[A-Za-zÄÖÜäöüßÁÉÍÓÚÑáéíóúñ]{4,}/.test(line)) &&
+      line.length <= 50 &&
+      !/nr\.?|no\.?|bon|beleg|rechnung|fecha|ticket|factura|cif|nif|tel/i.test(line)
+    ) {
       return line.replace(/\s{2,}/g, ' ');
     }
   }
@@ -291,8 +327,8 @@ function parseStoreName(text: string, fileName?: string): string {
       line.length >= 3 &&
       line.length <= 80 &&
       !skip.test(line) &&
-      /[A-Za-zÄÖÜäöüß]{2}/.test(line) &&
-      !/nr\.?|no\.?|bon|beleg|rechnung/i.test(line)
+      /[A-Za-zÄÖÜäöüßÁÉÍÓÚÑáéíóúñ]{2}/.test(line) &&
+      !/nr\.?|no\.?|bon|beleg|rechnung|fecha|ticket|factura|cif|nif|tel/i.test(line)
     ) {
       return line.replace(/\s{2,}/g, ' ');
     }

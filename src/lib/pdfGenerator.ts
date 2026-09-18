@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { translations } from './languages';
 import { calculateLineTotal, parseMaterialAmount } from './invoiceTotals';
+import { ensurePdfUnicodeFont } from './pdfUnicodeFont';
 
 interface InvoiceItem {
   description: string;
@@ -51,6 +52,7 @@ export const generateInvoicePDF = async (
   const doc = new jsPDF('p', 'mm', 'a4');
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
+  const font = await ensurePdfUnicodeFont(doc);
 
   const leftMargin = 20;
   const rightMargin = 20;
@@ -67,13 +69,13 @@ export const generateInvoicePDF = async (
   }
 
   doc.setFontSize(11);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(font, 'bold');
   if (company.company_name) {
     doc.text(company.company_name, pageWidth - rightMargin, currentY, { align: 'right' });
   }
 
   doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(font, 'normal');
   currentY += 5;
 
   if (company.company_address) {
@@ -97,7 +99,7 @@ export const generateInvoicePDF = async (
   currentY += 10;
 
   doc.setFontSize(8);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(font, 'normal');
   doc.setTextColor(0, 0, 0);
   if (company.company_name && company.company_address) {
     const firstAddressLine = company.company_address.split('\n')[0];
@@ -107,11 +109,11 @@ export const generateInvoicePDF = async (
   currentY += 8;
 
   doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(font, 'bold');
   doc.text(invoice.client_name, leftMargin, currentY);
   currentY += 5;
 
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(font, 'normal');
   if (invoice.client_address) {
     const clientAddressLines = invoice.client_address.split('\n');
     clientAddressLines.forEach(line => {
@@ -140,9 +142,9 @@ export const generateInvoicePDF = async (
 
   let metaCurrentY = metaStartY;
   metaData.forEach(([label, value]) => {
-    doc.setFont('helvetica', 'normal');
+    doc.setFont(font, 'normal');
     doc.text(label, pageWidth - rightMargin - 60, metaCurrentY);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont(font, 'normal');
     doc.text(value, pageWidth - rightMargin, metaCurrentY, { align: 'right' });
     metaCurrentY += 5;
   });
@@ -155,19 +157,19 @@ export const generateInvoicePDF = async (
   const tStrAny = (key: string): string => ((t as any)[key] as string) || ((translations['de'] as any)[key] as string) || '';
 
   doc.setFontSize(16);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(font, 'bold');
   doc.text(`${tStr('invoiceTitle')} ${invoice.document_number}`, leftMargin, currentY);
   currentY += 8;
 
   if (invoice.object_address) {
     doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
+    doc.setFont(font, 'bold');
     doc.text(`BVH: ${invoice.object_address}`, leftMargin, currentY);
     currentY += 8;
   }
 
   doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(font, 'normal');
   const salutation = `${tStr('dearClient')} ${invoice.client_name},`;
   doc.text(salutation, leftMargin, currentY);
   currentY += 8;
@@ -216,12 +218,14 @@ export const generateInvoicePDF = async (
     body: tableData,
     theme: 'plain',
     styles: {
+      font: font,
       fontSize: 9,
       cellPadding: 3,
       lineColor: [0, 0, 0],
       lineWidth: 0.1
     },
     headStyles: {
+      font: font,
       fillColor: [255, 255, 255],
       textColor: [0, 0, 0],
       fontStyle: 'bold',
@@ -249,7 +253,7 @@ export const generateInvoicePDF = async (
   const totalsWidth = 60;
 
   doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(font, 'normal');
   doc.text('Zwischensumme (netto)', totalsX, currentY);
   doc.text(`${netTotal.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
     totalsX + totalsWidth, currentY, { align: 'right' });
@@ -262,14 +266,14 @@ export const generateInvoicePDF = async (
     currentY += 5;
   }
 
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(font, 'bold');
   doc.text('Gesamtbetrag', totalsX, currentY);
   doc.text(`${grossTotal.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
     totalsX + totalsWidth, currentY, { align: 'right' });
   currentY += 8;
 
   doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(font, 'normal');
   doc.text('Zahlbar sofort, rein netto', leftMargin, currentY);
   currentY += 8;
 
@@ -282,18 +286,18 @@ export const generateInvoicePDF = async (
   currentY += 5;
 
   if (invoice.signed_by) {
-    doc.setFont('helvetica', 'bold');
+    doc.setFont(font, 'bold');
     doc.text(invoice.signed_by, leftMargin, currentY);
   } else if (company.company_name) {
     const companyRepName = company.company_name.split(' ')[0];
-    doc.setFont('helvetica', 'bold');
+    doc.setFont(font, 'bold');
     doc.text(companyRepName, leftMargin, currentY);
   }
   currentY += 15;
 
   const legalY = Math.max(currentY, pageHeight - 45);
   doc.setFontSize(7);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(font, 'normal');
   doc.setTextColor(0, 0, 0);
   const legalText = tStrAny('legalNotice');
   const legalLines = doc.splitTextToSize(legalText, pageWidth - leftMargin - rightMargin);
@@ -305,10 +309,10 @@ export const generateInvoicePDF = async (
 
   let footerLeftY = footerY;
   if (company.company_name) {
-    doc.setFont('helvetica', 'bold');
+    doc.setFont(font, 'bold');
     doc.text(company.company_name, leftMargin, footerLeftY);
     footerLeftY += 3;
-    doc.setFont('helvetica', 'normal');
+    doc.setFont(font, 'normal');
   }
   if (company.company_address) {
     const addressLine = company.company_address.split('\n').join(', ');
