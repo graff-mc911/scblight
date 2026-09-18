@@ -30,8 +30,9 @@ function buildMonthlyData(invoices: any[], expenseDocuments: any[]): MonthData[]
     expenses: 0,
   }));
 
-  // Доходи беремо тільки з нормальних інвойсів
+  // Spec §5: paid invoices only → Total received
   for (const inv of invoices) {
+    if (inv.status !== 'paid') continue;
     const d = new Date(inv.date || inv.created_at);
 
     if (d.getFullYear() === currentYear) {
@@ -39,7 +40,7 @@ function buildMonthlyData(invoices: any[], expenseDocuments: any[]): MonthData[]
     }
   }
 
-  // Витрати беремо з expense_documents
+  // Receipts/expenses → Total spent
   for (const exp of expenseDocuments) {
     const d = new Date(exp.document_date || exp.created_at);
 
@@ -194,7 +195,7 @@ function MonthlyChart({
         </div>
 
         <div className="flex items-center gap-1.5">
-          <span className="text-white/40 text-xs">Differenz</span>
+          <span className="text-white/40 text-xs">{t('netProfit')}</span>
           <span className={`text-sm font-semibold ${diff >= 0 ? 'text-green-400' : 'text-red-400'}`}>
             {formatAmount(diff)}
           </span>
@@ -383,7 +384,7 @@ export const Home: React.FC = () => {
           onClick={() => navigate('/receipts')}
         >
           <p className="text-white/50 text-xs mb-1.5">
-            Документи витрат
+            {t('expenseDocuments')}
           </p>
           <h2 className="text-xl font-semibold text-cyan-400 leading-tight">
             {mergedExpenses.length}
@@ -391,10 +392,10 @@ export const Home: React.FC = () => {
         </Card>
       </div>
 
-      {/* Додаткова картка прибутку */}
+      {/* Net profit — same totals as chart footer */}
       <div className="mb-6">
         <Card className="p-4">
-          <p className="text-white/50 text-xs mb-1.5">Чистий прибуток</p>
+          <p className="text-white/50 text-xs mb-1.5">{t('netProfit')}</p>
           <h2 className={`text-2xl font-semibold leading-tight ${totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
             {formatAmount(totalProfit)}
           </h2>

@@ -667,6 +667,7 @@ export const InvoiceForm: React.FC = () => {
               <span className="ml-1">{t('addPosition')}</span>
             </Button>
           </div>
+          <p className="text-white/40 text-xs -mt-2 mb-4">{t('calcOnSiteHint')}</p>
 
           <div className="space-y-4">
             {items.map((item, index) => (

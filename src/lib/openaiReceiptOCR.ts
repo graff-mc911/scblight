@@ -5,6 +5,7 @@ import {
   ScanProgressCallback,
 } from './receiptOCR';
 import { normalizeExpenseCategory } from './expenseCategories';
+import { normalizeReceiptDate } from './receiptDateParse';
 import * as pdfjsLib from 'pdfjs-dist';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -18,6 +19,16 @@ export type OpenAiReceiptJson = {
   currency?: string;
   merchant?: string;
   category?: string;
+};
+
+/** Soft warning shown in review UI (e.g. Edge 503 missing OPENAI_API_KEY). */
+export type RecognizeReceiptWarning = {
+  code: 'openai_not_configured' | 'edge_unavailable' | 'weak_ai_result';
+  message: string;
+};
+
+export type RecognizeReceiptResult = ScannedReceiptData & {
+  warning?: RecognizeReceiptWarning;
 };
 
 async function fileToImageDataUrl(file: File): Promise<{ dataUrl: string; mimeType: string }> {
@@ -36,7 +47,6 @@ async function fileToImageDataUrl(file: File): Promise<{ dataUrl: string; mimeTy
     return { dataUrl, mimeType: 'image/jpeg' };
   }
 
-  // Downscale large photos to keep Edge Function payloads small
   const bitmap = await createImageBitmap(file);
   const maxSide = 1600;
   const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
@@ -57,7 +67,7 @@ function mapOpenAiToScanned(raw: OpenAiReceiptJson): ScannedReceiptData {
   const totalNum = Number(raw.total_amount);
   const total = Number.isFinite(totalNum) && totalNum > 0 ? totalNum.toFixed(2) : '';
   const merchant = String(raw.merchant || '').trim();
-  const date = String(raw.date || '').trim();
+  const date = normalizeReceiptDate(String(raw.date || '').trim());
   const currency = String(raw.currency || 'EUR').trim().toUpperCase() || 'EUR';
   const category = normalizeExpenseCategory(raw.category);
 
@@ -72,6 +82,8 @@ function mapOpenAiToScanned(raw: OpenAiReceiptJson): ScannedReceiptData {
   if (total) confidence += 25;
   if (date) confidence += 10;
   if (category && category !== 'other') confidence += 5;
+  // Avoid looking "confident" when core fields are empty (date input may also reject bad formats)
+  if (!merchant && !total) confidence = Math.min(confidence, 30);
 
   return {
     store_name: merchant,
@@ -91,6 +103,70 @@ function mapOpenAiToScanned(raw: OpenAiReceiptJson): ScannedReceiptData {
   };
 }
 
+function isWeakScan(data: ScannedReceiptData): boolean {
+  return !data.store_name?.trim() && !data.total?.trim();
+}
+
+function mergePreferFilled(
+  primary: ScannedReceiptData,
+  fallback: ScannedReceiptData,
+): ScannedReceiptData {
+  const store_name = primary.store_name?.trim() || fallback.store_name;
+  const total = primary.total?.trim() || fallback.total;
+  const date =
+    (primary.detectedFields.has('date') && primary.date) ||
+    (fallback.detectedFields.has('date') && fallback.date) ||
+    primary.date ||
+    fallback.date;
+  const receipt_number = primary.receipt_number?.trim() || fallback.receipt_number;
+  const items = primary.items?.trim() || fallback.items;
+  const currency = primary.currency || fallback.currency;
+  const category =
+    primary.category && primary.category !== 'other'
+      ? primary.category
+      : fallback.category || primary.category || 'other';
+
+  const detectedFields = new Set<string>([
+    ...Array.from(primary.detectedFields),
+    ...Array.from(fallback.detectedFields),
+  ]);
+  if (store_name) detectedFields.add('store_name');
+  if (total) detectedFields.add('total');
+  if (date) detectedFields.add('date');
+
+  const confidence = Math.max(primary.confidence, fallback.confidence);
+
+  return {
+    ...fallback,
+    ...primary,
+    store_name,
+    total,
+    amount_net: primary.amount_net?.trim() || fallback.amount_net || total,
+    date: date || new Date().toISOString().split('T')[0],
+    receipt_number,
+    items,
+    currency,
+    category,
+    confidence,
+    detectedFields,
+    vat_enabled: primary.vat_enabled || fallback.vat_enabled,
+    vat_amount: primary.vat_enabled ? primary.vat_amount : fallback.vat_amount,
+    vat_rate: primary.vat_enabled ? primary.vat_rate : fallback.vat_rate,
+    payment_method: primary.detectedFields.has('payment_method')
+      ? primary.payment_method
+      : fallback.payment_method || primary.payment_method,
+  };
+}
+
+class EdgeRecognizeError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'EdgeRecognizeError';
+    this.status = status;
+  }
+}
+
 async function callEdgeFunction(imageBase64: string, mimeType: string): Promise<OpenAiReceiptJson> {
   const {
     data: { session },
@@ -98,6 +174,8 @@ async function callEdgeFunction(imageBase64: string, mimeType: string): Promise<
   if (!session?.access_token) throw new Error('not_authenticated');
 
   const base = import.meta.env.VITE_SUPABASE_URL;
+  if (!base) throw new Error('missing_supabase_url');
+
   const res = await fetch(`${base}/functions/v1/recognize-receipt`, {
     method: 'POST',
     headers: {
@@ -108,105 +186,100 @@ async function callEdgeFunction(imageBase64: string, mimeType: string): Promise<
     body: JSON.stringify({ imageBase64, mimeType }),
   });
 
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
   if (!res.ok || !json?.data) {
-    throw new Error(json?.error || `recognize-receipt failed (${res.status})`);
+    throw new EdgeRecognizeError(
+      json?.error || `recognize-receipt failed (${res.status})`,
+      res.status,
+    );
   }
   return json.data as OpenAiReceiptJson;
 }
 
-async function callOpenAiDirect(imageBase64: string): Promise<OpenAiReceiptJson> {
-  const key = import.meta.env.VITE_OPENAI_API_KEY as string | undefined;
-  if (!key) throw new Error('no_client_openai_key');
-
-  const system = `You are a receipt data extractor for personal bookkeeping.
-Look at the receipt image and return ONLY a single JSON object.
-No markdown, no code fences, no commentary.
-
-Schema (exact keys):
-{
-  "date": "YYYY-MM-DD or empty string if unknown",
-  "total_amount": number (gross total paid, use 0 if unknown),
-  "currency": "ISO 4217 code like EUR, USD, UAH (default EUR if unclear)",
-  "merchant": "store or vendor name, empty string if unknown",
-  "category": "one of: food, auto, entertainment, materials, utilities, health, travel, office, other"
-}
-
-Rules:
-- Prefer the final amount due / total / Summe / Gesamt / Zu zahlen.
-- Do not invent merchants or amounts; use empty string or 0 when unsure.
-- category must be exactly one of the allowed values.
-- Output must be valid JSON parseable by JSON.parse.`;
-
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: system },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'Extract receipt fields as JSON per system instructions.' },
-            { type: 'image_url', image_url: { url: imageBase64, detail: 'high' } },
-          ],
-        },
-      ],
-    }),
-  });
-
-  const json = await res.json();
-  if (!res.ok) {
-    throw new Error(json?.error?.message || 'OpenAI direct call failed');
+function warningFromEdgeError(err: unknown): RecognizeReceiptWarning | undefined {
+  if (err instanceof EdgeRecognizeError) {
+    const msg = err.message || '';
+    if (
+      err.status === 503 ||
+      /OPENAI_API_KEY\s+not\s+configured/i.test(msg)
+    ) {
+      return {
+        code: 'openai_not_configured',
+        message:
+          'AI recognition unavailable: OPENAI_API_KEY is not configured on the server. Using on-device OCR instead.',
+      };
+    }
+    return {
+      code: 'edge_unavailable',
+      message: `AI recognition unavailable (${err.status}): ${msg}. Using on-device OCR instead.`,
+    };
   }
-  const content = json?.choices?.[0]?.message?.content || '{}';
-  return JSON.parse(content) as OpenAiReceiptJson;
+  if (err instanceof Error && err.message === 'not_authenticated') {
+    return {
+      code: 'edge_unavailable',
+      message: 'Sign in required for AI recognition. Using on-device OCR instead.',
+    };
+  }
+  return {
+    code: 'edge_unavailable',
+    message: 'AI recognition unavailable. Using on-device OCR instead.',
+  };
 }
 
 /**
- * Prefer OpenAI gpt-4o-mini (Edge Function → optional VITE_OPENAI_API_KEY),
- * fall back to on-device Tesseract.
+ * Prefer Supabase Edge Function `recognize-receipt` (server OPENAI_API_KEY).
+ * Falls back to on-device Tesseract; surfaces a clear warning when Edge returns 503.
+ * Merges Tesseract fields when AI returns empty merchant+amount.
  */
 export async function recognizeReceiptSmart(
   file: File,
   onProgress?: ScanProgressCallback,
-): Promise<ScannedReceiptData> {
+): Promise<RecognizeReceiptResult> {
   onProgress?.(8, 'Preparing image…');
+
+  let warning: RecognizeReceiptWarning | undefined;
 
   try {
     const { dataUrl, mimeType } = await fileToImageDataUrl(file);
     onProgress?.(25, 'AI recognition…');
 
-    try {
-      const raw = await callEdgeFunction(dataUrl, mimeType);
+    const raw = await callEdgeFunction(dataUrl, mimeType);
+    const ai = mapOpenAiToScanned(raw);
+
+    if (!isWeakScan(ai)) {
       onProgress?.(100, 'Done');
-      return mapOpenAiToScanned(raw);
-    } catch (edgeErr) {
-      // Edge not deployed / no secret → try personal client key
-      if (import.meta.env.VITE_OPENAI_API_KEY) {
-        onProgress?.(40, 'AI recognition (direct)…');
-        const raw = await callOpenAiDirect(dataUrl);
-        onProgress?.(100, 'Done');
-        return mapOpenAiToScanned(raw);
-      }
-      throw edgeErr;
+      return ai;
     }
-  } catch {
+
+    // AI returned empty merchant/amount — enrich with Tesseract
+    onProgress?.(40, 'Improving with on-device OCR…');
+    const tess = await extractReceiptData(file, onProgress);
+    const merged = mergePreferFilled(ai, {
+      ...tess,
+      category: tess.category || ai.category || 'other',
+    });
+    warning = {
+      code: 'weak_ai_result',
+      message: 'AI returned incomplete fields; filled missing values from on-device OCR.',
+    };
+    onProgress?.(100, 'Done');
+    return { ...merged, warning };
+  } catch (err) {
+    warning = warningFromEdgeError(err);
+    if (import.meta.env.DEV) {
+      console.warn('[recognizeReceiptSmart] Edge Function failed, using Tesseract:', err);
+    }
     onProgress?.(12, 'Fallback OCR…');
     const data = await extractReceiptData(file, onProgress);
     return {
       ...data,
       category: data.category || 'other',
+      warning,
     };
   }
 }
 
+/** True when the client can call the Edge Function (needs VITE_SUPABASE_* at build time). */
 export function hasOpenAiConfigured(): boolean {
-  return Boolean(import.meta.env.VITE_OPENAI_API_KEY);
+  return Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
 }
