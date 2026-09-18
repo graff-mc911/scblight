@@ -49,14 +49,21 @@ async function loadFontBase64(): Promise<{ normal: string; bold: string }> {
  */
 export async function ensurePdfUnicodeFont(doc: jsPDF): Promise<string> {
   const fonts = await loadFontBase64();
-  const vfs = (doc as unknown as { getFileFromVFS?: (name: string) => unknown }).getFileFromVFS;
-  if (!vfs?.call(doc, 'DejaVuSans.ttf')) {
+  const exists = (name: string) =>
+    typeof (doc as unknown as { existsFileInVFS?: (n: string) => boolean }).existsFileInVFS ===
+    'function'
+      ? Boolean(
+          (doc as unknown as { existsFileInVFS: (n: string) => boolean }).existsFileInVFS(name),
+        )
+      : false;
+
+  if (!exists('DejaVuSans.ttf')) {
     doc.addFileToVFS('DejaVuSans.ttf', fonts.normal);
-    doc.addFont('DejaVuSans.ttf', PDF_UNICODE_FONT, 'normal');
+    doc.addFont('DejaVuSans.ttf', PDF_UNICODE_FONT, 'normal', 'Identity-H');
   }
-  if (!vfs?.call(doc, 'DejaVuSans-Bold.ttf')) {
+  if (!exists('DejaVuSans-Bold.ttf')) {
     doc.addFileToVFS('DejaVuSans-Bold.ttf', fonts.bold);
-    doc.addFont('DejaVuSans-Bold.ttf', PDF_UNICODE_FONT, 'bold');
+    doc.addFont('DejaVuSans-Bold.ttf', PDF_UNICODE_FONT, 'bold', 'Identity-H');
   }
   doc.setFont(PDF_UNICODE_FONT, 'normal');
   return PDF_UNICODE_FONT;
