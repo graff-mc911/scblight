@@ -98,6 +98,8 @@ async function callEdgeFunction(imageBase64: string, mimeType: string): Promise<
   if (!session?.access_token) throw new Error('not_authenticated');
 
   const base = import.meta.env.VITE_SUPABASE_URL;
+  if (!base) throw new Error('missing_supabase_url');
+
   const res = await fetch(`${base}/functions/v1/recognize-receipt`, {
     method: 'POST',
     headers: {
@@ -108,70 +110,17 @@ async function callEdgeFunction(imageBase64: string, mimeType: string): Promise<
     body: JSON.stringify({ imageBase64, mimeType }),
   });
 
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
   if (!res.ok || !json?.data) {
     throw new Error(json?.error || `recognize-receipt failed (${res.status})`);
   }
   return json.data as OpenAiReceiptJson;
 }
 
-async function callOpenAiDirect(imageBase64: string): Promise<OpenAiReceiptJson> {
-  const key = import.meta.env.VITE_OPENAI_API_KEY as string | undefined;
-  if (!key) throw new Error('no_client_openai_key');
-
-  const system = `You are a receipt data extractor for personal bookkeeping.
-Look at the receipt image and return ONLY a single JSON object.
-No markdown, no code fences, no commentary.
-
-Schema (exact keys):
-{
-  "date": "YYYY-MM-DD or empty string if unknown",
-  "total_amount": number (gross total paid, use 0 if unknown),
-  "currency": "ISO 4217 code like EUR, USD, UAH (default EUR if unclear)",
-  "merchant": "store or vendor name, empty string if unknown",
-  "category": "one of: food, auto, entertainment, materials, utilities, health, travel, office, other"
-}
-
-Rules:
-- Prefer the final amount due / total / Summe / Gesamt / Zu zahlen.
-- Do not invent merchants or amounts; use empty string or 0 when unsure.
-- category must be exactly one of the allowed values.
-- Output must be valid JSON parseable by JSON.parse.`;
-
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: system },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'Extract receipt fields as JSON per system instructions.' },
-            { type: 'image_url', image_url: { url: imageBase64, detail: 'high' } },
-          ],
-        },
-      ],
-    }),
-  });
-
-  const json = await res.json();
-  if (!res.ok) {
-    throw new Error(json?.error?.message || 'OpenAI direct call failed');
-  }
-  const content = json?.choices?.[0]?.message?.content || '{}';
-  return JSON.parse(content) as OpenAiReceiptJson;
-}
-
 /**
- * Prefer OpenAI gpt-4o-mini (Edge Function → optional VITE_OPENAI_API_KEY),
- * fall back to on-device Tesseract.
+ * AI OCR via Supabase Edge Function `recognize-receipt` only.
+ * Server secret: OPENAI_API_KEY (Supabase Edge Function secrets — never VITE_).
+ * Falls back to on-device Tesseract if the Edge Function is unavailable.
  */
 export async function recognizeReceiptSmart(
   file: File,
@@ -183,21 +132,13 @@ export async function recognizeReceiptSmart(
     const { dataUrl, mimeType } = await fileToImageDataUrl(file);
     onProgress?.(25, 'AI recognition…');
 
-    try {
-      const raw = await callEdgeFunction(dataUrl, mimeType);
-      onProgress?.(100, 'Done');
-      return mapOpenAiToScanned(raw);
-    } catch (edgeErr) {
-      // Edge not deployed / no secret → try personal client key
-      if (import.meta.env.VITE_OPENAI_API_KEY) {
-        onProgress?.(40, 'AI recognition (direct)…');
-        const raw = await callOpenAiDirect(dataUrl);
-        onProgress?.(100, 'Done');
-        return mapOpenAiToScanned(raw);
-      }
-      throw edgeErr;
+    const raw = await callEdgeFunction(dataUrl, mimeType);
+    onProgress?.(100, 'Done');
+    return mapOpenAiToScanned(raw);
+  } catch (err) {
+    if (import.meta.env.DEV) {
+      console.warn('[recognizeReceiptSmart] Edge Function failed, using Tesseract:', err);
     }
-  } catch {
     onProgress?.(12, 'Fallback OCR…');
     const data = await extractReceiptData(file, onProgress);
     return {
@@ -207,6 +148,7 @@ export async function recognizeReceiptSmart(
   }
 }
 
+/** True when the client can call the Edge Function (needs VITE_SUPABASE_* at build time). */
 export function hasOpenAiConfigured(): boolean {
-  return Boolean(import.meta.env.VITE_OPENAI_API_KEY);
+  return Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
 }
