@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, FileText, Users, User, Receipt, Settings, Globe } from 'lucide-react';
+import { Home, FileText, Users, User, Receipt, Settings, Globe, ScanLine } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { languages } from '../lib/languages';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -18,6 +18,7 @@ export const BottomNav: React.FC = () => {
     { path: '/invoices', icon: FileText, label: t('invoices') },
     { path: '/clients', icon: Users, label: t('clients') },
     { path: '/receipts', icon: Receipt, label: t('receipts') },
+    { path: '/scan', icon: ScanLine, label: t('scanReceiptTitle') },
     { path: '/account', icon: User, label: t('account') },
   ], [t]);
 

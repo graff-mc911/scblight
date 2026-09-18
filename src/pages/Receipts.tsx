@@ -10,6 +10,7 @@ import {
   Upload,
   X,
   ZoomIn,
+  ScanLine,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -21,6 +22,7 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { downloadReceiptPDF } from '../lib/receiptPdfGenerator';
 import ReceiptScanReview from '../components/ReceiptScanReview';
 import { ScannedReceiptData } from '../lib/receiptOCR';
+import { saveExpenseFromScan } from '../lib/scanSync';
 
 interface ExpenseDocumentType {
   id: string;
@@ -236,22 +238,15 @@ export default function Receipts() {
   const handleScanConfirm = useCallback(
     async (data: ScannedReceiptData, fileUrl: string) => {
       setScanFile(null);
-
-      const params = new URLSearchParams({
-        issuer_name: data.store_name || '',
-        date: data.date || new Date().toISOString().split('T')[0],
-        amount_gross: String(data.total || ''),
-        amount_net: String(data.amount_net || ''),
-        vat_amount: String(data.vat_amount || ''),
-        payment_method: data.payment_method || 'Bar',
-        items: data.items || '',
-        file_url: fileUrl || '',
-        receipt_number: data.receipt_number || '',
-      });
-
-      navigate(`/receipt/new?${params.toString()}`);
+      try {
+        await saveExpenseFromScan(data, fileUrl);
+        showSuccess(t('scanSavedToExpenses'));
+        queryClient.invalidateQueries({ queryKey: ['expense_documents'] });
+      } catch {
+        showError(t('errorSavingReceipt'));
+      }
     },
-    [navigate]
+    [navigate, showSuccess, showError, t, queryClient]
   );
 
   return (
@@ -267,6 +262,15 @@ export default function Receipts() {
         </div>
 
         <div className="flex gap-2">
+          {/* Dedicated scan page */}
+          <button
+            onClick={() => navigate('/scan')}
+            className="p-2.5 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 transition-all active:scale-95"
+            title={t('scanReceiptTitle')}
+          >
+            <ScanLine size={18} />
+          </button>
+
           {/* Кнопка OCR / завантаження файлу */}
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -327,16 +331,25 @@ export default function Receipts() {
             </h3>
 
             <p className="text-white/60 mb-6 text-sm">
-              Завантаж чек, PDF або створіть документ вручну
+              {t('scanPageSubtitle')}
             </p>
 
-            <button
-              onClick={() => navigate('/receipt/new')}
-              className="bg-orange-500/15 border border-orange-500/30 text-orange-400 hover:bg-orange-500/25 px-6 py-2.5 rounded-xl font-medium transition-all active:scale-95 flex items-center gap-2 mx-auto"
-            >
-              <FileText size={16} />
-              Створити документ
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2 justify-center">
+              <button
+                onClick={() => navigate('/scan')}
+                className="bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 px-6 py-2.5 rounded-xl font-medium transition-all active:scale-95 flex items-center gap-2 mx-auto"
+              >
+                <ScanLine size={16} />
+                {t('scanReceiptTitle')}
+              </button>
+              <button
+                onClick={() => navigate('/receipt/new')}
+                className="bg-orange-500/15 border border-orange-500/30 text-orange-400 hover:bg-orange-500/25 px-6 py-2.5 rounded-xl font-medium transition-all active:scale-95 flex items-center gap-2 mx-auto"
+              >
+                <FileText size={16} />
+                {t('addReceipt') || 'Створити документ'}
+              </button>
+            </div>
           </div>
         ) : (
           <div>

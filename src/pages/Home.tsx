@@ -5,7 +5,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, ChevronRight, AlertCircle, FileText } from 'lucide-react';
+import { Plus, Users, ChevronRight, AlertCircle, FileText, ScanLine } from 'lucide-react';
 
 interface MonthData {
   month: string;
@@ -327,6 +327,12 @@ export const Home: React.FC = () => {
       icon: Plus,
       color: 'text-orange-400',
       onClick: () => navigate('/invoices/new'),
+    },
+    {
+      label: t('scanReceiptTitle') || 'Розпізнати чек',
+      icon: ScanLine,
+      color: 'text-teal-400',
+      onClick: () => navigate('/scan'),
     },
     {
       label: t('createPdfBtn') || 'Створити PDF',

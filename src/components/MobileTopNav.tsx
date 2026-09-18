@@ -36,6 +36,7 @@ export const MobileTopNav: React.FC = () => {
     { path: '/invoices', label: t('invoices') },
     { path: '/clients', label: t('clients') },
     { path: '/receipts', label: t('receipts') },
+    { path: '/scan', label: t('scanReceiptTitle') },
     { path: '/account', label: t('account') },
   ], [t]);
 

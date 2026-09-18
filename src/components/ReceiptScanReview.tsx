@@ -13,6 +13,10 @@ interface ReceiptScanReviewProps {
   file: File;
   onClose: () => void;
   onConfirm: (data: ScannedReceiptData, fileUrl: string) => void;
+  /** Skip re-OCR when the scan queue already produced data */
+  initialData?: ScannedReceiptData;
+  /** Skip re-upload when storage URL is already known */
+  initialFileUrl?: string;
 }
 
 type Phase = 'scanning' | 'review' | 'error';
@@ -55,13 +59,19 @@ const inputCls = (detected: boolean) =>
       : 'border-white/10 focus:border-white/30 focus:ring-white/10'
   }`;
 
-export default function ReceiptScanReview({ file, onClose, onConfirm }: ReceiptScanReviewProps) {
+export default function ReceiptScanReview({
+  file,
+  onClose,
+  onConfirm,
+  initialData,
+  initialFileUrl,
+}: ReceiptScanReviewProps) {
   const { t } = useLanguage();
-  const [phase, setPhase] = useState<Phase>('scanning');
-  const [progress, setProgress] = useState(0);
+  const [phase, setPhase] = useState<Phase>(initialData ? 'review' : 'scanning');
+  const [progress, setProgress] = useState(initialData ? 100 : 0);
   const [statusText, setStatusText] = useState('');
-  const [data, setData] = useState<ScannedReceiptData | null>(null);
-  const [fileUrl, setFileUrl] = useState('');
+  const [data, setData] = useState<ScannedReceiptData | null>(initialData || null);
+  const [fileUrl, setFileUrl] = useState(initialFileUrl || '');
   const [previewUrl, setPreviewUrl] = useState('');
   const [error, setError] = useState('');
   const isImage = /image\//i.test(file.type);
@@ -70,6 +80,16 @@ export default function ReceiptScanReview({ file, onClose, onConfirm }: ReceiptS
   useEffect(() => {
     abortRef.current = false;
     if (isImage) setPreviewUrl(URL.createObjectURL(file));
+
+    if (initialData) {
+      setData(initialData);
+      setFileUrl(initialFileUrl || '');
+      setPhase('review');
+      return () => {
+        abortRef.current = true;
+      };
+    }
+
     setStatusText(t('analyzingReceipt'));
 
     async function run() {

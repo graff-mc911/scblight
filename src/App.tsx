@@ -42,6 +42,7 @@ const ClientInvoices = lazy(() =>
 );
 const ReceiptForm = lazy(() => import('./pages/ReceiptForm'));
 const PdfCreator = lazy(() => import('./pages/PdfCreator'));
+const ScanReceipt = lazy(() => import('./pages/ScanReceipt'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -163,6 +164,7 @@ function AppContent() {
             <Route path="/clients/:id/invoices" element={<ProtectedRoute><ClientInvoices /></ProtectedRoute>} />
 
             <Route path="/receipts" element={<ProtectedRoute><Receipts /></ProtectedRoute>} />
+            <Route path="/scan" element={<ProtectedRoute><ScanReceipt /></ProtectedRoute>} />
             <Route path="/receipt/:id" element={<ProtectedRoute><ReceiptForm /></ProtectedRoute>} />
             <Route path="/pdf-creator" element={<ProtectedRoute><PdfCreator /></ProtectedRoute>} />
 

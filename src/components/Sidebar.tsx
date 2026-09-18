@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, FileText, FilePlus, Receipt, Users } from 'lucide-react';
+import { Home, FileText, FilePlus, Receipt, Users, ScanLine } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Logo } from './Logo';
 
@@ -12,6 +12,7 @@ export const Sidebar: React.FC = () => {
     { to: '/invoices', icon: FileText, label: t('invoices') || 'Рахунки' },
     { to: '/pdf-creator', icon: FilePlus, label: t('createPdfBtn') || 'Створити PDF' },
     { to: '/receipts', icon: Receipt, label: t('receipts') || 'Витрати' },
+    { to: '/scan', icon: ScanLine, label: t('scanReceiptTitle') || 'Розпізнати чек' },
     { to: '/clients', icon: Users, label: t('clients') || 'Клієнти' },
   ];
 
