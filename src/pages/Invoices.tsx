@@ -14,7 +14,6 @@ import {
   ExternalLink,
   Pencil,
   Sparkles,
-  Share2,
   Save,
   X,
   Check,
@@ -39,6 +38,32 @@ import { resolveInvoicePdfFiles } from '../lib/resolveInvoicePdf';
  * Використовуємо invoice-pdfs, бо він уже задіяний у проекті.
  */
 const UPLOADED_INVOICES_BUCKET = 'invoice-pdfs';
+
+/**
+ * Share glyph from the user PNG sheet (plain variant).
+ * Uses a CSS mask so the icon follows button text color on the dark header.
+ */
+const ShareIcon: React.FC<{ size?: number; className?: string }> = ({
+  size = 16,
+  className = '',
+}) => (
+  <span
+    aria-hidden
+    className={`inline-block flex-shrink-0 bg-current ${className}`}
+    style={{
+      width: size,
+      height: size,
+      WebkitMaskImage: 'url(/share-icon.png)',
+      maskImage: 'url(/share-icon.png)',
+      WebkitMaskSize: 'contain',
+      maskSize: 'contain',
+      WebkitMaskRepeat: 'no-repeat',
+      maskRepeat: 'no-repeat',
+      WebkitMaskPosition: 'center',
+      maskPosition: 'center',
+    }}
+  />
+);
 
 /**
  * Тип пропсів для модалки завантаження зовнішнього рахунку.
@@ -1141,7 +1166,7 @@ export const Invoices: React.FC = () => {
             }`}
             title={t('share') || 'Поділитися'}
           >
-            <Share2 size={16} />
+            <ShareIcon size={16} />
           </button>
 
           <button
@@ -1205,7 +1230,7 @@ export const Invoices: React.FC = () => {
                 className="p-2 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/25 transition-all disabled:opacity-50 active:scale-95"
                 title={t('share') || 'Поділитися'}
               >
-                <Share2 size={15} />
+                <ShareIcon size={15} />
               </button>
               <button
                 onClick={handleSaveSelected}
