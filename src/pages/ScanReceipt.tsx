@@ -29,8 +29,8 @@ import {
   ScanQueueItem,
   serializeOcr,
 } from '../lib/scanQueue';
-import { extractReceiptData } from '../lib/receiptOCR';
-import { saveExpenseFromScan, uploadScannedFile } from '../lib/scanSync';
+import { recognizeReceiptSmart } from '../lib/openaiReceiptOCR';
+import { saveExpenseFromScan, uploadScannedFileWithFallback } from '../lib/scanSync';
 
 function QueueThumb({ item }: { item: ScanQueueItem }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -194,7 +194,7 @@ export default function ScanReceipt() {
         if (!fileUrl && canUploadNow()) {
           await scanQueue.put({ ...next, status: 'uploading', error: undefined });
           await refresh();
-          fileUrl = await uploadScannedFile(file);
+          fileUrl = await uploadScannedFileWithFallback(file);
         }
 
         if (!ocrData) {
@@ -205,7 +205,7 @@ export default function ScanReceipt() {
             error: undefined,
           });
           await refresh();
-          const ocr = await extractReceiptData(file);
+          const ocr = await recognizeReceiptSmart(file);
           ocrData = serializeOcr(ocr);
         }
 
@@ -227,7 +227,7 @@ export default function ScanReceipt() {
             error: undefined,
           });
           await refresh();
-          fileUrl = await uploadScannedFile(file);
+          fileUrl = await uploadScannedFileWithFallback(file);
         }
 
         await scanQueue.put({
@@ -346,7 +346,7 @@ export default function ScanReceipt() {
           reviewItem.fileName,
           reviewItem.mimeType,
         );
-        url = await uploadScannedFile(file);
+        url = await uploadScannedFileWithFallback(file);
       }
       await saveExpenseFromScan(data, url);
       await scanQueue.put({ ...reviewItem, status: 'synced', fileUrl: url });

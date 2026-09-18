@@ -23,6 +23,7 @@ import { downloadReceiptPDF } from '../lib/receiptPdfGenerator';
 import ReceiptScanReview from '../components/ReceiptScanReview';
 import { ScannedReceiptData } from '../lib/receiptOCR';
 import { saveExpenseFromScan } from '../lib/scanSync';
+import { EXPENSE_CATEGORIES, categoryI18nKey, normalizeExpenseCategory } from '../lib/expenseCategories';
 
 interface ExpenseDocumentType {
   id: string;
@@ -137,6 +138,7 @@ export default function Receipts() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<string | null>(null);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
   // ---------------------------------------------------------
   // 1. Сесія користувача
@@ -181,6 +183,18 @@ export default function Receipts() {
       (currency || 'EUR')
     );
   }, []);
+
+  const filteredExpenses = React.useMemo(() => {
+    if (categoryFilter === 'all') return expenses;
+    return expenses.filter(
+      (e) => normalizeExpenseCategory(e.expense_category || 'other') === categoryFilter,
+    );
+  }, [expenses, categoryFilter]);
+
+  const totalBalance = React.useMemo(
+    () => filteredExpenses.reduce((sum, e) => sum + Number(e.total_amount || 0), 0),
+    [filteredExpenses],
+  );
 
   // ---------------------------------------------------------
   // 4. Видалення документа витрат
@@ -246,7 +260,7 @@ export default function Receipts() {
         showError(t('errorSavingReceipt'));
       }
     },
-    [navigate, showSuccess, showError, t, queryClient]
+    [showSuccess, showError, t, queryClient]
   );
 
   return (
@@ -299,6 +313,52 @@ export default function Receipts() {
         className="hidden"
       />
 
+      {expenses.length > 0 && (
+        <div className="mb-4 space-y-3">
+          <div className="rounded-2xl bg-white/8 border border-white/10 px-4 py-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-white/45 text-xs uppercase tracking-wider">
+                {t('expenseBalance')}
+              </p>
+              <p className="text-xl font-semibold text-cyan-300 mt-0.5">
+                {formatCurrency(totalBalance)}
+              </p>
+            </div>
+            <p className="text-white/40 text-xs text-right">
+              {filteredExpenses.length} / {expenses.length}
+            </p>
+          </div>
+
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+            <button
+              type="button"
+              onClick={() => setCategoryFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                categoryFilter === 'all'
+                  ? 'bg-orange-500/20 border border-orange-500/40 text-orange-300'
+                  : 'bg-white/5 border border-white/10 text-white/55'
+              }`}
+            >
+              {t('allCategories')}
+            </button>
+            {EXPENSE_CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategoryFilter(cat)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                  categoryFilter === cat
+                    ? 'bg-orange-500/20 border border-orange-500/40 text-orange-300'
+                    : 'bg-white/5 border border-white/10 text-white/55'
+                }`}
+              >
+                {t(categoryI18nKey(cat))}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-lg">
         {isLoading ? (
           <div>
@@ -320,14 +380,16 @@ export default function Receipts() {
               </div>
             ))}
           </div>
-        ) : expenses.length === 0 ? (
+        ) : filteredExpenses.length === 0 ? (
           <div className="text-center py-16 px-4">
             <div className="w-16 h-16 bg-orange-500/20 rounded-xl flex items-center justify-center mx-auto mb-4">
               <Receipt size={32} className="text-orange-400" />
             </div>
 
             <h3 className="text-lg font-semibold text-white mb-2">
-              Документів витрат ще немає
+              {expenses.length === 0
+                ? (t('noExpenseDocuments') || 'Документів витрат ще немає')
+                : t('noExpensesInCategory')}
             </h3>
 
             <p className="text-white/60 mb-6 text-sm">
@@ -353,7 +415,7 @@ export default function Receipts() {
           </div>
         ) : (
           <div>
-            {expenses.map((expense, index) => (
+            {filteredExpenses.map((expense, index) => (
               <motion.div
                 key={expense.id}
                 initial={{ opacity: 0, y: 6 }}
@@ -394,7 +456,7 @@ export default function Receipts() {
                       <div className="mt-1">
                         <PaidBadge
                           method={expense.payment_method}
-                          category={expense.expense_category}
+                          category={t(categoryI18nKey(expense.expense_category || 'other'))}
                           documentType={expense.document_type}
                         />
                       </div>
@@ -464,7 +526,7 @@ export default function Receipts() {
                   </button>
                 </div>
 
-                {index < expenses.length - 1 && (
+                {index < filteredExpenses.length - 1 && (
                   <div className="ml-20 border-b border-white/5" />
                 )}
               </motion.div>

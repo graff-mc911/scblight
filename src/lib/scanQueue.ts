@@ -138,6 +138,7 @@ export function serializeOcr(data: ScannedReceiptData): ScanQueueItem['ocrData']
 export function deserializeOcr(data: NonNullable<ScanQueueItem['ocrData']>): ScannedReceiptData {
   return {
     ...data,
+    category: data.category || 'other',
     detectedFields: new Set(data.detectedFields || []),
   };
 }

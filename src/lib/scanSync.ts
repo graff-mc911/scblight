@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { ScannedReceiptData } from './receiptOCR';
+import { normalizeExpenseCategory } from './expenseCategories';
 
 export async function uploadScannedFile(file: File): Promise<string> {
   const {
@@ -20,6 +21,24 @@ export async function uploadScannedFile(file: File): Promise<string> {
   return publicUrl;
 }
 
+/** Local fallback when Storage upload fails (offline / RLS). */
+export async function fileToLocalDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function uploadScannedFileWithFallback(file: File): Promise<string> {
+  try {
+    return await uploadScannedFile(file);
+  } catch {
+    return await fileToLocalDataUrl(file);
+  }
+}
+
 export async function saveExpenseFromScan(
   data: ScannedReceiptData,
   fileUrl: string,
@@ -33,6 +52,7 @@ export async function saveExpenseFromScan(
   const amountNet = Number(data.amount_net || amount);
   const vatAmount = Number(data.vat_amount || 0);
   const vatRate = Number(data.vat_rate || 0);
+  const category = normalizeExpenseCategory(data.category || 'other');
 
   const { data: inserted, error } = await supabase
     .from('expense_documents')
@@ -49,7 +69,7 @@ export async function saveExpenseFromScan(
       currency: data.currency || 'EUR',
       payment_method: data.payment_method || 'Bar',
       document_type: 'receipt',
-      expense_category: 'materials',
+      expense_category: category,
       original_file_url: fileUrl || null,
       ocr_raw_text: data.items || null,
       notes: data.items || null,

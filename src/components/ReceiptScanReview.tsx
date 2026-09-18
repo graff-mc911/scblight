@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Sparkles, CheckCircle, FileImage, AlertCircle } from 'lucide-react';
-import { extractReceiptData, ScannedReceiptData } from '../lib/receiptOCR';
+import { ScannedReceiptData } from '../lib/receiptOCR';
+import { recognizeReceiptSmart } from '../lib/openaiReceiptOCR';
+import { EXPENSE_CATEGORIES } from '../lib/expenseCategories';
 import { supabase } from '../lib/supabase';
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -95,7 +97,7 @@ export default function ReceiptScanReview({
     async function run() {
       try {
         const [scanned, uploadedUrl] = await Promise.all([
-          extractReceiptData(file, (p, s) => {
+          recognizeReceiptSmart(file, (p, s) => {
             if (!abortRef.current) { setProgress(p); setStatusText(s); }
           }),
           uploadFile(),
@@ -267,6 +269,20 @@ export default function ReceiptScanReview({
                       onChange={e => setData(d => d ? { ...d, store_name: e.target.value } : d)}
                       placeholder="z.B. REWE GmbH"
                     />
+                  </FieldRow>
+
+                  <FieldRow label={t('expenseCategory')} detected={!!df?.has('category')} aiLabel={aiLabel}>
+                    <select
+                      className={`${inputCls(!!df?.has('category'))} cursor-pointer`}
+                      value={data.category || 'other'}
+                      onChange={e => setData(d => d ? { ...d, category: e.target.value } : d)}
+                    >
+                      {EXPENSE_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {t(`expenseCat_${c}`) || c}
+                        </option>
+                      ))}
+                    </select>
                   </FieldRow>
 
                   <div className="grid grid-cols-2 gap-3">
