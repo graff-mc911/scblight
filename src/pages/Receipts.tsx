@@ -10,6 +10,7 @@ import {
   Upload,
   X,
   ZoomIn,
+  ScanLine,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -21,6 +22,8 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { downloadReceiptPDF } from '../lib/receiptPdfGenerator';
 import ReceiptScanReview from '../components/ReceiptScanReview';
 import { ScannedReceiptData } from '../lib/receiptOCR';
+import { saveExpenseFromScan } from '../lib/scanSync';
+import { EXPENSE_CATEGORIES, categoryI18nKey, normalizeExpenseCategory } from '../lib/expenseCategories';
 
 interface ExpenseDocumentType {
   id: string;
@@ -135,6 +138,7 @@ export default function Receipts() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [expenseToDelete, setExpenseToDelete] = useState<string | null>(null);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
   // ---------------------------------------------------------
   // 1. Сесія користувача
@@ -179,6 +183,18 @@ export default function Receipts() {
       (currency || 'EUR')
     );
   }, []);
+
+  const filteredExpenses = React.useMemo(() => {
+    if (categoryFilter === 'all') return expenses;
+    return expenses.filter(
+      (e) => normalizeExpenseCategory(e.expense_category || 'other') === categoryFilter,
+    );
+  }, [expenses, categoryFilter]);
+
+  const totalBalance = React.useMemo(
+    () => filteredExpenses.reduce((sum, e) => sum + Number(e.total_amount || 0), 0),
+    [filteredExpenses],
+  );
 
   // ---------------------------------------------------------
   // 4. Видалення документа витрат
@@ -236,22 +252,15 @@ export default function Receipts() {
   const handleScanConfirm = useCallback(
     async (data: ScannedReceiptData, fileUrl: string) => {
       setScanFile(null);
-
-      const params = new URLSearchParams({
-        issuer_name: data.store_name || '',
-        date: data.date || new Date().toISOString().split('T')[0],
-        amount_gross: String(data.total || ''),
-        amount_net: String(data.amount_net || ''),
-        vat_amount: String(data.vat_amount || ''),
-        payment_method: data.payment_method || 'Bar',
-        items: data.items || '',
-        file_url: fileUrl || '',
-        receipt_number: data.receipt_number || '',
-      });
-
-      navigate(`/receipt/new?${params.toString()}`);
+      try {
+        await saveExpenseFromScan(data, fileUrl);
+        showSuccess(t('scanSavedToExpenses'));
+        queryClient.invalidateQueries({ queryKey: ['expense_documents'] });
+      } catch {
+        showError(t('errorSavingReceipt'));
+      }
     },
-    [navigate]
+    [showSuccess, showError, t, queryClient]
   );
 
   return (
@@ -267,6 +276,15 @@ export default function Receipts() {
         </div>
 
         <div className="flex gap-2">
+          {/* Dedicated scan page */}
+          <button
+            onClick={() => navigate('/scan')}
+            className="p-2.5 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 transition-all active:scale-95"
+            title={t('scanReceiptTitle')}
+          >
+            <ScanLine size={18} />
+          </button>
+
           {/* Кнопка OCR / завантаження файлу */}
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -295,6 +313,52 @@ export default function Receipts() {
         className="hidden"
       />
 
+      {expenses.length > 0 && (
+        <div className="mb-4 space-y-3">
+          <div className="rounded-2xl bg-white/8 border border-white/10 px-4 py-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-white/45 text-xs uppercase tracking-wider">
+                {t('expenseBalance')}
+              </p>
+              <p className="text-xl font-semibold text-cyan-300 mt-0.5">
+                {formatCurrency(totalBalance)}
+              </p>
+            </div>
+            <p className="text-white/40 text-xs text-right">
+              {filteredExpenses.length} / {expenses.length}
+            </p>
+          </div>
+
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+            <button
+              type="button"
+              onClick={() => setCategoryFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                categoryFilter === 'all'
+                  ? 'bg-orange-500/20 border border-orange-500/40 text-orange-300'
+                  : 'bg-white/5 border border-white/10 text-white/55'
+              }`}
+            >
+              {t('allCategories')}
+            </button>
+            {EXPENSE_CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategoryFilter(cat)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                  categoryFilter === cat
+                    ? 'bg-orange-500/20 border border-orange-500/40 text-orange-300'
+                    : 'bg-white/5 border border-white/10 text-white/55'
+                }`}
+              >
+                {t(categoryI18nKey(cat))}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-lg">
         {isLoading ? (
           <div>
@@ -316,31 +380,42 @@ export default function Receipts() {
               </div>
             ))}
           </div>
-        ) : expenses.length === 0 ? (
+        ) : filteredExpenses.length === 0 ? (
           <div className="text-center py-16 px-4">
             <div className="w-16 h-16 bg-orange-500/20 rounded-xl flex items-center justify-center mx-auto mb-4">
               <Receipt size={32} className="text-orange-400" />
             </div>
 
             <h3 className="text-lg font-semibold text-white mb-2">
-              Документів витрат ще немає
+              {expenses.length === 0
+                ? (t('noExpenseDocuments') || 'Документів витрат ще немає')
+                : t('noExpensesInCategory')}
             </h3>
 
             <p className="text-white/60 mb-6 text-sm">
-              Завантаж чек, PDF або створіть документ вручну
+              {t('scanPageSubtitle')}
             </p>
 
-            <button
-              onClick={() => navigate('/receipt/new')}
-              className="bg-orange-500/15 border border-orange-500/30 text-orange-400 hover:bg-orange-500/25 px-6 py-2.5 rounded-xl font-medium transition-all active:scale-95 flex items-center gap-2 mx-auto"
-            >
-              <FileText size={16} />
-              Створити документ
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2 justify-center">
+              <button
+                onClick={() => navigate('/scan')}
+                className="bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 px-6 py-2.5 rounded-xl font-medium transition-all active:scale-95 flex items-center gap-2 mx-auto"
+              >
+                <ScanLine size={16} />
+                {t('scanReceiptTitle')}
+              </button>
+              <button
+                onClick={() => navigate('/receipt/new')}
+                className="bg-orange-500/15 border border-orange-500/30 text-orange-400 hover:bg-orange-500/25 px-6 py-2.5 rounded-xl font-medium transition-all active:scale-95 flex items-center gap-2 mx-auto"
+              >
+                <FileText size={16} />
+                {t('addReceipt') || 'Створити документ'}
+              </button>
+            </div>
           </div>
         ) : (
           <div>
-            {expenses.map((expense, index) => (
+            {filteredExpenses.map((expense, index) => (
               <motion.div
                 key={expense.id}
                 initial={{ opacity: 0, y: 6 }}
@@ -381,7 +456,7 @@ export default function Receipts() {
                       <div className="mt-1">
                         <PaidBadge
                           method={expense.payment_method}
-                          category={expense.expense_category}
+                          category={t(categoryI18nKey(expense.expense_category || 'other'))}
                           documentType={expense.document_type}
                         />
                       </div>
@@ -451,7 +526,7 @@ export default function Receipts() {
                   </button>
                 </div>
 
-                {index < expenses.length - 1 && (
+                {index < filteredExpenses.length - 1 && (
                   <div className="ml-20 border-b border-white/5" />
                 )}
               </motion.div>

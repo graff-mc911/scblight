@@ -16,6 +16,8 @@ export interface ScannedReceiptData {
   receipt_number: string;
   items: string;
   currency: string;
+  /** Personal bookkeeping category (food, auto, …) */
+  category: string;
   confidence: number;
   detectedFields: Set<string>;
 }
@@ -481,6 +483,7 @@ export async function extractReceiptData(file: File, onProgress?: ScanProgressCa
     receipt_number,
     items,
     currency,
+    category: 'other',
     confidence,
     detectedFields,
   };
