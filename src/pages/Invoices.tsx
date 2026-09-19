@@ -26,7 +26,7 @@ import { supabase } from '../lib/supabase';
 import { extractInvoiceDataFromPDF } from '../lib/pdfTextExtractor';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { currencies } from '../lib/languages';
+import { currencies, invoiceDocumentLabel } from '../lib/languages';
 import { motion, AnimatePresence } from 'framer-motion';
 import { exportInvoicesToCSV } from '../lib/exportData';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
@@ -1068,7 +1068,8 @@ export const Invoices: React.FC = () => {
     }
 
     const companyProfile = await loadCompanyProfile();
-    return resolveInvoicePdfFiles(targets, userId, companyProfile);
+    const files = await resolveInvoicePdfFiles(targets, userId, companyProfile);
+    return { files, targets };
   }, [session?.user?.id, invoices, selectedIds, loadCompanyProfile, t]);
 
   /**
@@ -1082,17 +1083,20 @@ export const Invoices: React.FC = () => {
 
     setSelectionBusy(true);
     try {
-      const files = await prepareSelectedPdfFiles();
+      const { files, targets } = await prepareSelectedPdfFiles();
+      const singleLabel =
+        files.length === 1
+          ? invoiceDocumentLabel(
+              targets[0]?.invoice_language || 'de',
+              targets[0]?.document_no || targets[0]?.document_number || files[0].fileName
+            )
+          : null;
       const result = await shareOrDownloadPdfs({
         files,
-        title:
-          files.length === 1
-            ? `${t('invoiceTitle') || 'Invoice'} ${files[0].fileName}`
-            : t('invoices') || 'Invoices',
+        title: singleLabel || t('invoices') || 'Invoices',
         text:
-          files.length === 1
-            ? `${t('invoiceTitle') || 'Invoice'} ${files[0].fileName}`
-            : `${t('invoices') || 'Invoices'}: ${files.map((f) => f.fileName).join(', ')}`,
+          singleLabel ||
+          `${t('invoices') || 'Invoices'}: ${files.map((f) => f.fileName).join(', ')}`,
         openMailtoFallback: true,
       });
 
@@ -1125,7 +1129,7 @@ export const Invoices: React.FC = () => {
 
     setSelectionBusy(true);
     try {
-      const files = await prepareSelectedPdfFiles();
+      const { files } = await prepareSelectedPdfFiles();
       downloadPdfFiles(files);
       showSuccess(
         files.length === 1

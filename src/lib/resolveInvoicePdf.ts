@@ -2,16 +2,9 @@ import { supabase } from './supabase';
 import { calculateLineTotal } from './invoiceTotals';
 import { generateInvoicePDFBlob } from './pdfGenerator';
 import { fetchPdfBlob } from './shareInvoice';
+import { invoicePdfFileName } from './languages';
 
 type AnyInvoice = Record<string, any>;
-
-const sanitizeFileName = (value: string) =>
-  value
-    .normalize('NFKD')
-    .replace(/[^\w.-]+/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 80) || 'invoice';
 
 async function findPdfInStorage(userId: string, invoiceId: string): Promise<string | null> {
   const { data: files, error } = await supabase.storage.from('invoice-pdfs').list(userId);
@@ -125,7 +118,7 @@ export async function resolveInvoicePdfFile(
   companyProfile?: AnyInvoice | null
 ): Promise<{ blob: Blob; fileName: string }> {
   const docNo = invoice.document_no || invoice.document_number || invoice.id || 'invoice';
-  const fileName = `Invoice_${sanitizeFileName(String(docNo))}.pdf`;
+  const fileName = invoicePdfFileName(invoice.invoice_language || 'de', String(docNo));
 
   const candidateUrls = [
     invoice.uploaded_pdf_url,

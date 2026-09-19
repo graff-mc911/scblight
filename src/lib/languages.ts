@@ -4865,3 +4865,42 @@ export const statuses = [
   { value: 'paid', label: 'Paid' },
   { value: 'overdue', label: 'Overdue' },
 ];
+
+/** Resolve a translation key in a specific invoice language (not UI language). */
+export function translateInLanguage(
+  lang: string | null | undefined,
+  key: string,
+  fallbackLang = 'de'
+): string {
+  const dict =
+    translations[lang || ''] || translations[fallbackLang] || translations.en || {};
+  return dict[key] || translations.en?.[key] || translations.de?.[key] || key;
+}
+
+/** Share/PDF display title using the invoice's own language. */
+export function invoiceDocumentLabel(
+  invoiceLanguage: string | null | undefined,
+  documentNumber: string
+): string {
+  const title = translateInLanguage(invoiceLanguage, 'invoiceTitle');
+  const docNo = String(documentNumber || '').trim();
+  return docNo ? `${title} ${docNo}` : title;
+}
+
+/** ASCII-safe PDF filename from invoice language + document number. */
+export function invoicePdfFileName(
+  invoiceLanguage: string | null | undefined,
+  documentNumber: string
+): string {
+  const sanitize = (value: string) =>
+    value
+      .normalize('NFKD')
+      .replace(/[^\w.-]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 80);
+
+  const title = sanitize(translateInLanguage(invoiceLanguage, 'invoiceTitle')) || 'Invoice';
+  const docNo = sanitize(String(documentNumber || 'invoice')) || 'invoice';
+  return `${title}_${docNo}.pdf`;
+}

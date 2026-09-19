@@ -42,6 +42,8 @@ interface InvoiceData {
   signature_data_url?: string;
   signed_by?: string;
   signed_at?: string;
+  /** Document language for labels — independent of UI language */
+  invoice_language?: string;
 }
 
 interface InvoiceDocumentProps {
@@ -85,9 +87,11 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
 }) => {
   const { language } = useLanguage();
   const logoUrl = data.company_logo_url;
+  // Match pdfGenerator: invoice language first, then UI, then DE
+  const labelLang = data.invoice_language || language || 'de';
 
   const tInvoice = (key: string) => {
-    const langTranslations = translations[language as keyof typeof translations];
+    const langTranslations = translations[labelLang as keyof typeof translations];
     if (langTranslations && key in langTranslations) {
       return langTranslations[key as keyof typeof langTranslations] as string;
     }
