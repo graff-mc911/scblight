@@ -6,6 +6,7 @@ import {
 } from './receiptOCR';
 import {
   confidenceFromFields,
+  enrichFieldsFromText,
   normalizeReceiptFields,
 } from './receiptFieldNormalize';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -57,13 +58,14 @@ async function fileToImageDataUrl(file: File): Promise<{ dataUrl: string; mimeTy
   return { dataUrl: canvas.toDataURL(mimeType, 0.85), mimeType };
 }
 
-function mapOpenAiToScanned(raw: unknown): ScannedReceiptData {
-  const f = normalizeReceiptFields(raw);
+function fieldsToScanned(
+  f: ReturnType<typeof normalizeReceiptFields>,
+): ScannedReceiptData {
   const detectedFields = new Set<string>();
   if (f.merchant) detectedFields.add('store_name');
   if (f.total) detectedFields.add('total');
   if (f.date) detectedFields.add('date');
-  if (f.category) detectedFields.add('category');
+  if (f.category && f.category !== 'other') detectedFields.add('category');
   if (f.payment_explicit) detectedFields.add('payment_method');
   if (f.receipt_number) detectedFields.add('receipt_number');
   if (f.items) detectedFields.add('items');
@@ -95,13 +97,28 @@ function mapOpenAiToScanned(raw: unknown): ScannedReceiptData {
   };
 }
 
-function missingCoreFields(data: ScannedReceiptData): boolean {
-  return (
-    !data.store_name?.trim() ||
-    !data.total?.trim() ||
-    !data.detectedFields.has('payment_method') ||
-    !data.detectedFields.has('date')
+function mapOpenAiToScanned(raw: unknown): ScannedReceiptData {
+  return fieldsToScanned(normalizeReceiptFields(raw));
+}
+
+/** Re-parse Tesseract dump to fill gaps AI left empty. */
+function enrichScannedWithText(data: ScannedReceiptData, text: string): ScannedReceiptData {
+  if (!text?.trim()) return data;
+  const enriched = enrichFieldsFromText(
+    {
+      merchant: data.store_name,
+      total: data.total,
+      date: data.date,
+      currency: data.currency,
+      category: data.category || 'other',
+      payment_method: data.payment_method,
+      payment_explicit: data.detectedFields.has('payment_method'),
+      receipt_number: data.receipt_number,
+      items: data.items,
+    },
+    text,
   );
+  return fieldsToScanned(enriched);
 }
 
 function isWeakScan(data: ScannedReceiptData): boolean {
@@ -247,8 +264,8 @@ function warningFromEdgeError(err: unknown): RecognizeReceiptWarning | undefined
 
 /**
  * Prefer Supabase Edge Function `recognize-receipt` (server OPENAI_API_KEY).
- * Falls back to on-device Tesseract; surfaces a clear warning when Edge returns 503.
- * Merges Tesseract when AI is missing merchant, amount, date, or payment.
+ * Always runs on-device Tesseract in parallel and merges — AI alone often returns
+ * empty merchant/total with optimistic confidence on Spanish tickets.
  */
 export async function recognizeReceiptSmart(
   file: File,
@@ -258,45 +275,64 @@ export async function recognizeReceiptSmart(
 
   let warning: RecognizeReceiptWarning | undefined;
 
+  const tessPromise = extractReceiptData(file, (p, s) => {
+    // Keep UI responsive while AI runs; map tess progress into 40–90 band later
+    if (p >= 15 && p < 100) onProgress?.(Math.min(55, 20 + Math.round(p * 0.35)), s);
+  }).catch(() => null);
+
   try {
     const { dataUrl, mimeType } = await fileToImageDataUrl(file);
     onProgress?.(25, 'AI recognition…');
 
     const raw = await callEdgeFunction(dataUrl, mimeType);
-    const ai = mapOpenAiToScanned(raw);
+    let ai = mapOpenAiToScanned(raw);
 
-    if (!missingCoreFields(ai)) {
+    onProgress?.(60, 'Merging on-device OCR…');
+    const tess = await tessPromise;
+
+    if (tess) {
+      // Prefer full OCR dump so TOTAL / MERCADONA / TARJETA can fill AI gaps
+      const tessText = tess.raw_text || [tess.store_name, tess.items, tess.receipt_number, tess.total]
+        .filter(Boolean)
+        .join('\n');
+      ai = enrichScannedWithText(ai, tessText);
+      const merged = mergePreferFilled(ai, {
+        ...tess,
+        category: tess.category || ai.category || 'other',
+      });
+      if (isWeakScan(merged) || isWeakScan(ai)) {
+        warning = {
+          code: 'weak_ai_result',
+          message: 'AI returned incomplete fields; filled missing values from on-device OCR.',
+        };
+      }
       onProgress?.(100, 'Done');
-      return ai;
+      return { ...merged, warning };
     }
 
-    // AI incomplete — enrich gaps (merchant/total/date/payment) with Tesseract
-    onProgress?.(40, 'Improving with on-device OCR…');
-    const tess = await extractReceiptData(file, onProgress);
-    const merged = mergePreferFilled(ai, {
-      ...tess,
-      category: tess.category || ai.category || 'other',
-    });
-    if (isWeakScan(merged) || isWeakScan(ai)) {
+    if (isWeakScan(ai)) {
       warning = {
         code: 'weak_ai_result',
-        message: 'AI returned incomplete fields; filled missing values from on-device OCR.',
+        message: 'AI returned incomplete fields. Please fill merchant and amount manually.',
       };
     }
     onProgress?.(100, 'Done');
-    return { ...merged, warning };
+    return { ...ai, warning };
   } catch (err) {
     warning = warningFromEdgeError(err);
     if (import.meta.env.DEV) {
       console.warn('[recognizeReceiptSmart] Edge Function failed, using Tesseract:', err);
     }
-    onProgress?.(12, 'Fallback OCR…');
-    const data = await extractReceiptData(file, onProgress);
-    return {
-      ...data,
-      category: data.category || 'other',
-      warning,
-    };
+    onProgress?.(40, 'Fallback OCR…');
+    const tess = (await tessPromise) || (await extractReceiptData(file, onProgress));
+    const data = enrichScannedWithText(
+      {
+        ...tess,
+        category: tess.category || 'other',
+      },
+      tess.raw_text || [tess.store_name, tess.items, tess.receipt_number].filter(Boolean).join('\n'),
+    );
+    return { ...data, warning };
   }
 }
 

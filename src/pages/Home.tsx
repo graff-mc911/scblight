@@ -6,70 +6,24 @@ import { supabase } from '../lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Users, ChevronRight, AlertCircle, FileText, ScanLine } from 'lucide-react';
-
-interface MonthData {
-  month: string;
-  income: number;
-  expenses: number;
-}
+import { computeHomeMoney, type MonthData } from '../lib/homeMoney';
 
 // ---------------------------------------------------------
-// Побудова помісячної статистики
-// income  = інвойси
-// expenses = документи витрат
-// ---------------------------------------------------------
-function buildMonthlyData(invoices: any[], expenseDocuments: any[]): MonthData[] {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-
-  const monthNames = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
-
-  const months: MonthData[] = Array.from({ length: 12 }, (_, i) => ({
-    month: monthNames[i],
-    income: 0,
-    expenses: 0,
-  }));
-
-  // Spec §5: paid invoices only → Total received
-  for (const inv of invoices) {
-    if (inv.status !== 'paid') continue;
-    const d = new Date(inv.date || inv.created_at);
-
-    if (d.getFullYear() === currentYear) {
-      months[d.getMonth()].income += Number(inv.total_gross || 0);
-    }
-  }
-
-  // Receipts/expenses → Total spent
-  for (const exp of expenseDocuments) {
-    const d = new Date(exp.document_date || exp.created_at);
-
-    if (d.getFullYear() === currentYear) {
-      months[d.getMonth()].expenses += Number(exp.total_amount || 0);
-    }
-  }
-
-  return months;
-}
-
-// ---------------------------------------------------------
-// Графік доходів / витрат
+// Графік доходів / витрат — same YTD totals as summary cards
 // ---------------------------------------------------------
 function MonthlyChart({
-  invoices,
-  expenseDocuments,
+  months,
+  totalIncome,
+  totalExpenses,
   t,
 }: {
-  invoices: any[];
-  expenseDocuments: any[];
+  months: MonthData[];
+  totalIncome: number;
+  totalExpenses: number;
   t: (k: string) => string;
 }) {
   const now = new Date();
-  const monthData = buildMonthlyData(invoices, expenseDocuments);
-  const visibleMonths = monthData.filter((_, i) => i <= now.getMonth());
-
-  const totalIncome = monthData.reduce((s, m) => s + m.income, 0);
-  const totalExpenses = monthData.reduce((s, m) => s + m.expenses, 0);
+  const visibleMonths = months.filter((_, i) => i <= now.getMonth());
   const diff = totalIncome - totalExpenses;
 
   const maxVal = Math.max(...visibleMonths.flatMap((m) => [m.income, m.expenses]), 1);
@@ -209,9 +163,6 @@ export const Home: React.FC = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
 
-  // ---------------------------------------------------------
-  // 1. Сесія
-  // ---------------------------------------------------------
   const { data: session } = useQuery({
     queryKey: ['session'],
     queryFn: async () => {
@@ -220,9 +171,6 @@ export const Home: React.FC = () => {
     },
   });
 
-  // ---------------------------------------------------------
-  // 2. Інвойси = доходи
-  // ---------------------------------------------------------
   const { data: invoices = [] } = useQuery({
     queryKey: ['invoices', session?.user?.id],
     queryFn: async () => {
@@ -233,17 +181,11 @@ export const Home: React.FC = () => {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-
-      // Беремо тільки нормальні інвойси.
-      // Старі uploaded-инвойси як витрати більше тут не рахуємо.
       return data || [];
     },
     enabled: !!session?.user?.id,
   });
 
-  // ---------------------------------------------------------
-  // 3. Документи витрат = витрати
-  // ---------------------------------------------------------
   const { data: expenseDocuments = [] } = useQuery({
     queryKey: ['expense_documents', session?.user?.id],
     queryFn: async () => {
@@ -253,15 +195,11 @@ export const Home: React.FC = () => {
         .eq('user_id', session?.user?.id || '');
 
       if (error) throw error;
-
       return data || [];
     },
     enabled: !!session?.user?.id,
   });
 
-  // ---------------------------------------------------------
-  // 4. Клієнти
-  // ---------------------------------------------------------
   const { data: clients = [] } = useQuery({
     queryKey: ['clients-count', session?.user?.id],
     queryFn: async () => {
@@ -271,16 +209,11 @@ export const Home: React.FC = () => {
         .eq('user_id', session?.user?.id || '');
 
       if (error) throw error;
-
       return data || [];
     },
     enabled: !!session?.user?.id,
   });
 
-  // ---------------------------------------------------------
-  // 5. Підрахунки
-  // ---------------------------------------------------------
-  // Інвойси: доходи та витрати
   const uploadedInvoices = invoices.filter((inv) => inv.source === 'uploaded' || inv.uploaded_pdf_url);
   const incomeInvoices = invoices.filter((inv) => !(inv.source === 'uploaded' || inv.uploaded_pdf_url));
 
@@ -298,9 +231,8 @@ export const Home: React.FC = () => {
 
   const mergedExpenses = [...expenseDocuments, ...uploadedExpenses];
 
-  const totalEarnings = incomeInvoices
-    .filter((inv) => inv.status === 'paid')
-    .reduce((sum, inv) => sum + Number(inv.total_gross || 0), 0);
+  // Spec §5: one shared YTD window for cards + chart
+  const money = computeHomeMoney(incomeInvoices, mergedExpenses);
 
   const unpaidTotal = incomeInvoices
     .filter((inv) => inv.status === 'sent' || inv.status === 'draft')
@@ -309,19 +241,12 @@ export const Home: React.FC = () => {
   const overdueInvoices = incomeInvoices.filter((inv) => inv.status === 'overdue');
   const overdueTotal = overdueInvoices.reduce((sum, inv) => sum + Number(inv.total_gross || 0), 0);
 
-  const totalExpenses = mergedExpenses.reduce((sum, exp) => sum + Number(exp.total_amount || 0), 0);
-
-  const totalProfit = totalEarnings - totalExpenses;
-
   const formatAmount = (v: number) =>
     new Intl.NumberFormat('de-DE', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(v) + ' €';
 
-  // ---------------------------------------------------------
-  // 6. Швидкі кнопки
-  // ---------------------------------------------------------
   const quickActions = [
     {
       label: t('newInvoice') || 'Новий інвойс',
@@ -356,7 +281,6 @@ export const Home: React.FC = () => {
         <p className="text-white/50 text-sm">{t('appSubtitle')}</p>
       </div>
 
-      {/* Верхні картки */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         <Card className="p-4">
           <p className="text-white/50 text-xs mb-1.5">{t('unpaid') || 'Не оплачено'}</p>
@@ -392,17 +316,28 @@ export const Home: React.FC = () => {
         </Card>
       </div>
 
-      {/* Net profit — same totals as chart footer */}
-      <div className="mb-6">
+      {/* Received / Spent / Profit — same YTD numbers as chart */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+        <Card className="p-4">
+          <p className="text-white/50 text-xs mb-1.5">{t('totalEarnings')}</p>
+          <h2 className="text-xl font-semibold text-green-400 leading-tight">
+            {formatAmount(money.received)}
+          </h2>
+        </Card>
+        <Card className="p-4">
+          <p className="text-white/50 text-xs mb-1.5">{t('totalReceipts')}</p>
+          <h2 className="text-xl font-semibold text-red-400 leading-tight">
+            {formatAmount(money.spent)}
+          </h2>
+        </Card>
         <Card className="p-4">
           <p className="text-white/50 text-xs mb-1.5">{t('netProfit')}</p>
-          <h2 className={`text-2xl font-semibold leading-tight ${totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            {formatAmount(totalProfit)}
+          <h2 className={`text-xl font-semibold leading-tight ${money.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+            {formatAmount(money.profit)}
           </h2>
         </Card>
       </div>
 
-      {/* Прострочені інвойси */}
       {overdueInvoices.length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -431,7 +366,6 @@ export const Home: React.FC = () => {
         </motion.div>
       )}
 
-      {/* Швидкі дії */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -460,8 +394,12 @@ export const Home: React.FC = () => {
         </div>
       </motion.div>
 
-      {/* Графік */}
-      <MonthlyChart invoices={incomeInvoices} expenseDocuments={mergedExpenses} t={t} />
+      <MonthlyChart
+        months={money.months}
+        totalIncome={money.received}
+        totalExpenses={money.spent}
+        t={t}
+      />
     </div>
   );
 };
