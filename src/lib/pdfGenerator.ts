@@ -301,34 +301,22 @@ export const generateInvoicePDF = async (
   y = (doc as any).lastAutoTable.finalY + 5;
 
   doc.setFont(font, 'normal');
-  doc.setFontSize(8.5);
-  if (showReverseCharge) {
-    const rc = doc.splitTextToSize(t('reverseChargeNote'), contentWidth);
-    doc.text(rc, leftMargin, y);
-    y += rc.length * 3.8 + 3;
-  }
-
-  if (invoice.notes) {
-    doc.setFontSize(9);
-    const notes = doc.splitTextToSize(invoice.notes, contentWidth);
-    doc.text(notes, leftMargin, y);
-    y += notes.length * 4 + 3;
-  }
-
   doc.setFontSize(10);
-  doc.text(t('paymentDue'), leftMargin, y);
-  y += 6;
+  const contentWidthNotes = pageWidth - leftMargin - rightMargin;
 
-  const closing = doc.splitTextToSize(t('closingText'), contentWidth);
-  doc.text(closing, leftMargin, y);
-  y += closing.length * 4.5 + 4;
+  // Notes from the form only — no canned reverse-charge / payment / closing / legal text
+  if (invoice.notes?.trim()) {
+    const notes = doc.splitTextToSize(invoice.notes.trim(), contentWidthNotes);
+    doc.text(notes, leftMargin, y);
+    y += notes.length * 4.5 + 6;
+  }
 
-  doc.text(t('withRegards'), leftMargin, y);
-  y += 6;
-  doc.setFont(font, 'bold');
-  doc.text(invoice.signed_by || company.company_name || '', leftMargin, y);
-  doc.setFont(font, 'normal');
-  y += 10;
+  if (invoice.signed_by) {
+    doc.setFont(font, 'bold');
+    doc.text(invoice.signed_by, leftMargin, y);
+    doc.setFont(font, 'normal');
+    y += 6;
+  }
 
   if (invoice.signature_data_url) {
     try {
@@ -339,17 +327,12 @@ export const generateInvoicePDF = async (
     }
   }
 
-  // Legal + footer near bottom
+  // Company footer near bottom
   const footerBlockH = 32;
-  if (y > pageHeight - footerBlockH - 25) {
+  if (y > pageHeight - footerBlockH - 10) {
     doc.addPage();
     y = topMargin;
   }
-
-  const legalY = Math.min(y + 4, pageHeight - footerBlockH - 18);
-  doc.setFontSize(7);
-  const legal = doc.splitTextToSize(t('legalNotice'), contentWidth);
-  doc.text(legal, leftMargin, legalY);
 
   const footerY = pageHeight - 28;
   doc.setDrawColor(0);

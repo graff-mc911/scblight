@@ -369,41 +369,36 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
         </table>
       </div>
 
-      {/* E. Tax / payment / closing */}
-      {showReverseCharge && (
-        <div style={{ fontSize: '8.5pt', marginBottom: '3mm', lineHeight: 1.4 }}>
-          {tInvoice('reverseChargeNote')}
+      {/* E. Notes from the form (Примітки) — no canned legal/payment text */}
+      {data.notes?.trim() ? (
+        <div
+          style={{
+            fontSize: '10pt',
+            marginBottom: '6mm',
+            whiteSpace: 'pre-line',
+            lineHeight: 1.5,
+            fontWeight: 500,
+          }}
+        >
+          {data.notes.trim()}
+        </div>
+      ) : null}
+
+      {(data.signature_data_url || data.signed_by) && (
+        <div style={{ fontSize: '10pt', lineHeight: 1.5, marginBottom: '8mm' }}>
+          {data.signed_by && (
+            <div style={{ marginTop: '2mm', fontWeight: 600 }}>{data.signed_by}</div>
+          )}
+          {data.signature_data_url && (
+            <img
+              src={data.signature_data_url}
+              alt=""
+              style={{ marginTop: '3mm', maxHeight: '18mm', maxWidth: '50mm' }}
+              crossOrigin="anonymous"
+            />
+          )}
         </div>
       )}
-
-      {data.notes && (
-        <div style={{ fontSize: '9pt', marginBottom: '3mm', whiteSpace: 'pre-line', lineHeight: 1.45 }}>
-          {data.notes}
-        </div>
-      )}
-
-      <div style={{ fontSize: '10pt', marginBottom: '3mm' }}>{tInvoice('paymentDue')}</div>
-
-      <div style={{ fontSize: '10pt', lineHeight: 1.5, marginBottom: '2mm' }}>{tInvoice('closingText')}</div>
-
-      <div style={{ fontSize: '10pt', lineHeight: 1.5, marginBottom: '8mm' }}>
-        <div>{tInvoice('withRegards')}</div>
-        {(data.signed_by || data.company_name) && (
-          <div style={{ marginTop: '4mm', fontWeight: 600 }}>{data.signed_by || data.company_name}</div>
-        )}
-        {data.signature_data_url && (
-          <img
-            src={data.signature_data_url}
-            alt=""
-            style={{ marginTop: '3mm', maxHeight: '18mm', maxWidth: '50mm' }}
-            crossOrigin="anonymous"
-          />
-        )}
-      </div>
-
-      <div style={{ fontSize: '8pt', lineHeight: 1.4, marginBottom: '8mm', flex: 1 }}>
-        {tInvoice('legalNotice')}
-      </div>
 
       {/* F. 3-column footer */}
       <div
