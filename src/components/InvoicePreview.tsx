@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { InvoiceDocument } from './InvoiceDocument';
 import { useLanguage } from '../contexts/LanguageContext';
-import { generateInvoicePDFBlob } from '../lib/pdfGenerator';
 import { calculateLineTotal } from '../lib/invoiceTotals';
 
 interface InvoicePreviewProps {
@@ -12,6 +11,82 @@ interface InvoicePreviewProps {
   onClose?: () => void;
 }
 
+/** A4 @ 96dpi — matches InvoiceDocument fixed layout width */
+const A4_WIDTH_PX = 794;
+const A4_HEIGHT_PX = 1123;
+
+/**
+ * Scales the fixed A4 InvoiceDocument to fit the container width so mobile
+ * never clips meta/table columns. Optional zoom multiplies the fit scale.
+ */
+function ScaledInvoiceSurface({
+  data,
+  zoom = 1,
+  className = '',
+  allowScrollWhenZoomed = true,
+}: {
+  data: any;
+  zoom?: number;
+  className?: string;
+  allowScrollWhenZoomed?: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [fitScale, setFitScale] = useState(1);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const update = () => {
+      const pad = 2;
+      const available = Math.max(el.clientWidth - pad, 120);
+      setFitScale(Math.min(available / A4_WIDTH_PX, 1));
+    };
+
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    window.addEventListener('orientationchange', update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('orientationchange', update);
+    };
+  }, []);
+
+  const scale = fitScale * zoom;
+  const scaledW = A4_WIDTH_PX * scale;
+  const scaledH = A4_HEIGHT_PX * scale;
+  const overflowX = allowScrollWhenZoomed && zoom > 1.01;
+
+  return (
+    <div
+      ref={containerRef}
+      className={`w-full max-w-full ${overflowX ? 'overflow-x-auto' : 'overflow-x-hidden'} ${className}`}
+    >
+      <div
+        className="relative mx-auto"
+        style={{
+          width: overflowX ? scaledW : '100%',
+          maxWidth: '100%',
+          height: scaledH,
+        }}
+      >
+        <div
+          className="bg-white shadow-lg origin-top-left"
+          style={{
+            width: A4_WIDTH_PX,
+            minHeight: A4_HEIGHT_PX,
+            transform: `scale(${scale})`,
+            transformOrigin: 'top left',
+          }}
+        >
+          <InvoiceDocument data={data} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   invoice,
   client,
@@ -19,133 +94,52 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   onClose,
 }) => {
   const { t, language } = useLanguage();
-
-  // --------------------------------------------------
-  // Стани preview
-  // --------------------------------------------------
   const [zoom, setZoom] = useState(1);
-  const [initialZoom, setInitialZoom] = useState(1);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [loadingPdf, setLoadingPdf] = useState(false);
 
-  // --------------------------------------------------
-  // Мобільний чи ні
-  // --------------------------------------------------
-  const isMobile = useMemo(() => window.innerWidth < 768, []);
-
-  // --------------------------------------------------
-  // Автомасштаб для desktop preview
-  // --------------------------------------------------
-  useEffect(() => {
-    const calc = () => {
-      const width = window.innerWidth;
-      const fit = Math.min((width - 24) / 794, 1);
-      setInitialZoom(fit);
-      setZoom(fit);
-    };
-
-    calc();
-    window.addEventListener('resize', calc);
-
-    return () => window.removeEventListener('resize', calc);
-  }, []);
-
-  // --------------------------------------------------
-  // Блокуємо скрол фону, якщо відкритий modal preview
-  // --------------------------------------------------
   useEffect(() => {
     if (!onClose) return;
-
     const prevBody = document.body.style.overflow;
     const prevHtml = document.documentElement.style.overflow;
-
     document.body.style.overflow = 'hidden';
     document.documentElement.style.overflow = 'hidden';
-
     return () => {
       document.body.style.overflow = prevBody;
       document.documentElement.style.overflow = prevHtml;
     };
   }, [onClose]);
 
-  // --------------------------------------------------
-  // Дані компанії
-  // ВАЖЛИВО:
-  // Спочатку беремо збережені поля з invoice,
-  // а якщо їх нема — беремо з companyProfile
-  // --------------------------------------------------
-  const companyData = useMemo(() => {
-    return {
-      company_name:
-        invoice?.executor_name ||
-        companyProfile?.company_name ||
-        '',
+  const companyData = useMemo(
+    () => ({
+      company_name: invoice?.executor_name || companyProfile?.company_name || '',
+      company_address: invoice?.executor_address || companyProfile?.address || '',
+      company_phone: invoice?.executor_phone || companyProfile?.phone || '',
+      company_email: invoice?.executor_email || companyProfile?.email || '',
+      company_tax_number: invoice?.executor_tax_number || companyProfile?.tax_number || '',
+      company_bank: invoice?.executor_bank || companyProfile?.bank_name || '',
+      company_iban: invoice?.executor_iban || companyProfile?.iban || '',
+      company_bic: invoice?.executor_bic || companyProfile?.bic || '',
+    }),
+    [invoice, companyProfile],
+  );
 
-      company_address:
-        invoice?.executor_address ||
-        companyProfile?.address ||
-        '',
+  const companyLogoUrl = useMemo(
+    () => invoice?.executor_logo_url || companyProfile?.logo_url || '',
+    [invoice, companyProfile],
+  );
 
-      company_phone:
-        invoice?.executor_phone ||
-        companyProfile?.phone ||
-        '',
-
-      company_email:
-        invoice?.executor_email ||
-        companyProfile?.email ||
-        '',
-
-      company_tax_number:
-        invoice?.executor_tax_number ||
-        companyProfile?.tax_number ||
-        '',
-
-      company_bank:
-        invoice?.executor_bank ||
-        companyProfile?.bank_name ||
-        '',
-
-      company_iban:
-        invoice?.executor_iban ||
-        companyProfile?.iban ||
-        '',
-
-      company_bic:
-        invoice?.executor_bic ||
-        companyProfile?.bic ||
-        '',
-    };
-  }, [invoice, companyProfile]);
-
-  // --------------------------------------------------
-  // Логотип компанії
-  // --------------------------------------------------
-  const companyLogoUrl = useMemo(() => {
-    return invoice?.executor_logo_url || companyProfile?.logo_url || '';
-  }, [invoice, companyProfile]);
-
-  // --------------------------------------------------
-  // Дані інвойсу для відображення
-  // Тут також додаємо company_* поля,
-  // щоб InvoiceDocument міг їх використати
-  // --------------------------------------------------
-  const invoiceData = useMemo(() => {
-    return {
+  const invoiceData = useMemo(
+    () => ({
       document_number: invoice?.document_number || invoice?.document_no || '',
       date: invoice?.date || '',
       work_period_start: invoice?.work_period_start || '',
       work_period_end: invoice?.work_period_end || '',
-
       client_name: client?.name || invoice?.client_name || '',
       client_number: invoice?.client_number || client?.client_number || '',
       client_address: client?.address || invoice?.client_address || '',
       client_tax_number: client?.tax_number || invoice?.client_tax_number || '',
       client_email: client?.email || invoice?.client_email || '',
       client_phone: client?.phone || invoice?.client_phone || '',
-
       currency: invoice?.currency || 'EUR',
-
       items: (invoice?.items || []).map((i: any) => {
         const quantity = Number(i.quantity) || 0;
         const price = Number(i.price) || 0;
@@ -154,7 +148,6 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
           i.total != null && Number.isFinite(Number(i.total))
             ? Number(i.total)
             : calculateLineTotal(quantity, price, material);
-
         return {
           description: i.description || '',
           material,
@@ -162,30 +155,19 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
           unit: i.unit,
           price,
           total,
+          is_section: !!i.is_section,
         };
       }),
-
       vat_enabled: !!invoice?.vat_enabled,
       vat_rate: invoice?.vat_rate || 0,
-      vat_amount: invoice?.vat_amount || invoice?.tax_amount || 0,
-      net_total: invoice?.net_total || invoice?.total_net || 0,
-      gross_total: invoice?.gross_total || invoice?.total_gross || 0,
-
       object_address: invoice?.object_address || '',
       notes: invoice?.notes || '',
-
       service_period_start: invoice?.work_period_start || '',
       service_period_end: invoice?.work_period_end || '',
-
       invoice_language: invoice?.invoice_language || language || 'de',
-
       signature_data_url: invoice?.signature_data_url || '',
       signed_by: invoice?.signed_by || '',
       signed_at: invoice?.signed_at || '',
-
-      // --------------------------------------------------
-      // Додаємо компанію прямо в data
-      // --------------------------------------------------
       company_name: companyData.company_name,
       company_address: companyData.company_address,
       company_phone: companyData.company_phone,
@@ -195,197 +177,52 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
       company_iban: companyData.company_iban,
       company_bic: companyData.company_bic,
       company_logo_url: companyLogoUrl,
-    };
-  }, [invoice, client, companyData, companyLogoUrl, language]);
+    }),
+    [invoice, client, companyData, companyLogoUrl, language],
+  );
 
-  // --------------------------------------------------
-  // Генерація PDF preview на мобільному
-  // --------------------------------------------------
-  useEffect(() => {
-    let revokedUrl: string | null = null;
+  const zoomIn = () => setZoom((z) => Math.min(z + 0.15, 2.5));
+  const zoomOut = () => setZoom((z) => Math.max(z - 0.15, 0.5));
+  const resetZoom = () => setZoom(1);
 
-    const makePdf = async () => {
-      if (!isMobile) return;
-
-      try {
-        setLoadingPdf(true);
-
-        const blob = await generateInvoicePDFBlob(
-          invoiceData,
-          companyData,
-          companyLogoUrl
-        );
-
-        const url = URL.createObjectURL(blob);
-        revokedUrl = url;
-        setPdfUrl(url);
-      } catch (e) {
-        console.error('PDF preview failed', e);
-        setPdfUrl(null);
-      } finally {
-        setLoadingPdf(false);
-      }
-    };
-
-    void makePdf();
-
-    return () => {
-      if (revokedUrl) {
-        URL.revokeObjectURL(revokedUrl);
-      }
-    };
-  }, [isMobile, invoiceData, companyData, companyLogoUrl]);
-
-  // --------------------------------------------------
-  // Закриття по кліку в overlay
-  // --------------------------------------------------
-  const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget && onClose) {
-      onClose();
-    }
-  };
-
-  // --------------------------------------------------
-  // Zoom controls
-  // --------------------------------------------------
-  const zoomIn = () => setZoom((z) => Math.min(z + 0.1, 2));
-  const zoomOut = () => setZoom((z) => Math.max(z - 0.1, 0.3));
-  const resetZoom = () => setZoom(initialZoom);
-
-  // --------------------------------------------------
-  // Inline режим без modal
-  // --------------------------------------------------
+  // Inline (InvoiceView page) — scale-to-fit, no app-chrome overflow
   if (!onClose) {
-    if (isMobile) {
-      return (
-        <div className="w-full overflow-hidden rounded-2xl border border-white/10 bg-neutral-900" style={{ minHeight: '70vh', height: '70vh' }}>
-          {loadingPdf ? (
-            <div className="flex h-full items-center justify-center text-white/70">
-              {t('loading') || 'Loading...'}
-            </div>
-          ) : pdfUrl ? (
-            <iframe
-              src={`${pdfUrl}#toolbar=0&navpanes=0&view=FitH`}
-              title="Invoice PDF"
-              className="h-full w-full border-0 bg-white"
-              style={{ width: '100%', height: '100%', minHeight: '100%' }}
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-white/70 px-4 text-center">
-              PDF preview error
-            </div>
-          )}
-        </div>
-      );
-    }
-
     return (
-      <div className="w-full overflow-auto">
-        <div
-          className="mx-auto bg-white shadow-lg"
-          style={{ width: '794px', minHeight: '1123px' }}
-        >
-          <InvoiceDocument data={invoiceData} />
-        </div>
+      <div className="w-full max-w-full overflow-x-hidden rounded-2xl border border-white/10 bg-neutral-900/40 p-2 sm:p-3">
+        <ScaledInvoiceSurface data={invoiceData} zoom={1} />
       </div>
     );
   }
 
-  // --------------------------------------------------
   // Modal preview
-  // --------------------------------------------------
   return (
     <div
       className="fixed inset-0 z-[9999] bg-black/90 overflow-hidden"
-      onClick={handleOverlayClick}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
-      <div className="flex h-full w-full flex-col overflow-hidden">
-        {/* Верхня панель */}
-        <div className="flex items-center justify-between bg-black/70 p-3 flex-shrink-0">
-          <span className="text-white text-sm sm:text-base">
-            {t('preview')}
-          </span>
-
-          {!isMobile && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={zoomOut}
-                className="rounded-lg bg-white/10 p-2 text-white"
-              >
-                <ZoomOut className="h-4 w-4" />
-              </button>
-
-              <button
-                type="button"
-                onClick={zoomIn}
-                className="rounded-lg bg-white/10 p-2 text-white"
-              >
-                <ZoomIn className="h-4 w-4" />
-              </button>
-
-              <button
-                type="button"
-                onClick={resetZoom}
-                className="rounded-lg bg-white/10 p-2 text-white"
-              >
-                <RotateCcw className="h-4 w-4" />
-              </button>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg bg-white/10 p-2 text-white"
-          >
-            <X className="h-4 w-4" />
-          </button>
+      <div className="flex h-full w-full max-w-full flex-col overflow-hidden">
+        <div className="flex items-center justify-between bg-black/70 p-3 flex-shrink-0 gap-2">
+          <span className="text-white text-sm sm:text-base truncate">{t('preview')}</span>
+          <div className="flex items-center gap-1.5">
+            <button type="button" onClick={zoomOut} className="rounded-lg bg-white/10 p-2 text-white" aria-label="Zoom out">
+              <ZoomOut className="h-4 w-4" />
+            </button>
+            <button type="button" onClick={zoomIn} className="rounded-lg bg-white/10 p-2 text-white" aria-label="Zoom in">
+              <ZoomIn className="h-4 w-4" />
+            </button>
+            <button type="button" onClick={resetZoom} className="rounded-lg bg-white/10 p-2 text-white" aria-label="Reset zoom">
+              <RotateCcw className="h-4 w-4" />
+            </button>
+            <button type="button" onClick={onClose} className="rounded-lg bg-white/10 p-2 text-white" aria-label="Close">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
-        {/* Контент */}
-        <div className="relative flex-1 min-h-0 overflow-hidden bg-neutral-900">
-          {isMobile ? (
-            loadingPdf ? (
-              <div className="flex h-full items-center justify-center text-white/70">
-                {t('loading') || 'Loading...'}
-              </div>
-            ) : pdfUrl ? (
-              <iframe
-                src={`${pdfUrl}#toolbar=0&navpanes=0&view=FitH`}
-                title="Invoice PDF Preview"
-                className="absolute inset-0 h-full w-full border-0 bg-white"
-                style={{ width: '100%', height: '100%', minHeight: '100%' }}
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center text-white/70 px-4 text-center">
-                PDF preview error
-              </div>
-            )
-          ) : (
-            <div className="h-full overflow-auto">
-              <div className="flex justify-center p-4">
-                <div
-                  style={{
-                    width: `${794 * zoom}px`,
-                    minHeight: `${1123 * zoom}px`,
-                    overflow: 'hidden',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '794px',
-                      minHeight: '1123px',
-                      transform: `scale(${zoom})`,
-                      transformOrigin: 'top left',
-                    }}
-                  >
-                    <InvoiceDocument data={invoiceData} />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+        <div className="relative flex-1 min-h-0 overflow-y-auto overflow-x-hidden bg-neutral-900 p-2 sm:p-4">
+          <ScaledInvoiceSurface data={invoiceData} zoom={zoom} allowScrollWhenZoomed />
         </div>
       </div>
     </div>
