@@ -227,12 +227,15 @@ export const Home: React.FC = () => {
       total_amount: Number(inv.uploaded_amount ?? inv.total_gross ?? inv.total_net ?? 0),
       document_date: inv.date || inv.created_at,
       created_at: inv.created_at,
+      // Treat legacy uploaded supplier PDF as attached to its own invoice/object
+      invoice_id: inv.id as string,
     }));
 
   const mergedExpenses = [...expenseDocuments, ...uploadedExpenses];
 
-  // Spec §5: one shared YTD window for cards + chart
-  const money = computeHomeMoney(incomeInvoices, mergedExpenses);
+  // Prompt §4: spent = receipts/costs attached to invoices/objects only
+  const attachedForMoney = mergedExpenses.filter((exp: any) => !!exp.invoice_id);
+  const money = computeHomeMoney(incomeInvoices, attachedForMoney);
 
   const unpaidTotal = incomeInvoices
     .filter((inv) => inv.status === 'sent' || inv.status === 'draft')
@@ -255,13 +258,13 @@ export const Home: React.FC = () => {
       onClick: () => navigate('/invoices/new'),
     },
     {
-      label: t('scanReceiptTitle') || 'Розпізнати чек',
+      label: t('scanReceiptTitle') || 'Scan',
       icon: ScanLine,
       color: 'text-teal-400',
       onClick: () => navigate('/scan'),
     },
     {
-      label: t('createPdfBtn') || 'Створити PDF',
+      label: t('createPdfBtn') || 'PDF',
       icon: FileText,
       color: 'text-cyan-400',
       onClick: () => navigate('/pdf-creator'),
@@ -308,7 +311,7 @@ export const Home: React.FC = () => {
           onClick={() => navigate('/receipts')}
         >
           <p className="text-white/50 text-xs mb-1.5">
-            {t('expenseDocuments')}
+            {t('expenseDocuments') || t('receipts')}
           </p>
           <h2 className="text-xl font-semibold text-cyan-400 leading-tight">
             {mergedExpenses.length}

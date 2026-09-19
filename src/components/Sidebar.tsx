@@ -10,9 +10,9 @@ export const Sidebar: React.FC = () => {
   const navItems = [
     { to: '/', icon: Home, label: t('home') || 'Головна' },
     { to: '/invoices', icon: FileText, label: t('invoices') || 'Рахунки' },
-    { to: '/pdf-creator', icon: FilePlus, label: t('createPdfBtn') || 'Створити PDF' },
+    { to: '/pdf-creator', icon: FilePlus, label: t('createPdfBtn') || 'PDF' },
     { to: '/receipts', icon: Receipt, label: t('receipts') || 'Витрати' },
-    { to: '/scan', icon: ScanLine, label: t('scanReceiptTitle') || 'Розпізнати чек' },
+    { to: '/scan', icon: ScanLine, label: t('scanReceiptTitle') || 'Scan' },
     { to: '/clients', icon: Users, label: t('clients') || 'Клієнти' },
   ];
 

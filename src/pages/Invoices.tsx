@@ -856,7 +856,7 @@ export const Invoices: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionBusy, setSelectionBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [groupMode, setGroupMode] = useState<'none' | 'month' | 'year'>('month');
+  const [groupMode, setGroupMode] = useState<'none' | 'day' | 'month' | 'year'>('month');
 
   /**
    * Отримуємо поточну сесію користувача.
@@ -983,20 +983,29 @@ export const Invoices: React.FC = () => {
     const groups = new Map<string, typeof filteredInvoices>();
     for (const inv of filteredInvoices) {
       const d = new Date(inv.date || inv.created_at || Date.now());
-      const key =
-        groupMode === 'year'
-          ? String(d.getFullYear())
-          : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      let key: string;
+      if (groupMode === 'year') {
+        key = String(d.getFullYear());
+      } else if (groupMode === 'day') {
+        key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      } else {
+        key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      }
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(inv);
     }
 
     return Array.from(groups.entries()).map(([key, items]) => {
-      const [y, m] = key.split('-');
-      const label =
-        groupMode === 'year'
-          ? y
-          : format(new Date(Number(y), Number(m) - 1, 1), 'MMMM yyyy');
+      let label = key;
+      if (groupMode === 'year') {
+        label = key;
+      } else if (groupMode === 'day') {
+        const [y, m, day] = key.split('-');
+        label = format(new Date(Number(y), Number(m) - 1, Number(day)), 'dd MMMM yyyy');
+      } else {
+        const [y, m] = key.split('-');
+        label = format(new Date(Number(y), Number(m) - 1, 1), 'MMMM yyyy');
+      }
       return { key, label, items };
     });
   }, [filteredInvoices, groupMode]);
@@ -1210,25 +1219,8 @@ export const Invoices: React.FC = () => {
           <p className="text-white/60 text-sm mt-1">{t('manageInvoices')}</p>
         </div>
 
-        {/* Кнопки дій — лише робочі іконки; Share/Save/Delete з’являються при виборі */}
+        {/* Persistent header: only + (Add Invoice). Other actions appear on selection. */}
         <div className="flex gap-2">
-          <button
-            onClick={handleExportCSV}
-            disabled={!invoices.length}
-            className="p-2.5 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/20 transition-all disabled:opacity-50 active:scale-95"
-            title={t('export') || 'CSV'}
-          >
-            <FileSpreadsheet size={16} />
-          </button>
-
-          <button
-            onClick={() => setUploadModalOpen(true)}
-            className="p-2.5 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-400 hover:bg-teal-500/25 transition-all active:scale-95"
-            title={t('uploadExternalInvoice') || 'Завантажити чужий рахунок'}
-          >
-            <Upload size={16} />
-          </button>
-
           <button
             onClick={() => navigate('/invoices/new')}
             className="p-2.5 rounded-xl bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 transition-all active:scale-95"
@@ -1237,6 +1229,27 @@ export const Invoices: React.FC = () => {
             <Plus size={16} />
           </button>
         </div>
+      </div>
+
+      {/* Secondary archive actions (not in header): upload external + CSV */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          onClick={() => setUploadModalOpen(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-500/15 border border-teal-500/30 text-teal-300 text-xs font-medium hover:bg-teal-500/25 transition-all active:scale-95"
+          type="button"
+        >
+          <Upload size={14} />
+          {t('uploadExternalInvoice') || 'Upload'}
+        </button>
+        <button
+          onClick={handleExportCSV}
+          disabled={!invoices.length}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/8 border border-white/10 text-white/70 text-xs font-medium hover:bg-white/12 transition-all disabled:opacity-50 active:scale-95"
+          type="button"
+        >
+          <FileSpreadsheet size={14} />
+          {t('export') || 'CSV'}
+        </button>
       </div>
 
       {/* Панель дій для обраних рахунків */}
@@ -1271,7 +1284,7 @@ export const Invoices: React.FC = () => {
                 onClick={handleShareSelected}
                 disabled={selectionBusy}
                 className="p-2 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/25 transition-all disabled:opacity-50 active:scale-95"
-                title={t('sendToAccountant') || t('share') || 'Поділитися'}
+                title={t('sendToAccountant') || t('share') || 'Send'}
               >
                 <ShareIcon size={15} />
               </button>
@@ -1279,9 +1292,17 @@ export const Invoices: React.FC = () => {
                 onClick={handleSaveSelected}
                 disabled={selectionBusy}
                 className="p-2 rounded-xl bg-white/10 border border-white/10 text-white/80 hover:bg-white/15 transition-all disabled:opacity-50 active:scale-95"
-                title={t('saveToDevice') || 'Save to device'}
+                title={t('saveToDevice') || 'Export'}
               >
                 <Save size={15} />
+              </button>
+              <button
+                onClick={handleExportCSV}
+                disabled={selectionBusy || selectionCount === 0}
+                className="p-2 rounded-xl bg-white/10 border border-white/10 text-white/70 hover:bg-white/15 transition-all disabled:opacity-50 active:scale-95"
+                title={t('export') || 'CSV'}
+              >
+                <FileSpreadsheet size={15} />
               </button>
               <button
                 onClick={() => {
@@ -1322,6 +1343,7 @@ export const Invoices: React.FC = () => {
         <div className="flex gap-1.5">
           {(
             [
+              { key: 'day' as const, label: t('groupByDay') || 'Day' },
               { key: 'month' as const, label: t('groupByMonth') },
               { key: 'year' as const, label: t('groupByYear') },
               { key: 'none' as const, label: t('allStatuses') || 'All' },

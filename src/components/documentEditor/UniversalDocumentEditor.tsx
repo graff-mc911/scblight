@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import type { ContentBlock, EditorMode, UniversalDocument } from '../../lib/documentEditor/types';
 import { createDocument, emptyTableBlock, emptyTextBlock, uid } from '../../lib/documentEditor/utils';
+import { useLanguage } from '../../contexts/LanguageContext';
 import {
   deleteStoredDocument,
   listStoredDocuments,
@@ -76,6 +77,7 @@ interface Props {
 }
 
 export const UniversalDocumentEditor: React.FC<Props> = ({ onClose, initialDocument, documentKey }) => {
+  const { t } = useLanguage();
   const [doc, setDoc] = useState<UniversalDocument | null>(null);
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
@@ -440,11 +442,11 @@ export const UniversalDocumentEditor: React.FC<Props> = ({ onClose, initialDocum
           className="bg-transparent text-white font-semibold text-lg border-none focus:outline-none min-w-[120px]"
         />
         <div className="flex flex-wrap gap-1 ml-auto">
-          <button type="button" onClick={() => void saveDocumentToApp(doc)} className="toolbar-btn" title="IndexedDB у браузері">
-            <Save size={14} /> В додатку
+          <button type="button" onClick={() => void saveDocumentToApp(doc)} className="toolbar-btn" title={t('pdfSaveInApp')}>
+            <Save size={14} /> {t('pdfSaveInApp')}
           </button>
-          <button type="button" onClick={() => exportDocumentJson(doc)} className="toolbar-btn" title="Файл .scbdoc.json">
-            <Download size={14} /> На пристрій
+          <button type="button" onClick={() => exportDocumentJson(doc)} className="toolbar-btn" title={t('pdfSaveToDevice')}>
+            <Download size={14} /> {t('pdfSaveToDevice')}
           </button>
           <button
             type="button"
@@ -504,7 +506,7 @@ export const UniversalDocumentEditor: React.FC<Props> = ({ onClose, initialDocum
           )}
         </div>
       </div>
-      {shareUrl && <p className="text-xs text-green-400 mb-2 truncate">Посилання скопійовано: {shareUrl}</p>}
+      {shareUrl && <p className="text-xs text-green-400 mb-2 truncate">{t('pdfShareLinkCopied')}: {shareUrl}</p>}
 
       <div className="flex flex-1 gap-4 min-h-0 overflow-hidden">
         {/* Left panel */}

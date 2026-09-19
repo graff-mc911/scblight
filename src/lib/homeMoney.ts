@@ -1,7 +1,8 @@
 /**
  * Home dashboard money aggregations.
- * Spec §5: paid invoices → received; expense documents → spent (positive);
- * net profit = received − spent. Chart + cards share the same YTD window.
+ * Paid invoices → received.
+ * Scanned/attached receipts (expense docs with invoice_id) → spent.
+ * Net profit = received − spent. Chart + cards share the same YTD window.
  */
 
 import { normalizeReceiptDate } from './receiptDateParse';
@@ -75,9 +76,14 @@ function emptyMonths(): MonthData[] {
   }));
 }
 
+/** Only costs linked to an invoice/object count toward Total spent / Net profit. */
+export function isAttachedExpense(exp: { invoice_id?: string | null }): boolean {
+  return !!exp.invoice_id;
+}
+
 /**
  * Build YTD monthly series + totals for the current calendar year.
- * Expenses always add to spent as a positive amount (never only as negative profit).
+ * By default only expenses with `invoice_id` count toward spent (prompt §4).
  */
 export function computeHomeMoney(
   invoices: Array<{
@@ -90,11 +96,14 @@ export function computeHomeMoney(
     document_date?: string | null;
     created_at?: string | null;
     total_amount?: number | string | null;
+    invoice_id?: string | null;
   }>,
   now: Date = new Date(),
+  options: { onlyAttached?: boolean } = { onlyAttached: true },
 ): MoneyTotals {
   const currentYear = now.getFullYear();
   const months = emptyMonths();
+  const onlyAttached = options.onlyAttached !== false;
 
   for (const inv of invoices) {
     if (inv.status !== 'paid') continue;
@@ -104,10 +113,10 @@ export function computeHomeMoney(
   }
 
   for (const exp of expenseDocuments) {
+    if (onlyAttached && !isAttachedExpense(exp)) continue;
     const d = parseLedgerDate(exp.document_date, exp.created_at);
     if (!d || d.year !== currentYear) continue;
     const amount = Number(exp.total_amount || 0) || 0;
-    // Spent is always positive magnitude
     months[d.month].expenses += Math.abs(amount);
   }
 

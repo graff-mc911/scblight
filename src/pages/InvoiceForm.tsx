@@ -11,7 +11,7 @@ import { supabase } from '../lib/supabase';
 import { currencies, units, statuses } from '../lib/languages';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
-import { safeEval } from '../lib/calculator';
+import { evalFieldExpression } from '../lib/calculator';
 import { calculateLineTotal } from '../lib/invoiceTotals';
 
 interface InvoiceItem {
@@ -19,7 +19,9 @@ interface InvoiceItem {
   quantityDisplay: string;
   unit: string;
   price: number;
+  priceDisplay: string;
   material: string;
+  materialDisplay: string;
   description: string;
   total: number;
 }
@@ -73,7 +75,9 @@ export const InvoiceForm: React.FC = () => {
       quantityDisplay: '',
       unit: 'm²',
       price: 0,
+      priceDisplay: '',
       material: '',
+      materialDisplay: '',
       description: '',
       total: 0,
     },
@@ -263,7 +267,9 @@ export const InvoiceForm: React.FC = () => {
             quantityDisplay: String(item.quantity ?? ''),
             unit: item.unit || 'm²',
             price,
+            priceDisplay: String(item.price ?? ''),
             material,
+            materialDisplay: material === '' || material == null ? '' : String(material),
             description: item.description || '',
             total: calculateLineTotal(quantity, price, material),
           };
@@ -301,22 +307,21 @@ export const InvoiceForm: React.FC = () => {
   };
 
   // --------------------------------------------------
-  // Зміна полів позиції
+  // Зміна полів позиції + inline math (qty / price / material)
   // --------------------------------------------------
+  const recomputeItem = (item: InvoiceItem): InvoiceItem => ({
+    ...item,
+    total: calculateLineTotal(item.quantity, item.price, item.material),
+  });
+
   const handleItemChange = (index: number, field: keyof InvoiceItem, value: any) => {
     setItems((prev) => {
       const next = [...prev];
       const updated = { ...next[index], [field]: value };
 
       if (field === 'quantity' || field === 'price' || field === 'material') {
-        const qty = field === 'quantity' ? Number(value) : Number(updated.quantity);
-        const price = field === 'price' ? Number(value) : Number(updated.price);
-        const material = field === 'material' ? value : updated.material;
-        updated.total = calculateLineTotal(qty, price, material);
-
-        if (field === 'quantity') {
-          updated.quantityDisplay = String(value);
-        }
+        next[index] = recomputeItem(updated);
+        return next;
       }
 
       next[index] = updated;
@@ -324,29 +329,103 @@ export const InvoiceForm: React.FC = () => {
     });
   };
 
-  // --------------------------------------------------
-  // Калькулятор для кількості
-  // --------------------------------------------------
+  const applyExpressionField = (
+    index: number,
+    displayField: 'quantityDisplay' | 'priceDisplay' | 'materialDisplay',
+    valueField: 'quantity' | 'price' | 'material',
+    value: string,
+    commit: boolean,
+  ) => {
+    setItems((prev) => {
+      const next = [...prev];
+      const current = { ...next[index], [displayField]: value };
+      if (!commit) {
+        next[index] = current;
+        return next;
+      }
+      const evaluated = evalFieldExpression(value);
+      if (evaluated == null) {
+        if (valueField === 'material') {
+          next[index] = recomputeItem({ ...current, material: value });
+        } else if (valueField === 'quantity') {
+          next[index] = recomputeItem({ ...current, quantity: 0, quantityDisplay: value });
+        } else {
+          next[index] = recomputeItem({ ...current, price: 0, priceDisplay: value });
+        }
+        return next;
+      }
+      if (valueField === 'material') {
+        next[index] = recomputeItem({
+          ...current,
+          material: String(evaluated),
+          materialDisplay: String(evaluated),
+        });
+      } else if (valueField === 'quantity') {
+        next[index] = recomputeItem({
+          ...current,
+          quantity: evaluated,
+          quantityDisplay: String(evaluated),
+        });
+      } else {
+        next[index] = recomputeItem({
+          ...current,
+          price: evaluated,
+          priceDisplay: String(evaluated),
+        });
+      }
+      return next;
+    });
+  };
+
   const handleQuantityChange = (index: number, value: string) => {
     setItems((prev) => {
       const next = [...prev];
-      next[index] = {
-        ...next[index],
-        quantityDisplay: value,
-      };
+      const evaluated = evalFieldExpression(value);
+      const base = { ...next[index], quantityDisplay: value };
+      next[index] = recomputeItem({
+        ...base,
+        quantity: evaluated != null ? evaluated : next[index].quantity,
+      });
       return next;
     });
   };
 
   const handleQuantityBlur = (index: number) => {
-    const item = items[index];
-    const result = safeEval(item.quantityDisplay);
+    applyExpressionField(index, 'quantityDisplay', 'quantity', items[index].quantityDisplay, true);
+  };
 
-    if (!isNaN(result)) {
-      handleItemChange(index, 'quantity', result);
-    } else {
-      handleItemChange(index, 'quantity', 0);
-    }
+  const handlePriceChange = (index: number, value: string) => {
+    setItems((prev) => {
+      const next = [...prev];
+      const evaluated = evalFieldExpression(value);
+      const base = { ...next[index], priceDisplay: value };
+      next[index] = recomputeItem({
+        ...base,
+        price: evaluated != null ? evaluated : next[index].price,
+      });
+      return next;
+    });
+  };
+
+  const handlePriceBlur = (index: number) => {
+    applyExpressionField(index, 'priceDisplay', 'price', items[index].priceDisplay, true);
+  };
+
+  const handleMaterialChange = (index: number, value: string) => {
+    setItems((prev) => {
+      const next = [...prev];
+      const evaluated = evalFieldExpression(value);
+      const base = { ...next[index], materialDisplay: value };
+      next[index] = recomputeItem({
+        ...base,
+        material: evaluated != null ? String(evaluated) : value,
+      });
+      return next;
+    });
+  };
+
+  const handleMaterialBlur = (index: number) => {
+    applyExpressionField(index, 'materialDisplay', 'material', items[index].materialDisplay, true);
   };
 
   // --------------------------------------------------
@@ -360,7 +439,9 @@ export const InvoiceForm: React.FC = () => {
         quantityDisplay: '',
         unit: 'm²',
         price: 0,
+        priceDisplay: '',
         material: '',
+        materialDisplay: '',
         description: '',
         total: 0,
       },
@@ -710,10 +791,12 @@ export const InvoiceForm: React.FC = () => {
                       {t('price')}
                     </label>
                     <Input
-                      type="number"
-                      step="0.01"
-                      value={item.price || ''}
-                      onChange={(e) => handleItemChange(index, 'price', e.target.value)}
+                      type="text"
+                      inputMode="decimal"
+                      value={item.priceDisplay}
+                      onChange={(e) => handlePriceChange(index, e.target.value)}
+                      onBlur={() => handlePriceBlur(index)}
+                      placeholder={t('calculatorPlaceholder')}
                     />
                   </div>
 
@@ -722,11 +805,12 @@ export const InvoiceForm: React.FC = () => {
                       {t('material')}
                     </label>
                     <Input
-                      type="number"
-                      step="0.01"
-                      value={item.material === '' || item.material == null ? '' : item.material}
-                      onChange={(e) => handleItemChange(index, 'material', e.target.value)}
-                      placeholder="0.00"
+                      type="text"
+                      inputMode="decimal"
+                      value={item.materialDisplay}
+                      onChange={(e) => handleMaterialChange(index, e.target.value)}
+                      onBlur={() => handleMaterialBlur(index)}
+                      placeholder={t('calculatorPlaceholder') || '0.00'}
                     />
                   </div>
 

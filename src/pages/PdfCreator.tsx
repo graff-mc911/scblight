@@ -58,12 +58,12 @@ const HUB_TABS: { id: HubMode; labelKey: string; icon: typeof PenLine }[] = [
   { id: 'ocr', labelKey: 'pdfHubOcr', icon: ScanText },
 ];
 
-const QUICK_TEMPLATES: { id: QuickTemplateId; icon: typeof FileText; title: string; desc: string }[] = [
-  { id: 'blank', icon: PenLine, title: 'Порожній документ', desc: 'Почніть з нуля в редакторі' },
-  { id: 'act', icon: FileCheck, title: 'Акт робіт', desc: 'Шаблон прийому-передачі' },
-  { id: 'letter', icon: FileText, title: 'Офіційний лист', desc: 'Ділове звернення' },
-  { id: 'presentation', icon: RefreshCw, title: 'Презентація', desc: 'Слайди в редакторі' },
-  { id: 'receipt', icon: FileText, title: 'Чек', desc: 'Проста квитанція' },
+const QUICK_TEMPLATES: { id: QuickTemplateId; icon: typeof FileText; titleKey: string; descKey: string }[] = [
+  { id: 'blank', icon: PenLine, titleKey: 'pdfTplBlank', descKey: 'pdfTplBlankDesc' },
+  { id: 'act', icon: FileCheck, titleKey: 'pdfTplAct', descKey: 'pdfTplActDesc' },
+  { id: 'letter', icon: FileText, titleKey: 'pdfTplLetter', descKey: 'pdfTplLetterDesc' },
+  { id: 'presentation', icon: RefreshCw, titleKey: 'pdfTplPresentation', descKey: 'pdfTplPresentationDesc' },
+  { id: 'receipt', icon: FileText, titleKey: 'pdfTplReceipt', descKey: 'pdfTplReceiptDesc' },
 ];
 
 const IMAGE_TYPES = [
@@ -256,9 +256,9 @@ export default function PdfCreator() {
         `${uploadFilename || 'compressed'}_compressed`,
         setCompressStatus,
       );
-      showSuccess('PDF стиснуто і завантажено!');
+      showSuccess(t('pdfCompressed') || 'PDF compressed and downloaded');
     } catch {
-      showError('Не вдалося стиснути PDF.');
+      showError(t('pdfCompressFailed') || 'Could not compress PDF');
     } finally {
       setIsGenerating(false);
       setCompressStatus('');
@@ -484,9 +484,9 @@ export default function PdfCreator() {
       {hubMode === 'convert' && (
         <div className="max-w-3xl mx-auto space-y-8">
           <section>
-            <h3 className="text-white font-medium mb-1">Швидкі шаблони</h3>
+            <h3 className="text-white font-medium mb-1">{t('pdfQuickTemplates') || 'Templates'}</h3>
             <p className="text-white/45 text-sm mb-4">
-              Відкриваються в універсальному редакторі — редагуйте, зберігайте, експортуйте PDF
+              {t('pdfQuickTemplatesHint') || 'Open in the universal editor — edit, save, export PDF'}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {QUICK_TEMPLATES.map((tool) => (
@@ -501,8 +501,8 @@ export default function PdfCreator() {
                       <tool.icon size={20} className="text-orange-400" />
                     </div>
                     <div>
-                      <p className="text-white font-medium text-sm">{tool.title}</p>
-                      <p className="text-white/45 text-xs mt-1">{tool.desc}</p>
+                      <p className="text-white font-medium text-sm">{t(tool.titleKey)}</p>
+                      <p className="text-white/45 text-xs mt-1">{t(tool.descKey)}</p>
                     </div>
                   </div>
                 </button>
@@ -511,9 +511,9 @@ export default function PdfCreator() {
           </section>
 
           <section className="p-4 rounded-2xl bg-white/5 border border-white/10">
-            <h3 className="text-white font-medium mb-2">Файли → PDF</h3>
+            <h3 className="text-white font-medium mb-2">{t('pdfFilesToPdf') || 'Files → PDF'}</h3>
             <p className="text-white/45 text-sm mb-3">
-              Злиття кількох PDF/фото в один файл — вкладка «Обʼєднання»
+              {t('pdfFilesToPdfHint') || 'Merge PDFs/photos — use the Merge tab'}
             </p>
             <button
               type="button"

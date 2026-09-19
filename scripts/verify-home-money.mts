@@ -23,19 +23,41 @@ assert(parseLedgerDate('18/09/2026', '2020-01-01')?.year === 2026, 'primary wins
 assert(parseLedgerDate('not-a-date', '2026-09-01')?.month === 8, 'fallback created_at');
 assert(parseLedgerDate('garbage') == null, 'invalid → null');
 
-const money = computeHomeMoney(
+// Unattached general receipt — must NOT count toward spent/profit
+const general = computeHomeMoney(
   [],
-  [{ document_date: '18/09/2026', total_amount: 17.59, created_at: '2026-09-18T20:00:00Z' }],
+  [
+    {
+      document_date: '18/09/2026',
+      total_amount: 17.59,
+      created_at: '2026-09-18T20:00:00Z',
+      invoice_id: null,
+    },
+  ],
   now,
 );
-assert(money.spent === 17.59, `EU-date expense → spent ${money.spent}`);
-assert(money.received === 0, 'no invoices → received 0');
-assert(money.profit === -17.59, `profit = 0 - 17.59 → ${money.profit}`);
-assert(money.months[8].expenses === 17.59, 'September bucket');
+assert(general.spent === 0, `unattached check → spent 0, got ${general.spent}`);
+assert(general.profit === 0, `unattached check → profit 0, got ${general.profit}`);
+
+const attached = computeHomeMoney(
+  [],
+  [
+    {
+      document_date: '18/09/2026',
+      total_amount: 17.59,
+      created_at: '2026-09-18T20:00:00Z',
+      invoice_id: 'inv-1',
+    },
+  ],
+  now,
+);
+assert(attached.spent === 17.59, `attached check → spent ${attached.spent}`);
+assert(attached.profit === -17.59, `attached check → profit ${attached.profit}`);
+assert(attached.months[8].expenses === 17.59, 'September bucket');
 
 const isoMoney = computeHomeMoney(
   [{ status: 'paid', date: '2026-03-01', total_gross: 100 }],
-  [{ document_date: '2026-09-18', total_amount: 17.59 }],
+  [{ document_date: '2026-09-18', total_amount: 17.59, invoice_id: 'inv-1' }],
   now,
 );
 assert(isoMoney.received === 100, 'paid invoice received');
@@ -44,7 +66,7 @@ assert(isoMoney.profit === 82.41, `profit 100-17.59 → ${isoMoney.profit}`);
 
 const priorYear = computeHomeMoney(
   [],
-  [{ document_date: '2025-12-01', total_amount: 50, created_at: '2025-12-01' }],
+  [{ document_date: '2025-12-01', total_amount: 50, created_at: '2025-12-01', invoice_id: 'inv-1' }],
   now,
 );
 assert(priorYear.spent === 0, 'prior-year expense excluded from YTD spent');
