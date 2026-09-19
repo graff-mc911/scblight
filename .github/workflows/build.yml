@@ -1,0 +1,22 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Reject empty InvoiceDocument source
+        run: |
+          test -s src/components/invoice/Din5008InvoiceDocument.tsx
+          grep -q 'export const InvoiceDocument' src/components/invoice/Din5008InvoiceDocument.tsx
+      - run: npm run build

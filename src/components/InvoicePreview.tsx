@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
-import { InvoiceDocument } from './InvoiceDocument';
+import { InvoiceDocument } from './invoice/Din5008InvoiceDocument';
 import { useLanguage } from '../contexts/LanguageContext';
 import { calculateLineTotal } from '../lib/invoiceTotals';
 
