@@ -79,7 +79,7 @@ const formatMoney = (amount: number, currency = 'EUR') => {
 export const InvoiceView: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { showSuccess, showError } = useToastContext();
 
   const [invoice, setInvoice] = useState<any>(null);
@@ -535,7 +535,7 @@ export const InvoiceView: React.FC = () => {
       service_period_start: invoice.work_period_start,
       service_period_end: invoice.work_period_end,
       object_address: invoice.object_address || '',
-      invoice_language: invoice.invoice_language || '',
+      invoice_language: invoice.invoice_language || language || 'de',
     };
   };
 

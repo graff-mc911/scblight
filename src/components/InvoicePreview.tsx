@@ -18,7 +18,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   companyProfile,
   onClose,
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
 
   // --------------------------------------------------
   // Стани preview
@@ -177,7 +177,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
       service_period_start: invoice?.work_period_start || '',
       service_period_end: invoice?.work_period_end || '',
 
-      invoice_language: invoice?.invoice_language || '',
+      invoice_language: invoice?.invoice_language || language || 'de',
 
       signature_data_url: invoice?.signature_data_url || '',
       signed_by: invoice?.signed_by || '',
@@ -196,7 +196,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
       company_bic: companyData.company_bic,
       company_logo_url: companyLogoUrl,
     };
-  }, [invoice, client, companyData, companyLogoUrl]);
+  }, [invoice, client, companyData, companyLogoUrl, language]);
 
   // --------------------------------------------------
   // Генерація PDF preview на мобільному

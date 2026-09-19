@@ -10,6 +10,8 @@ interface InvoiceItem {
   unit: string;
   price: number;
   total: number;
+  /** Category / section header row inside the items table */
+  is_section?: boolean;
 }
 
 interface InvoiceData {
@@ -50,14 +52,38 @@ interface InvoiceDocumentProps {
   totalRef?: React.RefObject<HTMLDivElement>;
 }
 
+function isSectionRow(item: InvoiceItem): boolean {
+  if (item.is_section) return true;
+  const qty = Number(item.quantity) || 0;
+  const price = Number(item.price) || 0;
+  const total = Number(item.total) || 0;
+  return !!item.description?.trim() && qty === 0 && price === 0 && total === 0;
+}
+
+function formatDeDate(raw?: string): string {
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  return d.toLocaleDateString('de-DE');
+}
+
+function senderReturnLine(name?: string, address?: string): string {
+  const parts = [name, ...(address || '').split('\n').map((l) => l.trim()).filter(Boolean)];
+  return parts.filter(Boolean).join(', ');
+}
+
+/**
+ * DIN 5008 / German construction invoice layout (preview + print HTML).
+ * All labels via translations — no hardcoded UI strings.
+ */
 export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
   data,
   headerRef,
   clientRef,
   itemsRef,
-  totalRef
+  totalRef,
 }) => {
-  const { t, language } = useLanguage();
+  const { language } = useLanguage();
   const logoUrl = data.company_logo_url;
 
   const tInvoice = (key: string) => {
@@ -65,12 +91,13 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
     if (langTranslations && key in langTranslations) {
       return langTranslations[key as keyof typeof langTranslations] as string;
     }
-    return translations.en[key as keyof typeof translations.en] as string || key;
+    return (translations.en[key as keyof typeof translations.en] as string) || key;
   };
 
-  const formatCurrency = (amount: number) => {
-    return `${amount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
+  const formatCurrency = (amount: number) =>
+    amount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const currencySymbol = currencies.find((c) => c.code === data.currency)?.symbol || '€';
 
   const lineItems = data.items.map((item) => ({
     ...item,
@@ -80,9 +107,34 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
         : calculateLineTotal(item.quantity, item.price, item.material),
   }));
 
-  const netTotal = lineItems.reduce((sum, item) => sum + item.total, 0);
+  const netTotal = lineItems.reduce((sum, item) => (isSectionRow(item) ? sum : sum + item.total), 0);
   const vatAmount = data.vat_enabled ? (netTotal * data.vat_rate) / 100 : 0;
   const grossTotal = netTotal + vatAmount;
+  const showReverseCharge = !data.vat_enabled;
+
+  const periodStart = data.work_period_start || data.date;
+  const periodEnd = data.work_period_end || data.work_period_start || data.date;
+  const periodText =
+    periodStart && periodEnd && periodStart !== periodEnd
+      ? `${formatDeDate(periodStart)} ${tInvoice('servicePeriodTo')} ${formatDeDate(periodEnd)}`
+      : formatDeDate(periodStart || data.date);
+
+  const returnLine = senderReturnLine(data.company_name, data.company_address);
+  let posCounter = 0;
+
+  const cellBorder = '0.5pt solid #000';
+  const metaLabelStyle: React.CSSProperties = {
+    padding: '1mm 3mm 1mm 0',
+    textAlign: 'left',
+    whiteSpace: 'nowrap',
+    verticalAlign: 'top',
+  };
+  const metaValueStyle: React.CSSProperties = {
+    padding: '1mm 0',
+    textAlign: 'right',
+    verticalAlign: 'top',
+    fontWeight: 500,
+  };
 
   return (
     <div
@@ -94,78 +146,69 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
         height: 'auto',
         fontFamily: '"DejaVu Sans", "Noto Sans", Arial, Helvetica, sans-serif',
         fontSize: '10pt',
-        lineHeight: '1.4',
+        lineHeight: '1.35',
         color: '#000',
-        padding: '20mm 20mm 15mm 20mm',
+        padding: '15mm 18mm 12mm 20mm',
         position: 'relative',
         WebkitFontSmoothing: 'antialiased',
         display: 'flex',
         flexDirection: 'column',
-        boxSizing: 'border-box'
+        boxSizing: 'border-box',
       }}
     >
-      <div ref={headerRef} style={{ marginBottom: '10mm' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ flex: '0 0 auto' }}>
-            {logoUrl && (
+      {/* A. Header: logo/name left · company block right-aligned under logo row */}
+      <div ref={headerRef} style={{ marginBottom: '6mm' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8mm' }}>
+          <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+            {logoUrl ? (
               <img
                 src={logoUrl}
-                alt="Logo"
-                style={{ height: '35mm', width: 'auto', objectFit: 'contain' }}
+                alt=""
+                style={{ height: '22mm', width: 'auto', maxWidth: '70mm', objectFit: 'contain' }}
                 crossOrigin="anonymous"
               />
+            ) : (
+              <div style={{ fontSize: '14pt', fontWeight: 700, letterSpacing: '0.3pt' }}>
+                {data.company_name || '—'}
+              </div>
             )}
+            <div style={{ marginTop: logoUrl ? '2mm' : '1mm', fontSize: '9pt', lineHeight: 1.45 }}>
+              {data.company_name && logoUrl && (
+                <div style={{ fontWeight: 700 }}>{data.company_name}</div>
+              )}
+              {data.company_address && (
+                <div style={{ whiteSpace: 'pre-line' }}>{data.company_address}</div>
+              )}
+              {data.company_phone && (
+                <div>
+                  {tInvoice('phoneLabel')}: {data.company_phone}
+                </div>
+              )}
+              {data.company_email && <div>{data.company_email}</div>}
+            </div>
           </div>
-          <div style={{ textAlign: 'right', fontSize: '9pt', lineHeight: '1.6' }}>
-            {data.company_name && <div style={{ fontWeight: 'bold' }}>{data.company_name}</div>}
-            {data.company_address && (
-              <div style={{ whiteSpace: 'pre-line' }}>{data.company_address}</div>
-            )}
-            {data.company_phone && <div style={{ marginTop: '2mm' }}>Tel.: {data.company_phone}</div>}
-            {data.company_email && <div>{data.company_email}</div>}
-          </div>
-        </div>
-      </div>
 
-      <div style={{ fontSize: '7pt', marginBottom: '3mm', textDecoration: 'underline' }}>
-        {data.company_name && data.company_address && (
-          <div>{data.company_name}, {data.company_address.split('\n').join(', ')}</div>
-        )}
-      </div>
-
-      <div ref={clientRef} style={{ marginBottom: '10mm' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: '10pt', lineHeight: '1.5', maxWidth: '85mm' }}>
-            {data.client_address && (
-              <div style={{ whiteSpace: 'pre-line' }}>{data.client_address}</div>
-            )}
-          </div>
-          <div style={{ textAlign: 'right', fontSize: '9pt', lineHeight: '1.6' }}>
-            <table style={{ borderCollapse: 'collapse', marginLeft: 'auto' }}>
+          {/* B. Invoice meta box top-right */}
+          <div style={{ flex: '0 0 auto', minWidth: '62mm' }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '9pt' }}>
               <tbody>
                 <tr>
-                  <td style={{ paddingRight: '8mm', textAlign: 'left' }}>{tInvoice('invoiceNumber')}:</td>
-                  <td style={{ textAlign: 'right' }}>{data.document_number}</td>
-                </tr>
-                {data.client_number && (
-                  <tr>
-                    <td style={{ paddingRight: '8mm', textAlign: 'left' }}>{tInvoice('customerNumber')}:</td>
-                    <td style={{ textAlign: 'right' }}>{data.client_number}</td>
-                  </tr>
-                )}
-                <tr>
-                  <td style={{ paddingRight: '8mm', textAlign: 'left' }}>{tInvoice('date')}:</td>
-                  <td style={{ textAlign: 'right' }}>{new Date(data.date).toLocaleDateString('de-DE')}</td>
+                  <td style={metaLabelStyle}>{tInvoice('invoiceNumber')}:</td>
+                  <td style={metaValueStyle}>{data.document_number}</td>
                 </tr>
                 <tr>
-                  <td style={{ paddingRight: '8mm', textAlign: 'left' }}>{tInvoice('performancePeriod')}:</td>
-                  <td style={{ textAlign: 'right' }}>
-                    {data.work_period_start && data.work_period_end ? (
-                      data.work_period_start === data.work_period_end ?
-                        new Date(data.work_period_start).toLocaleDateString('de-DE') :
-                        `${new Date(data.work_period_start).toLocaleDateString('de-DE')} - ${new Date(data.work_period_end).toLocaleDateString('de-DE')}`
-                    ) : new Date(data.date).toLocaleDateString('de-DE')}
+                  <td style={metaLabelStyle}>{tInvoice('customerNumber')}:</td>
+                  <td style={metaValueStyle}>{data.client_number || '—'}</td>
+                </tr>
+                <tr>
+                  <td style={metaLabelStyle}>{tInvoice('date')}:</td>
+                  <td style={metaValueStyle}>{formatDeDate(data.date)}</td>
+                </tr>
+                <tr>
+                  <td style={{ ...metaLabelStyle, verticalAlign: 'top' }}>
+                    {tInvoice('performancePeriod')}:
                   </td>
+                  <td style={metaValueStyle}>{periodText}</td>
                 </tr>
               </tbody>
             </table>
@@ -173,135 +216,242 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
         </div>
       </div>
 
-      <h1 style={{ fontSize: '16pt', fontWeight: 'normal', marginBottom: '8mm' }}>
+      {/* Sender return line + recipient */}
+      <div ref={clientRef} style={{ marginBottom: '7mm' }}>
+        {returnLine && (
+          <div
+            style={{
+              fontSize: '6.5pt',
+              textDecoration: 'underline',
+              marginBottom: '2.5mm',
+              maxWidth: '85mm',
+              lineHeight: 1.3,
+            }}
+          >
+            {returnLine}
+          </div>
+        )}
+        <div style={{ fontSize: '10pt', lineHeight: 1.45, maxWidth: '85mm' }}>
+          {data.client_name && <div style={{ fontWeight: 700 }}>{data.client_name}</div>}
+          {data.client_address && (
+            <div style={{ whiteSpace: 'pre-line' }}>{data.client_address}</div>
+          )}
+        </div>
+      </div>
+
+      {/* C. Title + BVH + intro */}
+      <h1 style={{ fontSize: '14pt', fontWeight: 700, margin: '0 0 3mm 0' }}>
         {tInvoice('invoiceTitle')} {data.document_number}
       </h1>
 
       {data.object_address && (
-        <div style={{ fontSize: '10pt', marginBottom: '5mm', fontWeight: 'bold' }}>
-          <div style={{ fontSize: '11pt', letterSpacing: '0.5pt' }}>{tInvoice('invoiceTitle')} {data.document_number}</div>
-          <div>BVH: {data.object_address}</div>
+        <div style={{ fontSize: '10pt', fontWeight: 700, marginBottom: '4mm' }}>
+          {tInvoice('projectRefBvh')}: {data.object_address}
         </div>
       )}
 
-      <div style={{ fontSize: '10pt', lineHeight: '1.6', marginBottom: '5mm' }}>
-        <p style={{ marginBottom: '3mm' }}>{tInvoice('dearClient')} {data.client_name},</p>
-        <p style={{ marginBottom: '3mm' }}>
-          {tInvoice('thankYouText')}
-        </p>
-        <p>
-          {tInvoice('qualityText')}
-        </p>
+      <div style={{ fontSize: '10pt', lineHeight: 1.5, marginBottom: '5mm' }}>
+        <p style={{ margin: '0 0 2.5mm 0' }}>{tInvoice('dearSalutation')},</p>
+        <p style={{ margin: '0 0 2.5mm 0' }}>{tInvoice('thankYouText')}</p>
+        <p style={{ margin: 0 }}>{tInvoice('qualityText')}</p>
       </div>
 
-      <div ref={itemsRef} style={{ marginBottom: '8mm' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9pt', border: '1pt solid #000' }}>
+      {/* D. Items table */}
+      <div ref={itemsRef} style={{ marginBottom: '5mm' }}>
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: '9pt',
+            border: cellBorder,
+          }}
+        >
           <thead>
-            <tr style={{ borderBottom: '1pt solid #000' }}>
-              <th style={{ textAlign: 'left', padding: '2mm', width: '10mm', border: '1pt solid #000' }}>{tInvoice('position')}</th>
-              <th style={{ textAlign: 'left', padding: '2mm', border: '1pt solid #000' }}>{tInvoice('designation')}</th>
-              <th style={{ textAlign: 'right', padding: '2mm', width: '15mm', border: '1pt solid #000' }}>{tInvoice('amountShort')}</th>
-              <th style={{ textAlign: 'center', padding: '2mm', width: '18mm', border: '1pt solid #000' }}>{tInvoice('unit')}</th>
-              <th style={{ textAlign: 'right', padding: '2mm', width: '25mm', border: '1pt solid #000' }}>{tInvoice('unitPrice')} {currencies.find(c => c.code === data.currency)?.symbol || 'â‚¬'}</th>
-              <th style={{ textAlign: 'right', padding: '2mm', width: '25mm', border: '1pt solid #000' }}>{tInvoice('totalPrice')} {currencies.find(c => c.code === data.currency)?.symbol || 'â‚¬'}</th>
+            <tr>
+              <th style={{ textAlign: 'left', padding: '1.8mm', width: '10mm', border: cellBorder, fontWeight: 700 }}>
+                {tInvoice('position')}
+              </th>
+              <th style={{ textAlign: 'left', padding: '1.8mm', border: cellBorder, fontWeight: 700 }}>
+                {tInvoice('designation')}
+              </th>
+              <th style={{ textAlign: 'right', padding: '1.8mm', width: '16mm', border: cellBorder, fontWeight: 700 }}>
+                {tInvoice('amountShort')}
+              </th>
+              <th style={{ textAlign: 'center', padding: '1.8mm', width: '18mm', border: cellBorder, fontWeight: 700 }}>
+                {tInvoice('unit')}
+              </th>
+              <th style={{ textAlign: 'right', padding: '1.8mm', width: '24mm', border: cellBorder, fontWeight: 700 }}>
+                {tInvoice('unitPriceShort').replace('€', currencySymbol)}
+              </th>
+              <th style={{ textAlign: 'right', padding: '1.8mm', width: '24mm', border: cellBorder, fontWeight: 700 }}>
+                {tInvoice('totalPriceShort').replace('€', currencySymbol)}
+              </th>
             </tr>
           </thead>
           <tbody>
-            {lineItems.map((item, index) => (
-              <tr key={index}>
-                <td style={{ padding: '2mm', textAlign: 'left', border: '1pt solid #000' }}>{index + 1}</td>
-                <td style={{ padding: '2mm', textAlign: 'left', fontWeight: 'bold', border: '1pt solid #000' }}>
-                  {item.description}
-                  {parseMaterialAmount(item.material) !== 0 ? (
-                    <div style={{ fontWeight: 'normal', marginTop: '1mm' }}>
-                      {tInvoice('material')}: {formatCurrency(parseMaterialAmount(item.material))}
-                    </div>
-                  ) : null}
-                </td>
-                <td style={{ padding: '2mm', textAlign: 'right', border: '1pt solid #000' }}>{item.quantity}</td>
-                <td style={{ padding: '2mm', textAlign: 'center', border: '1pt solid #000' }}>{item.unit}</td>
-                <td style={{ padding: '2mm', textAlign: 'right', border: '1pt solid #000' }}>{formatCurrency(item.price)}</td>
-                <td style={{ padding: '2mm', textAlign: 'right', border: '1pt solid #000' }}>{formatCurrency(item.total)}</td>
-              </tr>
-            ))}
-            <tr>
-              <td colSpan={5} style={{ padding: '2mm', textAlign: 'left', fontWeight: 'bold', border: '1pt solid #000' }}>{tInvoice('netAmount')}</td>
-              <td style={{ padding: '2mm', textAlign: 'right', border: '1pt solid #000' }}>{formatCurrency(netTotal)}</td>
-            </tr>
+            {lineItems.map((item, index) => {
+              if (isSectionRow(item)) {
+                return (
+                  <tr key={index}>
+                    <td
+                      colSpan={6}
+                      style={{
+                        padding: '2mm',
+                        border: cellBorder,
+                        fontWeight: 700,
+                        background: '#f5f5f5',
+                      }}
+                    >
+                      {item.description}
+                    </td>
+                  </tr>
+                );
+              }
+              posCounter += 1;
+              return (
+                <tr key={index}>
+                  <td style={{ padding: '1.8mm', border: cellBorder }}>{posCounter}</td>
+                  <td style={{ padding: '1.8mm', border: cellBorder, fontWeight: 600 }}>
+                    {item.description}
+                    {parseMaterialAmount(item.material) !== 0 ? (
+                      <div style={{ fontWeight: 400, marginTop: '0.8mm', fontSize: '8pt' }}>
+                        {tInvoice('material')}: {formatCurrency(parseMaterialAmount(item.material))}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td style={{ padding: '1.8mm', textAlign: 'right', border: cellBorder }}>
+                    {Number(item.quantity).toLocaleString('de-DE')}
+                  </td>
+                  <td style={{ padding: '1.8mm', textAlign: 'center', border: cellBorder }}>{item.unit}</td>
+                  <td style={{ padding: '1.8mm', textAlign: 'right', border: cellBorder }}>
+                    {formatCurrency(item.price)}
+                  </td>
+                  <td style={{ padding: '1.8mm', textAlign: 'right', border: cellBorder }}>
+                    {formatCurrency(item.total)}
+                  </td>
+                </tr>
+              );
+            })}
+
             {data.vat_enabled && (
-              <tr>
-                <td colSpan={5} style={{ padding: '2mm', textAlign: 'left', border: '1pt solid #000' }}>{tInvoice('vat')} {data.vat_rate} %</td>
-                <td style={{ padding: '2mm', textAlign: 'right', border: '1pt solid #000' }}>{formatCurrency(vatAmount)}</td>
-              </tr>
+              <>
+                <tr>
+                  <td colSpan={5} style={{ padding: '1.8mm', border: cellBorder, fontWeight: 700 }}>
+                    {tInvoice('netAmount')}
+                  </td>
+                  <td style={{ padding: '1.8mm', textAlign: 'right', border: cellBorder }}>
+                    {formatCurrency(netTotal)}
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={5} style={{ padding: '1.8mm', border: cellBorder }}>
+                    {tInvoice('vat')} {data.vat_rate} %
+                  </td>
+                  <td style={{ padding: '1.8mm', textAlign: 'right', border: cellBorder }}>
+                    {formatCurrency(vatAmount)}
+                  </td>
+                </tr>
+              </>
             )}
+
             <tr>
-              <td colSpan={5} style={{ padding: '2mm', textAlign: 'left', fontWeight: 'bold', border: '1pt solid #000' }}>{tInvoice('grossAmount')}</td>
-              <td style={{ padding: '2mm', textAlign: 'right', fontWeight: 'bold', border: '1pt solid #000' }}>{formatCurrency(grossTotal)}</td>
+              <td colSpan={5} style={{ padding: '2mm', border: cellBorder, fontWeight: 700 }}>
+                {showReverseCharge ? tInvoice('totalAmountStar') : tInvoice('grossAmount')}
+              </td>
+              <td
+                ref={totalRef as unknown as React.RefObject<HTMLTableCellElement>}
+                style={{ padding: '2mm', textAlign: 'right', border: cellBorder, fontWeight: 700 }}
+              >
+                {formatCurrency(grossTotal)}
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      {data.notes && (
-        <div style={{ fontSize: '9pt', marginBottom: '8mm' }}>
-          <div style={{ whiteSpace: 'pre-line', lineHeight: '1.5' }}>{data.notes}</div>
+      {/* E. Tax / payment / closing */}
+      {showReverseCharge && (
+        <div style={{ fontSize: '8.5pt', marginBottom: '3mm', lineHeight: 1.4 }}>
+          {tInvoice('reverseChargeNote')}
         </div>
       )}
 
-      <div style={{ fontSize: '10pt', marginBottom: '5mm' }}>
-        <p>{tInvoice('paymentDue')}</p>
-      </div>
+      {data.notes && (
+        <div style={{ fontSize: '9pt', marginBottom: '3mm', whiteSpace: 'pre-line', lineHeight: 1.45 }}>
+          {data.notes}
+        </div>
+      )}
 
-      <div style={{ fontSize: '10pt', lineHeight: '1.6', marginBottom: '5mm' }}>
-        <p>{tInvoice('closingText')}</p>
-      </div>
+      <div style={{ fontSize: '10pt', marginBottom: '3mm' }}>{tInvoice('paymentDue')}</div>
 
-      <div style={{ fontSize: '10pt', lineHeight: '1.6', marginBottom: '15mm' }}>
-        <p>{tInvoice('withRegards')}</p>
-        {data.signed_by && (
-          <div style={{ marginTop: '5mm', fontWeight: 'normal' }}>{data.signed_by}</div>
+      <div style={{ fontSize: '10pt', lineHeight: 1.5, marginBottom: '2mm' }}>{tInvoice('closingText')}</div>
+
+      <div style={{ fontSize: '10pt', lineHeight: 1.5, marginBottom: '8mm' }}>
+        <div>{tInvoice('withRegards')}</div>
+        {(data.signed_by || data.company_name) && (
+          <div style={{ marginTop: '4mm', fontWeight: 600 }}>{data.signed_by || data.company_name}</div>
+        )}
+        {data.signature_data_url && (
+          <img
+            src={data.signature_data_url}
+            alt=""
+            style={{ marginTop: '3mm', maxHeight: '18mm', maxWidth: '50mm' }}
+            crossOrigin="anonymous"
+          />
         )}
       </div>
 
-      <div style={{ fontSize: '9pt', lineHeight: '1.4', marginBottom: '15mm', flex: '1' }}>
-        <p>{tInvoice('legalNotice')}</p>
+      <div style={{ fontSize: '8pt', lineHeight: 1.4, marginBottom: '8mm', flex: 1 }}>
+        {tInvoice('legalNotice')}
       </div>
 
+      {/* F. 3-column footer */}
       <div
         style={{
           borderTop: '0.5pt solid #000',
-          paddingTop: '3mm',
+          paddingTop: '2.5mm',
           fontSize: '7pt',
-          lineHeight: '1.5',
-          color: '#000',
+          lineHeight: 1.45,
           marginTop: 'auto',
           display: 'flex',
-          justifyContent: 'space-between'
+          justifyContent: 'space-between',
+          gap: '4mm',
         }}
       >
-        <div style={{ flex: '1' }}>
-          {data.company_name && <div style={{ fontWeight: 'bold' }}>{data.company_name}</div>}
-          {data.company_address && (
-            <div style={{ whiteSpace: 'pre-line' }}>{data.company_address}</div>
+        <div style={{ flex: 1 }}>
+          {data.company_name && <div style={{ fontWeight: 700 }}>{data.company_name}</div>}
+          {data.company_address && <div style={{ whiteSpace: 'pre-line' }}>{data.company_address}</div>}
+          {data.company_phone && (
+            <div>
+              {tInvoice('phoneLabel')}: {data.company_phone}
+            </div>
           )}
-          {data.company_phone && <div>Tel.: {data.company_phone}</div>}
           {data.company_email && <div>{data.company_email}</div>}
         </div>
-        <div style={{ flex: '1', textAlign: 'center' }}>
+        <div style={{ flex: 1, textAlign: 'center' }}>
           {data.company_tax_number && (
-            <div>Steuernummer: {data.company_tax_number}</div>
+            <div>
+              {tInvoice('taxNumber')}: {data.company_tax_number}
+              {data.signed_by ? ` ${data.signed_by}` : ''}
+            </div>
+          )}
+          <div style={{ marginTop: '1.5mm' }}>
+            {tInvoice('pageLabel')} 1/1
+          </div>
+        </div>
+        <div style={{ flex: 1, textAlign: 'right' }}>
+          {data.company_bank && <div>{data.company_bank}</div>}
+          {data.company_iban && (
+            <div>
+              {tInvoice('ibanLabel')}: {data.company_iban}
+            </div>
+          )}
+          {data.company_bic && (
+            <div>
+              {tInvoice('bicLabel')}: {data.company_bic}
+            </div>
           )}
         </div>
-        <div style={{ flex: '1', textAlign: 'right' }}>
-          {data.signed_by && <div>{data.signed_by}</div>}
-          {data.company_bank && <div>{data.company_bank}</div>}
-          {data.company_iban && <div>IBAN: {data.company_iban}</div>}
-          {data.company_bic && <div>BIC: {data.company_bic}</div>}
-        </div>
-      </div>
-
-      <div style={{ fontSize: '7pt', textAlign: 'center', marginTop: '3mm' }}>
-        Seite 1/1
       </div>
     </div>
   );

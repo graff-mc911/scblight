@@ -11,6 +11,7 @@ interface InvoiceItem {
   unit: string;
   price: number;
   total: number;
+  is_section?: boolean;
 }
 
 interface CompanyProfile {
@@ -40,14 +41,39 @@ interface InvoiceData {
   signed_by?: string;
   service_period_start?: string;
   service_period_end?: string;
+  work_period_start?: string;
+  work_period_end?: string;
   object_address?: string;
   invoice_language?: string;
 }
 
+function isSectionRow(item: InvoiceItem): boolean {
+  if (item.is_section) return true;
+  const qty = Number(item.quantity) || 0;
+  const price = Number(item.price) || 0;
+  const total = Number(item.total) || 0;
+  return !!item.description?.trim() && qty === 0 && price === 0 && total === 0;
+}
+
+function formatDeDate(raw?: string): string {
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw;
+  return d.toLocaleDateString('de-DE');
+}
+
+function money(n: number): string {
+  return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * DIN 5008 / German construction invoice PDF — mirrors InvoiceDocument layout.
+ * Labels from translations[invoice_language].
+ */
 export const generateInvoicePDF = async (
   invoice: InvoiceData,
   company: CompanyProfile,
-  logoUrl?: string
+  logoUrl?: string,
 ): Promise<jsPDF> => {
   const doc = new jsPDF('p', 'mm', 'a4');
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -55,301 +81,337 @@ export const generateInvoicePDF = async (
   const font = await ensurePdfUnicodeFont(doc);
 
   const leftMargin = 20;
-  const rightMargin = 20;
-  const topMargin = 20;
-  let currentY = topMargin;
+  const rightMargin = 18;
+  const topMargin = 15;
+  let y = topMargin;
 
+  const lang = (invoice.invoice_language || 'de') as keyof typeof translations;
+  const dict = translations[lang] || translations.de;
+  const t = (key: string): string =>
+    ((dict as Record<string, string>)[key] as string) ||
+    ((translations.en as Record<string, string>)[key] as string) ||
+    key;
+
+  const periodStart = invoice.work_period_start || invoice.service_period_start || invoice.date;
+  const periodEnd =
+    invoice.work_period_end || invoice.service_period_end || periodStart || invoice.date;
+  const periodText =
+    periodStart && periodEnd && periodStart !== periodEnd
+      ? `${formatDeDate(periodStart)} ${t('servicePeriodTo')} ${formatDeDate(periodEnd)}`
+      : formatDeDate(periodStart || invoice.date);
+
+  // —— Header left: logo + company ——
+  const headerTop = y;
   if (logoUrl) {
     try {
       const img = await loadImage(logoUrl);
-      doc.addImage(img, 'PNG', leftMargin, currentY, 50, 25);
-    } catch (error) {
-      console.warn('Failed to load logo:', error);
+      doc.addImage(img, 'PNG', leftMargin, y, 40, 18);
+      y += 20;
+    } catch {
+      console.warn('Failed to load logo');
     }
   }
 
+  doc.setFont(font, 'bold');
   doc.setFontSize(11);
-  doc.setFont(font, 'bold');
   if (company.company_name) {
-    doc.text(company.company_name, pageWidth - rightMargin, currentY, { align: 'right' });
+    doc.text(company.company_name, leftMargin, y);
+    y += 5;
   }
-
-  doc.setFontSize(9);
   doc.setFont(font, 'normal');
-  currentY += 5;
-
+  doc.setFontSize(9);
   if (company.company_address) {
-    const addressLines = company.company_address.split('\n');
-    addressLines.forEach(line => {
-      doc.text(line, pageWidth - rightMargin, currentY, { align: 'right' });
-      currentY += 4;
+    company.company_address.split('\n').forEach((line) => {
+      doc.text(line, leftMargin, y);
+      y += 4;
     });
   }
-
   if (company.company_phone) {
-    doc.text(`Tel.: ${company.company_phone}`, pageWidth - rightMargin, currentY, { align: 'right' });
-    currentY += 4;
+    doc.text(`${t('phoneLabel')}: ${company.company_phone}`, leftMargin, y);
+    y += 4;
   }
-
   if (company.company_email) {
-    doc.text(company.company_email, pageWidth - rightMargin, currentY, { align: 'right' });
+    doc.text(company.company_email, leftMargin, y);
+    y += 4;
   }
 
-  currentY = Math.max(currentY, 50);
-  currentY += 10;
-
-  doc.setFontSize(8);
-  doc.setFont(font, 'normal');
-  doc.setTextColor(0, 0, 0);
-  if (company.company_name && company.company_address) {
-    const firstAddressLine = company.company_address.split('\n')[0];
-    doc.text(`${company.company_name}, ${firstAddressLine}`, leftMargin, currentY);
-  }
-
-  currentY += 8;
-
-  doc.setFontSize(10);
-  doc.setFont(font, 'bold');
-  doc.text(invoice.client_name, leftMargin, currentY);
-  currentY += 5;
-
-  doc.setFont(font, 'normal');
-  if (invoice.client_address) {
-    const clientAddressLines = invoice.client_address.split('\n');
-    clientAddressLines.forEach(line => {
-      doc.text(line, leftMargin, currentY);
-      currentY += 4;
-    });
-  }
-
-  const metaStartY = currentY - (invoice.client_address ? invoice.client_address.split('\n').length * 4 : 0) - 5;
+  // —— Meta box top-right ——
+  const metaXLabel = pageWidth - rightMargin - 62;
+  const metaXValue = pageWidth - rightMargin;
+  let metaY = headerTop + 2;
   doc.setFontSize(9);
-
-  const servicePeriod = invoice.service_period_start && invoice.service_period_end
-    ? `${new Date(invoice.service_period_start).toLocaleDateString('de-DE')} bis ${new Date(invoice.service_period_end).toLocaleDateString('de-DE')}`
-    : new Date(invoice.date).toLocaleDateString('de-DE');
-
-  const metaData: Array<[string, string]> = [
-    ['Rechnungsnr.:', invoice.document_number],
+  const metaRows: Array<[string, string]> = [
+    [t('invoiceNumber'), invoice.document_number],
+    [t('customerNumber'), invoice.client_number || '—'],
+    [t('date'), formatDeDate(invoice.date)],
+    [t('performancePeriod'), periodText],
   ];
-
-  if (invoice.client_number) {
-    metaData.push(['Kundennr.:', invoice.client_number]);
-  }
-
-  metaData.push(['Datum:', new Date(invoice.date).toLocaleDateString('de-DE')]);
-  metaData.push(['Leistungszeitraum:', servicePeriod]);
-
-  let metaCurrentY = metaStartY;
-  metaData.forEach(([label, value]) => {
+  metaRows.forEach(([label, value]) => {
     doc.setFont(font, 'normal');
-    doc.text(label, pageWidth - rightMargin - 60, metaCurrentY);
-    doc.setFont(font, 'normal');
-    doc.text(value, pageWidth - rightMargin, metaCurrentY, { align: 'right' });
-    metaCurrentY += 5;
+    doc.text(`${label}:`, metaXLabel, metaY);
+    doc.text(value, metaXValue, metaY, { align: 'right' });
+    metaY += 5;
   });
 
-  currentY = Math.max(currentY + 10, metaCurrentY + 10);
+  y = Math.max(y, metaY) + 6;
 
-  const lang = (invoice.invoice_language || 'de') as keyof typeof translations;
-  const t = translations[lang] || translations['de'];
-  const tStr = (key: keyof typeof t): string => (t[key] as string) || (translations['de'][key as keyof typeof translations['de']] as string) || '';
-  const tStrAny = (key: string): string => ((t as any)[key] as string) || ((translations['de'] as any)[key] as string) || '';
+  // —— Return address line ——
+  doc.setFontSize(6.5);
+  doc.setFont(font, 'normal');
+  if (company.company_name && company.company_address) {
+    const ret = `${company.company_name}, ${company.company_address.split('\n').join(', ')}`;
+    doc.text(ret, leftMargin, y);
+    const tw = doc.getTextWidth(ret);
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.2);
+    doc.line(leftMargin, y + 0.8, leftMargin + tw, y + 0.8);
+  }
+  y += 6;
 
-  doc.setFontSize(16);
+  // —— Recipient ——
+  doc.setFontSize(10);
   doc.setFont(font, 'bold');
-  doc.text(`${tStr('invoiceTitle')} ${invoice.document_number}`, leftMargin, currentY);
-  currentY += 8;
+  if (invoice.client_name) {
+    doc.text(invoice.client_name, leftMargin, y);
+    y += 5;
+  }
+  doc.setFont(font, 'normal');
+  if (invoice.client_address) {
+    invoice.client_address.split('\n').forEach((line) => {
+      doc.text(line, leftMargin, y);
+      y += 4.2;
+    });
+  }
+  y += 6;
+
+  // —— Title + BVH ——
+  doc.setFontSize(14);
+  doc.setFont(font, 'bold');
+  doc.text(`${t('invoiceTitle')} ${invoice.document_number}`, leftMargin, y);
+  y += 7;
 
   if (invoice.object_address) {
-    doc.setFontSize(11);
-    doc.setFont(font, 'bold');
-    doc.text(`BVH: ${invoice.object_address}`, leftMargin, currentY);
-    currentY += 8;
+    doc.setFontSize(10);
+    doc.text(`${t('projectRefBvh')}: ${invoice.object_address}`, leftMargin, y);
+    y += 6;
   }
 
+  // —— Intro ——
   doc.setFontSize(10);
   doc.setFont(font, 'normal');
-  const salutation = `${tStr('dearClient')} ${invoice.client_name},`;
-  doc.text(salutation, leftMargin, currentY);
-  currentY += 8;
+  const contentWidth = pageWidth - leftMargin - rightMargin;
+  doc.text(`${t('dearSalutation')},`, leftMargin, y);
+  y += 6;
+  const intro = doc.splitTextToSize(t('thankYouText'), contentWidth);
+  doc.text(intro, leftMargin, y);
+  y += intro.length * 4.5 + 3;
+  const quality = doc.splitTextToSize(t('qualityText'), contentWidth);
+  doc.text(quality, leftMargin, y);
+  y += quality.length * 4.5 + 6;
 
-  const introText = tStr('thankYouText');
-  const introLines = doc.splitTextToSize(introText, pageWidth - leftMargin - rightMargin);
-  doc.text(introLines, leftMargin, currentY);
-  currentY += (introLines.length * 5) + 5;
-
-  const detailText = tStr('qualityText');
-  const detailLines = doc.splitTextToSize(detailText, pageWidth - leftMargin - rightMargin);
-  doc.text(detailLines, leftMargin, currentY);
-  currentY += (detailLines.length * 5) + 10;
-
-  const normalizedItems = invoice.items.map((item) => {
+  // —— Items ——
+  const normalized = invoice.items.map((item) => {
     const total =
       item.total != null && Number.isFinite(Number(item.total))
         ? Number(item.total)
         : calculateLineTotal(item.quantity, item.price, item.material);
-
     const materialAmount = parseMaterialAmount(item.material);
     const materialLabel =
       materialAmount !== 0
-        ? `\n${tStr('material')}: ${materialAmount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        ? `\n${t('material')}: ${money(materialAmount)}`
         : '';
-
-    return {
-      ...item,
-      total,
-      description: `${item.description || ''}${materialLabel}`,
-    };
+    return { ...item, total, description: `${item.description || ''}${materialLabel}` };
   });
 
-  const tableData = normalizedItems.map((item, index) => [
-    (index + 1).toString(),
-    item.description,
-    item.quantity.toLocaleString('de-DE'),
-    item.unit,
-    `${item.price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    `${item.total.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  ]);
+  let pos = 0;
+  const body = normalized.map((item) => {
+    if (isSectionRow(item)) {
+      return [
+        {
+          content: item.description,
+          colSpan: 6,
+          styles: { fontStyle: 'bold', fillColor: [245, 245, 245] },
+        },
+      ];
+    }
+    pos += 1;
+    return [
+      String(pos),
+      item.description,
+      Number(item.quantity).toLocaleString('de-DE'),
+      item.unit,
+      money(item.price),
+      money(item.total),
+    ];
+  });
+
+  const netTotal = normalized.reduce((s, i) => (isSectionRow(i) ? s : s + i.total), 0);
+  const vatAmount = invoice.vat_enabled ? (netTotal * invoice.vat_rate) / 100 : 0;
+  const grossTotal = netTotal + vatAmount;
+  const showReverseCharge = !invoice.vat_enabled;
+
+  if (invoice.vat_enabled) {
+    body.push([
+      { content: t('netAmount'), colSpan: 5, styles: { fontStyle: 'bold' } },
+      { content: money(netTotal), styles: { halign: 'right' } },
+    ] as any);
+    body.push([
+      { content: `${t('vat')} ${invoice.vat_rate} %`, colSpan: 5 },
+      { content: money(vatAmount), styles: { halign: 'right' } },
+    ] as any);
+  }
+  body.push([
+    {
+      content: showReverseCharge ? t('totalAmountStar') : t('grossAmount'),
+      colSpan: 5,
+      styles: { fontStyle: 'bold' },
+    },
+    { content: money(grossTotal), styles: { fontStyle: 'bold', halign: 'right' } },
+  ] as any);
 
   autoTable(doc, {
-    startY: currentY,
-    head: [['Pos.', 'Bezeichnung', 'Menge', 'Einheit', 'Einzel €', 'Gesamt €']],
-    body: tableData,
-    theme: 'plain',
+    startY: y,
+    head: [
+      [
+        t('position'),
+        t('designation'),
+        t('amountShort'),
+        t('unit'),
+        t('unitPriceShort'),
+        t('totalPriceShort'),
+      ],
+    ],
+    body: body as any,
+    theme: 'grid',
     styles: {
-      font: font,
+      font,
       fontSize: 9,
-      cellPadding: 3,
+      cellPadding: 2,
       lineColor: [0, 0, 0],
-      lineWidth: 0.1
+      lineWidth: 0.2,
+      textColor: [0, 0, 0],
     },
     headStyles: {
-      font: font,
+      font,
       fillColor: [255, 255, 255],
       textColor: [0, 0, 0],
       fontStyle: 'bold',
       lineColor: [0, 0, 0],
-      lineWidth: 0.5
+      lineWidth: 0.3,
     },
     columnStyles: {
-      0: { cellWidth: 12, halign: 'center' },
+      0: { cellWidth: 12, halign: 'left' },
       1: { cellWidth: 'auto', halign: 'left' },
-      2: { cellWidth: 18, halign: 'center' },
+      2: { cellWidth: 18, halign: 'right' },
       3: { cellWidth: 20, halign: 'center' },
-      4: { cellWidth: 25, halign: 'right' },
-      5: { cellWidth: 25, halign: 'right' }
+      4: { cellWidth: 24, halign: 'right' },
+      5: { cellWidth: 24, halign: 'right' },
     },
-    margin: { left: leftMargin, right: rightMargin }
+    margin: { left: leftMargin, right: rightMargin },
   });
 
-  currentY = (doc as any).lastAutoTable.finalY + 5;
+  y = (doc as any).lastAutoTable.finalY + 5;
 
-  const netTotal = normalizedItems.reduce((sum, item) => sum + item.total, 0);
-  const vatAmount = invoice.vat_enabled ? (netTotal * invoice.vat_rate) / 100 : 0;
-  const grossTotal = netTotal + vatAmount;
-
-  const totalsX = pageWidth - rightMargin - 60;
-  const totalsWidth = 60;
-
-  doc.setFontSize(9);
   doc.setFont(font, 'normal');
-  doc.text('Zwischensumme (netto)', totalsX, currentY);
-  doc.text(`${netTotal.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    totalsX + totalsWidth, currentY, { align: 'right' });
-  currentY += 5;
-
-  if (invoice.vat_enabled) {
-    doc.text(`Umsatzsteuer ${invoice.vat_rate} %`, totalsX, currentY);
-    doc.text(`${vatAmount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-      totalsX + totalsWidth, currentY, { align: 'right' });
-    currentY += 5;
+  doc.setFontSize(8.5);
+  if (showReverseCharge) {
+    const rc = doc.splitTextToSize(t('reverseChargeNote'), contentWidth);
+    doc.text(rc, leftMargin, y);
+    y += rc.length * 3.8 + 3;
   }
 
+  if (invoice.notes) {
+    doc.setFontSize(9);
+    const notes = doc.splitTextToSize(invoice.notes, contentWidth);
+    doc.text(notes, leftMargin, y);
+    y += notes.length * 4 + 3;
+  }
+
+  doc.setFontSize(10);
+  doc.text(t('paymentDue'), leftMargin, y);
+  y += 6;
+
+  const closing = doc.splitTextToSize(t('closingText'), contentWidth);
+  doc.text(closing, leftMargin, y);
+  y += closing.length * 4.5 + 4;
+
+  doc.text(t('withRegards'), leftMargin, y);
+  y += 6;
   doc.setFont(font, 'bold');
-  doc.text('Gesamtbetrag', totalsX, currentY);
-  doc.text(`${grossTotal.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    totalsX + totalsWidth, currentY, { align: 'right' });
-  currentY += 8;
-
-  doc.setFontSize(9);
+  doc.text(invoice.signed_by || company.company_name || '', leftMargin, y);
   doc.setFont(font, 'normal');
-  doc.text('Zahlbar sofort, rein netto', leftMargin, currentY);
-  currentY += 8;
+  y += 10;
 
-  const thankYouText = 'Vielen Dank für Ihr Vertrauen in unser Bauunternehmen. Wir freuen uns auf die weitere Zusammenarbeit';
-  const thankYouLines = doc.splitTextToSize(thankYouText, pageWidth - leftMargin - rightMargin);
-  doc.text(thankYouLines, leftMargin, currentY);
-  currentY += (thankYouLines.length * 5) + 5;
-
-  doc.text('Mit freundlichen Grüßen', leftMargin, currentY);
-  currentY += 5;
-
-  if (invoice.signed_by) {
-    doc.setFont(font, 'bold');
-    doc.text(invoice.signed_by, leftMargin, currentY);
-  } else if (company.company_name) {
-    const companyRepName = company.company_name.split(' ')[0];
-    doc.setFont(font, 'bold');
-    doc.text(companyRepName, leftMargin, currentY);
+  if (invoice.signature_data_url) {
+    try {
+      doc.addImage(invoice.signature_data_url, 'PNG', leftMargin, y, 40, 15);
+      y += 18;
+    } catch {
+      /* ignore */
+    }
   }
-  currentY += 15;
 
-  const legalY = Math.max(currentY, pageHeight - 45);
+  // Legal + footer near bottom
+  const footerBlockH = 32;
+  if (y > pageHeight - footerBlockH - 25) {
+    doc.addPage();
+    y = topMargin;
+  }
+
+  const legalY = Math.min(y + 4, pageHeight - footerBlockH - 18);
   doc.setFontSize(7);
-  doc.setFont(font, 'normal');
-  doc.setTextColor(0, 0, 0);
-  const legalText = tStrAny('legalNotice');
-  const legalLines = doc.splitTextToSize(legalText, pageWidth - leftMargin - rightMargin);
-  doc.text(legalLines, leftMargin, legalY);
+  const legal = doc.splitTextToSize(t('legalNotice'), contentWidth);
+  doc.text(legal, leftMargin, legalY);
 
-  const footerY = pageHeight - 30;
+  const footerY = pageHeight - 28;
+  doc.setDrawColor(0);
+  doc.setLineWidth(0.3);
+  doc.line(leftMargin, footerY - 3, pageWidth - rightMargin, footerY - 3);
+
   doc.setFontSize(7);
-  doc.setTextColor(0, 0, 0);
-
-  let footerLeftY = footerY;
+  let fl = footerY;
+  doc.setFont(font, 'bold');
   if (company.company_name) {
-    doc.setFont(font, 'bold');
-    doc.text(company.company_name, leftMargin, footerLeftY);
-    footerLeftY += 3;
-    doc.setFont(font, 'normal');
+    doc.text(company.company_name, leftMargin, fl);
+    fl += 3.2;
   }
+  doc.setFont(font, 'normal');
   if (company.company_address) {
-    const addressLine = company.company_address.split('\n').join(', ');
-    doc.text(addressLine, leftMargin, footerLeftY);
-    footerLeftY += 3;
+    doc.text(company.company_address.split('\n').join(', '), leftMargin, fl);
+    fl += 3.2;
   }
   if (company.company_phone) {
-    doc.text(`Tel.: ${company.company_phone}`, leftMargin, footerLeftY);
-    footerLeftY += 3;
+    doc.text(`${t('phoneLabel')}: ${company.company_phone}`, leftMargin, fl);
+    fl += 3.2;
   }
   if (company.company_email) {
-    doc.text(company.company_email, leftMargin, footerLeftY);
+    doc.text(company.company_email, leftMargin, fl);
   }
 
-  let footerCenterY = footerY;
   const centerX = pageWidth / 2;
+  let fc = footerY;
   if (company.company_tax_number) {
-    doc.text(`Steuernummer: ${company.company_tax_number}`, centerX, footerCenterY, { align: 'center' });
+    const taxLine = `${t('taxNumber')}: ${company.company_tax_number}${
+      invoice.signed_by ? ` ${invoice.signed_by}` : ''
+    }`;
+    doc.text(taxLine, centerX, fc, { align: 'center' });
+    fc += 3.5;
   }
+  doc.text(`${t('pageLabel')} 1/1`, centerX, fc, { align: 'center' });
 
-  let footerRightY = footerY;
-  const footerRightX = pageWidth - rightMargin;
+  let fr = footerY;
+  const rightX = pageWidth - rightMargin;
   if (company.company_bank) {
-    const bankName = company.company_bank.split(' ')[0];
-    doc.text(`${bankName} ${company.company_bank.split(' ').slice(1).join(' ')}`, footerRightX, footerRightY, { align: 'right' });
-    footerRightY += 3;
+    doc.text(company.company_bank, rightX, fr, { align: 'right' });
+    fr += 3.2;
   }
   if (company.company_iban) {
-    doc.text(`IBAN: ${company.company_iban}`, footerRightX, footerRightY, { align: 'right' });
-    footerRightY += 3;
+    doc.text(`${t('ibanLabel')}: ${company.company_iban}`, rightX, fr, { align: 'right' });
+    fr += 3.2;
   }
   if (company.company_bic) {
-    doc.text(`BIC: ${company.company_bic}`, footerRightX, footerRightY, { align: 'right' });
+    doc.text(`${t('bicLabel')}: ${company.company_bic}`, rightX, fr, { align: 'right' });
   }
-
-  doc.setFontSize(7);
-  doc.text('Seite 1/1', centerX, pageHeight - 10, { align: 'center' });
 
   return doc;
 };
@@ -378,7 +440,7 @@ const loadImage = (url: string): Promise<string> => {
 export const downloadInvoicePDF = async (
   invoice: InvoiceData,
   company: CompanyProfile,
-  logoUrl?: string
+  logoUrl?: string,
 ) => {
   const doc = await generateInvoicePDF(invoice, company, logoUrl);
   doc.save(`Rechnung_${invoice.document_number}.pdf`);
@@ -387,7 +449,7 @@ export const downloadInvoicePDF = async (
 export const generateInvoicePDFBlob = async (
   invoice: InvoiceData,
   company: CompanyProfile,
-  logoUrl?: string
+  logoUrl?: string,
 ): Promise<Blob> => {
   const doc = await generateInvoicePDF(invoice, company, logoUrl);
   return doc.output('blob');
