@@ -4,22 +4,16 @@ import {
   ScannedReceiptData,
   ScanProgressCallback,
 } from './receiptOCR';
-import { normalizeExpenseCategory } from './expenseCategories';
-import { normalizeReceiptDate } from './receiptDateParse';
+import {
+  confidenceFromFields,
+  normalizeReceiptFields,
+} from './receiptFieldNormalize';
 import * as pdfjsLib from 'pdfjs-dist';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
   import.meta.url,
 ).toString();
-
-export type OpenAiReceiptJson = {
-  date?: string;
-  total_amount?: number | string;
-  currency?: string;
-  merchant?: string;
-  category?: string;
-};
 
 /** Soft warning shown in review UI (e.g. Edge 503 missing OPENAI_API_KEY). */
 export type RecognizeReceiptWarning = {
@@ -63,48 +57,55 @@ async function fileToImageDataUrl(file: File): Promise<{ dataUrl: string; mimeTy
   return { dataUrl: canvas.toDataURL(mimeType, 0.85), mimeType };
 }
 
-function mapOpenAiToScanned(raw: OpenAiReceiptJson): ScannedReceiptData {
-  const totalNum = Number(raw.total_amount);
-  const total = Number.isFinite(totalNum) && totalNum > 0 ? totalNum.toFixed(2) : '';
-  const merchant = String(raw.merchant || '').trim();
-  const date = normalizeReceiptDate(String(raw.date || '').trim());
-  const currency = String(raw.currency || 'EUR').trim().toUpperCase() || 'EUR';
-  const category = normalizeExpenseCategory(raw.category);
-
+function mapOpenAiToScanned(raw: unknown): ScannedReceiptData {
+  const f = normalizeReceiptFields(raw);
   const detectedFields = new Set<string>();
-  if (merchant) detectedFields.add('store_name');
-  if (total) detectedFields.add('total');
-  if (date) detectedFields.add('date');
-  if (category) detectedFields.add('category');
+  if (f.merchant) detectedFields.add('store_name');
+  if (f.total) detectedFields.add('total');
+  if (f.date) detectedFields.add('date');
+  if (f.category) detectedFields.add('category');
+  if (f.payment_explicit) detectedFields.add('payment_method');
+  if (f.receipt_number) detectedFields.add('receipt_number');
+  if (f.items) detectedFields.add('items');
 
-  let confidence = 40;
-  if (merchant) confidence += 20;
-  if (total) confidence += 25;
-  if (date) confidence += 10;
-  if (category && category !== 'other') confidence += 5;
-  // Avoid looking "confident" when core fields are empty (date input may also reject bad formats)
-  if (!merchant && !total) confidence = Math.min(confidence, 30);
+  const confidence = confidenceFromFields({
+    merchant: f.merchant,
+    total: f.total,
+    date: f.date,
+    category: f.category,
+    payment_explicit: f.payment_explicit,
+    items: f.items,
+  });
 
   return {
-    store_name: merchant,
-    date: date || new Date().toISOString().split('T')[0],
-    total,
-    amount_net: total,
+    store_name: f.merchant,
+    date: f.date || new Date().toISOString().split('T')[0],
+    total: f.total,
+    amount_net: f.total,
     vat_amount: '0.00',
     vat_rate: '0',
     vat_enabled: false,
-    payment_method: 'Bar',
-    receipt_number: '',
-    items: '',
-    currency,
-    category,
-    confidence: Math.min(99, confidence),
+    payment_method: f.payment_method || 'Bar',
+    receipt_number: f.receipt_number,
+    items: f.items,
+    currency: f.currency,
+    category: f.category,
+    confidence,
     detectedFields,
   };
 }
 
+function missingCoreFields(data: ScannedReceiptData): boolean {
+  return (
+    !data.store_name?.trim() ||
+    !data.total?.trim() ||
+    !data.detectedFields.has('payment_method') ||
+    !data.detectedFields.has('date')
+  );
+}
+
 function isWeakScan(data: ScannedReceiptData): boolean {
-  return !data.store_name?.trim() && !data.total?.trim();
+  return !data.store_name?.trim() || !data.total?.trim();
 }
 
 function mergePreferFilled(
@@ -126,6 +127,12 @@ function mergePreferFilled(
       ? primary.category
       : fallback.category || primary.category || 'other';
 
+  const payment_method = primary.detectedFields.has('payment_method')
+    ? primary.payment_method
+    : fallback.detectedFields.has('payment_method')
+      ? fallback.payment_method
+      : primary.payment_method || fallback.payment_method || 'Bar';
+
   const detectedFields = new Set<string>([
     ...Array.from(primary.detectedFields),
     ...Array.from(fallback.detectedFields),
@@ -133,8 +140,22 @@ function mergePreferFilled(
   if (store_name) detectedFields.add('store_name');
   if (total) detectedFields.add('total');
   if (date) detectedFields.add('date');
+  if (
+    (primary.detectedFields.has('payment_method') ||
+      fallback.detectedFields.has('payment_method')) &&
+    payment_method
+  ) {
+    detectedFields.add('payment_method');
+  }
 
-  const confidence = Math.max(primary.confidence, fallback.confidence);
+  const confidence = confidenceFromFields({
+    merchant: store_name,
+    total,
+    date,
+    category,
+    payment_explicit: detectedFields.has('payment_method'),
+    items,
+  });
 
   return {
     ...fallback,
@@ -147,14 +168,12 @@ function mergePreferFilled(
     items,
     currency,
     category,
+    payment_method,
     confidence,
     detectedFields,
     vat_enabled: primary.vat_enabled || fallback.vat_enabled,
     vat_amount: primary.vat_enabled ? primary.vat_amount : fallback.vat_amount,
     vat_rate: primary.vat_enabled ? primary.vat_rate : fallback.vat_rate,
-    payment_method: primary.detectedFields.has('payment_method')
-      ? primary.payment_method
-      : fallback.payment_method || primary.payment_method,
   };
 }
 
@@ -167,7 +186,7 @@ class EdgeRecognizeError extends Error {
   }
 }
 
-async function callEdgeFunction(imageBase64: string, mimeType: string): Promise<OpenAiReceiptJson> {
+async function callEdgeFunction(imageBase64: string, mimeType: string): Promise<unknown> {
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -193,7 +212,7 @@ async function callEdgeFunction(imageBase64: string, mimeType: string): Promise<
       res.status,
     );
   }
-  return json.data as OpenAiReceiptJson;
+  return json.data;
 }
 
 function warningFromEdgeError(err: unknown): RecognizeReceiptWarning | undefined {
@@ -229,7 +248,7 @@ function warningFromEdgeError(err: unknown): RecognizeReceiptWarning | undefined
 /**
  * Prefer Supabase Edge Function `recognize-receipt` (server OPENAI_API_KEY).
  * Falls back to on-device Tesseract; surfaces a clear warning when Edge returns 503.
- * Merges Tesseract fields when AI returns empty merchant+amount.
+ * Merges Tesseract when AI is missing merchant, amount, date, or payment.
  */
 export async function recognizeReceiptSmart(
   file: File,
@@ -246,22 +265,24 @@ export async function recognizeReceiptSmart(
     const raw = await callEdgeFunction(dataUrl, mimeType);
     const ai = mapOpenAiToScanned(raw);
 
-    if (!isWeakScan(ai)) {
+    if (!missingCoreFields(ai)) {
       onProgress?.(100, 'Done');
       return ai;
     }
 
-    // AI returned empty merchant/amount — enrich with Tesseract
+    // AI incomplete — enrich gaps (merchant/total/date/payment) with Tesseract
     onProgress?.(40, 'Improving with on-device OCR…');
     const tess = await extractReceiptData(file, onProgress);
     const merged = mergePreferFilled(ai, {
       ...tess,
       category: tess.category || ai.category || 'other',
     });
-    warning = {
-      code: 'weak_ai_result',
-      message: 'AI returned incomplete fields; filled missing values from on-device OCR.',
-    };
+    if (isWeakScan(merged) || isWeakScan(ai)) {
+      warning = {
+        code: 'weak_ai_result',
+        message: 'AI returned incomplete fields; filled missing values from on-device OCR.',
+      };
+    }
     onProgress?.(100, 'Done');
     return { ...merged, warning };
   } catch (err) {

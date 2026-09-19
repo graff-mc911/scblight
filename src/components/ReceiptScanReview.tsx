@@ -7,7 +7,22 @@ import { EXPENSE_CATEGORIES } from '../lib/expenseCategories';
 import { supabase } from '../lib/supabase';
 import { useLanguage } from '../contexts/LanguageContext';
 
-const PAYMENT_METHODS = ['Bar', 'EC-Karte', 'Kreditkarte', 'Visa', 'Mastercard', 'American Express', 'PayPal', 'Apple Pay', 'Google Pay', 'TWINT', 'Überweisung', 'Scheck'];
+const PAYMENT_METHODS = [
+  'Bar',
+  'EC-Karte',
+  'Kreditkarte',
+  'Visa',
+  'Mastercard',
+  'American Express',
+  'PayPal',
+  'Apple Pay',
+  'Google Pay',
+  'TWINT',
+  'Überweisung',
+  'Scheck',
+  'Debitkarte',
+  'Maestro',
+];
 const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'PLN', 'CZK', 'UAH'];
 const VAT_RATES = ['0', '7', '10', '19', '20', '21', '23', '25'];
 
@@ -318,8 +333,8 @@ export default function ReceiptScanReview({
                   <div className="grid grid-cols-2 gap-3">
                     <FieldRow label={t('amountGross')} detected={!!df?.has('total')} aiLabel={aiLabel}>
                       <input
-                        type="number"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         className={inputCls(!!df?.has('total'))}
                         value={data.total}
                         onChange={e => setData(d => d ? { ...d, total: e.target.value, amount_net: !d.vat_enabled ? e.target.value : d.amount_net } : d)}

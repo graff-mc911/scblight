@@ -317,7 +317,9 @@ function parseStoreName(text: string, fileName?: string): string {
     if (
       (/[A-ZÄÖÜÁÉÍÓÚÑ]{3}/.test(line) || /[A-Za-zÄÖÜäöüßÁÉÍÓÚÑáéíóúñ]{4,}/.test(line)) &&
       line.length <= 50 &&
-      !/nr\.?|no\.?|bon|beleg|rechnung|fecha|ticket|factura|cif|nif|tel/i.test(line)
+      !/nr\.?|no\.?|bon|beleg|rechnung|fecha|ticket|factura|simplificada|cif|nif|tel|av\.?\b|calle|c\/|c\.c\./i.test(
+        line,
+      )
     ) {
       return line.replace(/\s{2,}/g, ' ');
     }
@@ -328,7 +330,9 @@ function parseStoreName(text: string, fileName?: string): string {
       line.length <= 80 &&
       !skip.test(line) &&
       /[A-Za-zÄÖÜäöüßÁÉÍÓÚÑáéíóúñ]{2}/.test(line) &&
-      !/nr\.?|no\.?|bon|beleg|rechnung|fecha|ticket|factura|cif|nif|tel/i.test(line)
+      !/nr\.?|no\.?|bon|beleg|rechnung|fecha|ticket|factura|simplificada|cif|nif|tel|av\.?\b|calle|c\/|c\.c\./i.test(
+        line,
+      )
     ) {
       return line.replace(/\s{2,}/g, ' ');
     }
@@ -344,12 +348,23 @@ function parseStoreName(text: string, fileName?: string): string {
 // Парсинг ПДВ
 function parseVAT(text: string, total: string) {
   const totalNum = toNum(total);
-  const vatRx = /(MwSt\.?|MWST|USt\.?|VAT)\s*[:=]?\s*(\d{1,2}[.,]?\d*)\s*%\s*[:=]?\s*([0-9.,]+)/gi;
+  const vatRx =
+    /(MwSt\.?|MWST|USt\.?|VAT|IVA|I\.?\s*V\.?\s*A\.?)\s*[:=]?\s*(\d{1,2}[.,]?\d*)\s*%\s*[:=]?\s*([0-9.,]+)/gi;
   const entries: { rate: number; amount: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = vatRx.exec(text)) !== null) {
     entries.push({ rate: parseFloat(m[2].replace(',', '.')), amount: toNum(m[3]) });
   }
+
+  // Spanish block: "IVA 10% ... Cuota 1,60" / "BASE  ..."
+  if (!entries.length) {
+    const ivaCuota =
+      /IVA\s*(\d{1,2})[.,]?\d*\s*%[\s\S]{0,40}?Cuota\s*([0-9.,]+)/gi;
+    while ((m = ivaCuota.exec(text)) !== null) {
+      entries.push({ rate: parseFloat(m[1]), amount: toNum(m[2]) });
+    }
+  }
+
   if (!entries.length) return { net: '', vat: '0.00', rate: '19', enabled: false };
 
   const vat = entries.reduce((s, e) => s + e.amount, 0);
@@ -371,12 +386,14 @@ function parsePaymentMethod(text: string): { method: string; explicit: boolean }
     [/\bEC[-\s]?Karte\b|\bEC\b|\bGirocard\b/i, 'EC-Karte'],
     [/\bDebit(?:karte)?\b/i, 'Debitkarte'],
     [/\bKreditkarte\b/i, 'Kreditkarte'],
+    // Spanish / EU card wording (before cash — "TARJETA" must win over accidental BAR)
+    [/TARJETA\s*BANCARIA|TARJETA\s*DE\s*CR[EÉ]DITO|TARJETA\s*DE\s*D[EÉ]BITO|\bTARJETA\b|\bCARD\b/i, 'Kreditkarte'],
     [/\bPayPal\b/i, 'PayPal'],
     [/\bTWINT\b/i, 'TWINT'],
     [/\bSEPA\b/i, 'SEPA-Lastschrift'],
     [/\bÜberweisung\b|\bUeberweisung\b/i, 'Überweisung'],
     [/\bRechnung\b/i, 'Rechnung'],
-    [/\bBarzahlung\b|\bBargeld\b|\bBAR\b/i, 'Bar'],
+    [/\bBarzahlung\b|\bBargeld\b|\bEFECTIVO\b|\bMET[AÁ]LICO\b|\bCASH\b|\bBAR\b/i, 'Bar'],
   ];
 
   const clean = text.replace(/Kartennummer[^\n]*/gi, '');
@@ -408,7 +425,7 @@ function parseReceiptNumber(text: string): string {
 function parseItems(text: string): string {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
   const stop =
-    /^(summe|gesamt|total|betrag|mwst|ust|zahlung|rueck|rück|gegeben|danke|quittung|rechnung|kasse|iban|bic|steuer|zahlbetrag)/i;
+    /^(summe|gesamt|total|betrag|mwst|ust|iva|zahlung|rueck|rück|gegeben|danke|quittung|rechnung|kasse|iban|bic|steuer|zahlbetrag|importe|base\s*imponible|cuota|factura)/i;
 
   const amtEnd = /([0-9]{1,5}[,.][0-9]{2})\s*[A-Za-z€]?\s*$/;
   const qtyAmt = /^\s*(\d{1,3})\s*[xX]\s*([0-9]{1,5}[,.][0-9]{2})\s+([0-9]{1,6}[,.][0-9]{2})/;

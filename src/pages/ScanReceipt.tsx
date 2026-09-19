@@ -102,6 +102,8 @@ export default function ScanReceipt() {
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [reviewItem, setReviewItem] = useState<ScanQueueItem | null>(null);
   const [liveStream, setLiveStream] = useState<MediaStream | null>(null);
+  const [cameraPhase, setCameraPhase] = useState<'starting' | 'live' | 'needs_tap'>('starting');
+  const [showExtras, setShowExtras] = useState(false);
   const [pendingSave, setPendingSave] = useState<PendingSave | null>(null);
   const [actionStep, setActionStep] = useState<ActionStep>('menu');
   const [actionBusy, setActionBusy] = useState(false);
@@ -271,13 +273,28 @@ export default function ScanReceipt() {
         showError(t('fileTooLarge') || 'File too large (max 20 MB)');
         return;
       }
-      await scanQueue.enqueue(file, { wifiOnly });
+      const item = await scanQueue.enqueue(file, { wifiOnly });
       showSuccess(t('addedToQueue'));
       await refresh();
       void processNext();
+      return item.id;
     },
     [wifiOnly, showError, showSuccess, t, refresh, processNext],
   );
+
+  const autoReviewIdRef = useRef<string | null>(null);
+
+  // After capture, open review as soon as OCR is ready
+  useEffect(() => {
+    const id = autoReviewIdRef.current;
+    if (!id) return;
+    const item = items.find((i) => i.id === id);
+    if (!item) return;
+    if (item.status === 'ready' && item.ocrData) {
+      autoReviewIdRef.current = null;
+      setReviewItem(item);
+    }
+  }, [items]);
 
   const handlePickedFile = useCallback((file: File | undefined) => {
     if (!file) return;
@@ -285,7 +302,9 @@ export default function ScanReceipt() {
       setCropFile(file);
       return;
     }
-    void enqueueFile(file);
+    void enqueueFile(file).then((id) => {
+      if (id) autoReviewIdRef.current = id;
+    });
   }, [enqueueFile]);
 
   const stopLiveCamera = useCallback(() => {
@@ -293,21 +312,36 @@ export default function ScanReceipt() {
       prev?.getTracks().forEach((tr) => tr.stop());
       return null;
     });
+    setCameraPhase('needs_tap');
   }, []);
 
   const startLiveCamera = useCallback(async () => {
+    setCameraPhase('starting');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } },
         audio: false,
       });
       setLiveStream(stream);
+      setCameraPhase('live');
+      return true;
     } catch {
-      cameraInputRef.current?.click();
+      setCameraPhase('needs_tap');
+      // Native file picker only works reliably from a user gesture
+      return false;
     }
   }, []);
 
-  // Spec §1: open camera/scanner in working mode immediately — no marketing page.
+  const openNativeCamera = useCallback(() => {
+    cameraInputRef.current?.click();
+  }, []);
+
+  const handleOpenCameraTap = useCallback(async () => {
+    const ok = await startLiveCamera();
+    if (!ok) openNativeCamera();
+  }, [startLiveCamera, openNativeCamera]);
+
+  // Spec §1: open camera/scanner in working mode immediately — no marketing hub.
   useEffect(() => {
     if (autoStartedRef.current) return;
     autoStartedRef.current = true;
@@ -500,66 +534,11 @@ export default function ScanReceipt() {
     return hay.includes(q);
   });
 
+  const busyOverlay =
+    !!cropFile || !!reviewItem || !!pendingSave;
+
   return (
-    <div className="min-h-screen pt-20 pb-28 px-4 md:px-6 max-w-2xl mx-auto">
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-white">{t('scanReceiptTitle')}</h1>
-        <button
-          type="button"
-          onClick={() => void startLiveCamera()}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl bg-orange-500/20 border border-orange-500/35 text-orange-300 text-sm font-medium"
-        >
-          <Camera size={16} />
-          {t('takePhoto')}
-        </button>
-      </div>
-
-      {!online && (
-        <div className="mb-4 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-200 text-sm">
-          <WifiOff size={16} className="flex-shrink-0" />
-          {t('waitingForWifi')}
-        </div>
-      )}
-
-      <section className="mb-6" aria-labelledby="scan-capture-heading">
-        <h2 id="scan-capture-heading" className="sr-only">
-          {t('scanReceiptTitle')}
-        </h2>
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => void startLiveCamera()}
-            className="flex flex-col items-center gap-2 px-3 py-5 rounded-2xl bg-orange-500/15 border border-orange-500/30 text-orange-300 hover:bg-orange-500/25 active:scale-[0.98] transition-all"
-          >
-            <Camera size={28} />
-            <span className="text-sm font-semibold text-center leading-tight">{t('takePhoto')}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => galleryInputRef.current?.click()}
-            className="flex flex-col items-center gap-2 px-3 py-5 rounded-2xl bg-white/8 border border-white/10 text-white/80 hover:bg-white/12 active:scale-[0.98] transition-all"
-          >
-            <ImagePlus size={28} />
-            <span className="text-sm font-semibold text-center leading-tight">
-              {t('uploadFromGallery')}
-            </span>
-          </button>
-        </div>
-
-        <label className="mt-4 flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/5 border border-white/8 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={wifiOnly}
-            onChange={(e) => setWifiOnly(e.target.checked)}
-            className="accent-orange-500"
-          />
-          <div>
-            <p className="text-white/80 text-sm font-medium">{t('wifiOnlyLabel')}</p>
-            <p className="text-white/40 text-xs">{t('wifiOnlyHint')}</p>
-          </div>
-        </label>
-      </section>
-
+    <div className="min-h-screen bg-black">
       <input
         ref={cameraInputRef}
         type="file"
@@ -590,117 +569,234 @@ export default function ScanReceipt() {
         }}
       />
 
-      <section className="mb-10" aria-labelledby="scan-queue-heading">
-        <div className="flex items-center justify-between mb-3">
-          <h2 id="scan-queue-heading" className="text-lg font-semibold text-white">
-            {t('scanQueueTitle')}
-          </h2>
+      {/* Primary: live camera or one-tap open — never a marketing hub */}
+      {!busyOverlay && liveStream && (
+        <div className="fixed inset-0 z-[60] bg-black flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 safe-pt">
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="p-2 rounded-full bg-white/10"
+              aria-label={t('back')}
+            >
+              <X size={20} className="text-white" />
+            </button>
+            <p className="text-white/70 text-sm">{t('alignReceiptHint')}</p>
+            <button
+              type="button"
+              onClick={() => setShowExtras(true)}
+              className="px-2.5 py-1.5 rounded-lg bg-white/10 text-white/70 text-xs"
+            >
+              {t('scanMoreOptions')}
+            </button>
+          </div>
+          <div className="flex-1 relative overflow-hidden">
+            <video ref={videoRef} playsInline muted className="absolute inset-0 w-full h-full object-cover" />
+            <div className="absolute inset-8 border-2 border-white/40 rounded-2xl pointer-events-none" />
+          </div>
+          <div className="p-6 flex justify-center gap-6 items-center">
+            <button
+              type="button"
+              onClick={() => galleryInputRef.current?.click()}
+              className="p-3 rounded-full bg-white/10 text-white/70"
+              aria-label={t('uploadFromGallery')}
+            >
+              <ImagePlus size={22} />
+            </button>
+            <button
+              type="button"
+              onClick={() => void captureFromLive()}
+              className="rounded-full border-4 border-white/80 bg-orange-500 active:scale-95 transition-transform"
+              style={{ width: 72, height: 72 }}
+              aria-label={t('capture')}
+            />
+            <div className="w-12" />
+          </div>
+        </div>
+      )}
+
+      {!busyOverlay && !liveStream && (
+        <div className="fixed inset-0 z-[60] bg-[#0a0a0a] flex flex-col items-center justify-center px-6">
           <button
             type="button"
-            onClick={() => navigate('/receipts')}
-            className="text-xs text-orange-400 hover:text-orange-300 flex items-center gap-1"
+            onClick={() => void handleOpenCameraTap()}
+            className="w-full max-w-sm flex flex-col items-center gap-5 py-12 px-6 rounded-3xl border border-orange-500/35 bg-orange-500/10 active:scale-[0.98] transition-transform"
           >
-            {t('openExpenses')}
-            <ChevronRight size={14} />
+            <div className="w-20 h-20 rounded-full bg-orange-500/25 flex items-center justify-center">
+              {cameraPhase === 'starting' ? (
+                <Loader2 size={36} className="text-orange-300 animate-spin" />
+              ) : (
+                <Camera size={36} className="text-orange-300" />
+              )}
+            </div>
+            <div className="text-center space-y-2">
+              <p className="text-white text-xl font-semibold">
+                {cameraPhase === 'starting'
+                  ? t('scanOpeningCamera')
+                  : t('tapToOpenCamera')}
+              </p>
+              <p className="text-white/45 text-sm leading-relaxed">{t('alignReceiptHint')}</p>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowExtras(true)}
+            className="mt-8 text-sm text-white/45 hover:text-white/70 underline-offset-2 hover:underline"
+          >
+            {t('scanMoreOptions')}
           </button>
         </div>
-
-        {items.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/15 px-4 py-10 text-center">
-            <FileImage size={28} className="text-white/25 mx-auto mb-3" />
-            <p className="text-white/45 text-sm">{t('scanQueueEmpty')}</p>
-          </div>
-        ) : (
-          <ul className="space-y-2">
-            {items.map((item) => (
-              <li
-                key={item.id}
-                className="flex items-center gap-3 px-3 py-3 rounded-xl bg-white/6 border border-white/8"
-              >
-                <div className="w-11 h-14 rounded-lg bg-black/40 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                  <QueueThumb item={item} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm font-medium truncate">{item.fileName}</p>
-                  <p className="text-white/40 text-xs mt-0.5 flex items-center gap-1.5">
-                    {(item.status === 'uploading' || item.status === 'recognizing') && (
-                      <Loader2 size={12} className="animate-spin text-orange-400" />
-                    )}
-                    {statusLabel(item.status, t)}
-                    {!online && item.status === 'queued' ? ` · ${t('queueOffline')}` : ''}
-                  </p>
-                  {item.error && (
-                    <p className="text-red-400/80 text-[11px] mt-0.5 truncate">{item.error}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  {(item.status === 'ready' ||
-                    (item.status === 'pending_upload' && item.ocrData)) && (
-                    <button
-                      type="button"
-                      onClick={() => void openReview(item)}
-                      className="px-2.5 py-1.5 rounded-lg bg-teal-600/80 text-white text-xs font-medium"
-                    >
-                      {t('reviewNow')}
-                    </button>
-                  )}
-                  {item.status === 'failed' && (
-                    <button
-                      type="button"
-                      onClick={() => void retryItem(item)}
-                      className="p-2 rounded-lg bg-white/8 text-white/70"
-                      aria-label={t('retake')}
-                    >
-                      <RefreshCw size={14} />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => void removeItem(item.id)}
-                    className="p-2 rounded-lg text-white/30 hover:text-red-400"
-                    aria-label={t('delete')}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      )}
 
       <AnimatePresence>
-        {liveStream && (
+        {showExtras && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[70] bg-black flex flex-col"
+            className="fixed inset-0 z-[65] bg-black/70 backdrop-blur-sm flex items-end sm:items-center justify-center p-4"
+            onClick={() => setShowExtras(false)}
           >
-            <div className="flex items-center justify-between px-4 py-3">
-              <button
-                type="button"
-                onClick={stopLiveCamera}
-                className="p-2 rounded-full bg-white/10"
-              >
-                <X size={20} className="text-white" />
-              </button>
-              <p className="text-white/70 text-sm">{t('alignReceiptHint')}</p>
-              <div className="w-10" />
-            </div>
-            <div className="flex-1 relative overflow-hidden">
-              <video ref={videoRef} playsInline muted className="absolute inset-0 w-full h-full object-cover" />
-              <div className="absolute inset-8 border-2 border-white/40 rounded-2xl pointer-events-none" />
-            </div>
-            <div className="p-6 flex justify-center">
-              <button
-                type="button"
-                onClick={() => void captureFromLive()}
-                className="rounded-full border-4 border-white/80 bg-orange-500 active:scale-95 transition-transform"
-                style={{ width: 72, height: 72 }}
-                aria-label={t('capture')}
-              />
-            </div>
+            <motion.div
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 24, opacity: 0 }}
+              className="w-full max-w-md rounded-2xl bg-[#1a1a1a] border border-white/10 p-4 shadow-2xl max-h-[80vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-white font-semibold">{t('scanMoreOptions')}</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowExtras(false)}
+                  className="p-2 rounded-lg text-white/40 hover:text-white"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {!online && (
+                <div className="mb-3 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-200 text-sm">
+                  <WifiOff size={16} className="flex-shrink-0" />
+                  {t('waitingForWifi')}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExtras(false);
+                    void handleOpenCameraTap();
+                  }}
+                  className="flex flex-col items-center gap-2 px-3 py-4 rounded-xl bg-orange-500/15 border border-orange-500/30 text-orange-300"
+                >
+                  <Camera size={22} />
+                  <span className="text-xs font-semibold">{t('takePhoto')}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExtras(false);
+                    galleryInputRef.current?.click();
+                  }}
+                  className="flex flex-col items-center gap-2 px-3 py-4 rounded-xl bg-white/8 border border-white/10 text-white/80"
+                >
+                  <ImagePlus size={22} />
+                  <span className="text-xs font-semibold">{t('uploadFromGallery')}</span>
+                </button>
+              </div>
+
+              <label className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/5 border border-white/8 cursor-pointer mb-4">
+                <input
+                  type="checkbox"
+                  checked={wifiOnly}
+                  onChange={(e) => setWifiOnly(e.target.checked)}
+                  className="accent-orange-500"
+                />
+                <div>
+                  <p className="text-white/80 text-sm font-medium">{t('wifiOnlyLabel')}</p>
+                  <p className="text-white/40 text-xs">{t('wifiOnlyHint')}</p>
+                </div>
+              </label>
+
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-white/80 text-sm font-medium">{t('scanQueueTitle')}</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExtras(false);
+                    navigate('/receipts');
+                  }}
+                  className="text-xs text-orange-400 hover:text-orange-300 flex items-center gap-1"
+                >
+                  {t('openExpenses')}
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+
+              {items.length === 0 ? (
+                <p className="text-white/40 text-sm py-4 text-center">{t('scanQueueEmpty')}</p>
+              ) : (
+                <ul className="space-y-2">
+                  {items.map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex items-center gap-3 px-3 py-3 rounded-xl bg-white/6 border border-white/8"
+                    >
+                      <div className="w-11 h-14 rounded-lg bg-black/40 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                        <QueueThumb item={item} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-medium truncate">{item.fileName}</p>
+                        <p className="text-white/40 text-xs mt-0.5 flex items-center gap-1.5">
+                          {(item.status === 'uploading' || item.status === 'recognizing') && (
+                            <Loader2 size={12} className="animate-spin text-orange-400" />
+                          )}
+                          {statusLabel(item.status, t)}
+                        </p>
+                        {item.error && (
+                          <p className="text-red-400/80 text-[11px] mt-0.5 truncate">{item.error}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {(item.status === 'ready' ||
+                          (item.status === 'pending_upload' && item.ocrData)) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowExtras(false);
+                              void openReview(item);
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-teal-600/80 text-white text-xs font-medium"
+                          >
+                            {t('reviewNow')}
+                          </button>
+                        )}
+                        {item.status === 'failed' && (
+                          <button
+                            type="button"
+                            onClick={() => void retryItem(item)}
+                            className="p-2 rounded-lg bg-white/8 text-white/70"
+                            aria-label={t('retake')}
+                          >
+                            <RefreshCw size={14} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void removeItem(item.id)}
+                          className="p-2 rounded-lg text-white/30 hover:text-red-400"
+                          aria-label={t('delete')}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -709,10 +805,15 @@ export default function ScanReceipt() {
         {cropFile && (
           <ScanCropEditor
             file={cropFile}
-            onCancel={() => setCropFile(null)}
+            onCancel={() => {
+              setCropFile(null);
+              void startLiveCamera();
+            }}
             onConfirm={(file) => {
               setCropFile(null);
-              void enqueueFile(file);
+              void enqueueFile(file).then((id) => {
+                if (id) autoReviewIdRef.current = id;
+              });
             }}
           />
         )}
