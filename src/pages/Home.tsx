@@ -15,16 +15,18 @@ function MonthlyChart({
   months,
   totalIncome,
   totalExpenses,
+  totalProfit,
   t,
 }: {
   months: MonthData[];
   totalIncome: number;
   totalExpenses: number;
+  totalProfit: number;
   t: (k: string) => string;
 }) {
   const now = new Date();
   const visibleMonths = months.filter((_, i) => i <= now.getMonth());
-  const diff = totalIncome - totalExpenses;
+  const diff = totalProfit;
 
   const maxVal = Math.max(...visibleMonths.flatMap((m) => [m.income, m.expenses]), 1);
   const chartHeight = 160;
@@ -227,6 +229,8 @@ export const Home: React.FC = () => {
       total_amount: Number(inv.uploaded_amount ?? inv.total_gross ?? inv.total_net ?? 0),
       document_date: inv.date || inv.created_at,
       created_at: inv.created_at,
+      // Legacy uploaded supplier PDFs still reduce net profit
+      document_type: 'supplier_invoice' as const,
     }));
 
   const mergedExpenses = [...expenseDocuments, ...uploadedExpenses];
@@ -398,6 +402,7 @@ export const Home: React.FC = () => {
         months={money.months}
         totalIncome={money.received}
         totalExpenses={money.spent}
+        totalProfit={money.profit}
         t={t}
       />
     </div>

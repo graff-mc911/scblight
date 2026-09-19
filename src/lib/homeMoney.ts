@@ -1,7 +1,9 @@
 /**
  * Home dashboard money aggregations.
- * Spec §5: paid invoices → received; expense documents → spent (positive);
- * net profit = received − spent. Chart + cards share the same YTD window.
+ * Paid invoices → received; all expense docs → spent (positive).
+ * Scanned checks (`document_type === 'receipt'`) count in spent only and do
+ * not reduce net profit. Other costs (supplier invoices / expenses) do.
+ * Chart + cards share the same YTD window.
  */
 
 import { normalizeReceiptDate } from './receiptDateParse';
@@ -17,6 +19,11 @@ export interface MoneyTotals {
   spent: number;
   profit: number;
   months: MonthData[];
+}
+
+/** Receipt scans (чеки) — tracked as spent, excluded from net profit. */
+export function isReceiptCheck(documentType?: string | null): boolean {
+  return String(documentType || '').toLowerCase() === 'receipt';
 }
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
@@ -77,7 +84,8 @@ function emptyMonths(): MonthData[] {
 
 /**
  * Build YTD monthly series + totals for the current calendar year.
- * Expenses always add to spent as a positive amount (never only as negative profit).
+ * Expenses always add to spent as a positive amount.
+ * Receipt checks do not reduce profit; other expense types do.
  */
 export function computeHomeMoney(
   invoices: Array<{
@@ -90,11 +98,13 @@ export function computeHomeMoney(
     document_date?: string | null;
     created_at?: string | null;
     total_amount?: number | string | null;
+    document_type?: string | null;
   }>,
   now: Date = new Date(),
 ): MoneyTotals {
   const currentYear = now.getFullYear();
   const months = emptyMonths();
+  let profitCosts = 0;
 
   for (const inv of invoices) {
     if (inv.status !== 'paid') continue;
@@ -106,9 +116,13 @@ export function computeHomeMoney(
   for (const exp of expenseDocuments) {
     const d = parseLedgerDate(exp.document_date, exp.created_at);
     if (!d || d.year !== currentYear) continue;
-    const amount = Number(exp.total_amount || 0) || 0;
-    // Spent is always positive magnitude
-    months[d.month].expenses += Math.abs(amount);
+    const amount = Math.abs(Number(exp.total_amount || 0) || 0);
+    // Spent is always positive magnitude (includes checks)
+    months[d.month].expenses += amount;
+    // Checks stay in spent only — do not drag net profit negative
+    if (!isReceiptCheck(exp.document_type)) {
+      profitCosts += amount;
+    }
   }
 
   const received = months.reduce((s, m) => s + m.income, 0);
@@ -117,7 +131,7 @@ export function computeHomeMoney(
   return {
     received,
     spent,
-    profit: received - spent,
+    profit: received - profitCosts,
     months,
   };
 }
