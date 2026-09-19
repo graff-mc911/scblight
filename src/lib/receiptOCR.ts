@@ -21,6 +21,8 @@ export interface ScannedReceiptData {
   category: string;
   confidence: number;
   detectedFields: Set<string>;
+  /** Full OCR dump for secondary field recovery (not shown in UI). */
+  raw_text?: string;
   /** Soft OCR/AI warning for review UI (e.g. Edge 503). */
   warning?: {
     code: string;
@@ -410,6 +412,11 @@ function parsePaymentMethod(text: string): { method: string; explicit: boolean }
 
 // Парсинг номера документа
 function parseReceiptNumber(text: string): string {
+  const factura = text.match(
+    /(?:FACTURA\s+SIMPLIFICADA|N[º°o\.]*\s*(?:Factura|Ticket)?|Ticket\s*(?:No|Nr)?\.?|Fra\.?)[:\s#]*([A-Z0-9][A-Z0-9\-\/]{3,30})/i,
+  );
+  if (factura?.[1]) return factura[1].trim();
+
   const rx =
     /(?:Rechnungs-?(?:Nr\.?|Nummer)|Invoice\s*No\.?|Invoice\s*#|Bon-?Nr\.?|Beleg-?Nr\.?|Quittung[s-]?Nr\.?|Transaktions-?Nr\.?|TA-?Nr\.?|Doc(?:ument)?\s*(?:No|Nr)?\.?|Receipt\s*No\.?)[:\s#]*([A-Z0-9\-\/]{3,40})/i;
   const m = text.match(rx);
@@ -518,9 +525,13 @@ export async function extractReceiptData(file: File, onProgress?: ScanProgressCa
   if (store_name) confidence += 20;
   if (total) confidence += 35;
   if (detectedFields.has('date')) confidence += 15;
-  if (vat.enabled) confidence += 15;
+  if (vat.enabled) confidence += 10;
+  if (paymentResult.explicit) confidence += 5;
   if (receipt_number) confidence += 5;
-  if (items) confidence += 10;
+  if (items) confidence += 5;
+  // Never report high confidence when merchant or amount missing
+  if (!store_name || !total) confidence = Math.min(confidence, 45);
+  if (!store_name && !total) confidence = Math.min(confidence, 15);
 
   onProgress?.(100, 'Готово');
 
@@ -536,8 +547,11 @@ export async function extractReceiptData(file: File, onProgress?: ScanProgressCa
     receipt_number,
     items,
     currency,
-    category: 'other',
+    category: /mercadona|carrefour|lidl|aldi|\bdia\b|rewe|edeka/i.test(`${store_name} ${text}`)
+      ? 'food'
+      : 'other',
     confidence,
     detectedFields,
+    raw_text: text,
   };
 }

@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { ScannedReceiptData } from './receiptOCR';
 import { normalizeExpenseCategory } from './expenseCategories';
+import { normalizeReceiptDateSafe, parseReceiptAmount } from './receiptFieldNormalize';
 
 export async function uploadScannedFile(file: File): Promise<string> {
   const {
@@ -55,11 +56,17 @@ export async function saveExpenseFromScan(
   } = await supabase.auth.getUser();
   if (!user) throw new Error('not_authenticated');
 
-  const amount = Number(data.total || 0);
-  const amountNet = Number(data.amount_net || amount);
-  const vatAmount = Number(data.vat_amount || 0);
-  const vatRate = Number(data.vat_rate || 0);
+  const amount = parseReceiptAmount(data.total);
+  const safeAmount = Number.isFinite(amount) && amount > 0 ? amount : 0;
+  const amountNetRaw = parseReceiptAmount(data.amount_net);
+  const amountNet =
+    Number.isFinite(amountNetRaw) && amountNetRaw > 0 ? amountNetRaw : safeAmount;
+  const vatParsed = parseReceiptAmount(data.vat_amount);
+  const vatAmount = Number.isFinite(vatParsed) ? Math.max(0, vatParsed) : 0;
+  const vatRate = Number(data.vat_rate || 0) || 0;
   const category = normalizeExpenseCategory(data.category || 'other');
+  const documentDate =
+    normalizeReceiptDateSafe(data.date) || new Date().toISOString().split('T')[0];
 
   const { data: inserted, error } = await supabase
     .from('expense_documents')
@@ -67,8 +74,8 @@ export async function saveExpenseFromScan(
       user_id: user.id,
       vendor_name: data.store_name || 'Receipt',
       document_number: data.receipt_number || null,
-      document_date: data.date || new Date().toISOString().split('T')[0],
-      total_amount: amount,
+      document_date: documentDate,
+      total_amount: safeAmount,
       amount_net: amountNet,
       vat_amount: vatAmount,
       vat_rate: vatRate,
@@ -78,7 +85,7 @@ export async function saveExpenseFromScan(
       document_type: 'receipt',
       expense_category: category,
       original_file_url: fileUrl || null,
-      ocr_raw_text: data.items || null,
+      ocr_raw_text: data.raw_text || data.items || null,
       notes: data.items || null,
       invoice_id: options?.invoiceId || null,
       client_id: options?.clientId || null,

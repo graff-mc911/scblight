@@ -58,6 +58,23 @@ const RECEIPT_NO_KEYS = [
   'document_number',
   'numero',
   'n_factura',
+  'factura',
+  'ticket',
+  'ticket_number',
+];
+
+/** Known EU grocers / brands often printed as ALL CAPS headers. */
+const KNOWN_MERCHANT_PATTERNS: [RegExp, string][] = [
+  [/\bMERCADONA\b/i, 'Mercadona'],
+  [/\bCARREFOUR\b/i, 'Carrefour'],
+  [/\bLIDL\b/i, 'LIDL'],
+  [/\bALDI\b/i, 'ALDI'],
+  [/\bDIA\b/i, 'DIA'],
+  [/\bREWE\b/i, 'REWE'],
+  [/\bEDEKA\b/i, 'EDEKA'],
+  [/\bPENNY\b/i, 'PENNY'],
+  [/\bEL\s+CORTE\s+INGL[EÉ]S\b/i, 'El Corte Inglés'],
+  [/\bAVANZA(?:\s+LEVANTE)?\b/i, 'AVANZA'],
 ];
 
 function firstString(obj: RawReceiptPayload, keys: string[]): string {
@@ -250,6 +267,88 @@ export type NormalizedReceiptFields = {
   items: string;
 };
 
+/**
+ * Pull merchant / TOTAL / payment / factura # from free OCR or model text
+ * when structured JSON left them empty (common on Spanish thermal tickets).
+ */
+export function enrichFieldsFromText(
+  fields: NormalizedReceiptFields,
+  text: string,
+): NormalizedReceiptFields {
+  if (!text?.trim()) return fields;
+  const out = { ...fields };
+
+  if (!out.merchant?.trim()) {
+    for (const [rx, name] of KNOWN_MERCHANT_PATTERNS) {
+      if (rx.test(text)) {
+        out.merchant = name;
+        break;
+      }
+    }
+    if (!out.merchant) {
+      const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
+      for (const line of lines.slice(0, 12)) {
+        if (
+          /[A-Za-zÁÉÍÓÚÑäöüß]{3,}/i.test(line) &&
+          line.length <= 48 &&
+          !/factura|simplificada|cif|nif|tel|av\.?\b|calle|c\/|total|tarjeta|fecha|iva\b/i.test(line)
+        ) {
+          out.merchant = line.replace(/\s{2,}/g, ' ');
+          break;
+        }
+      }
+    }
+  }
+
+  if (!out.total?.trim()) {
+    const totalLine =
+      text.match(
+        /(?:TOTAL|IMPORTE\s*TOTAL|TOTAL\s*A\s*PAGAR|SUMA|TOTAL\s*€|TOTAL\s*EUR)[^\d\n]{0,20}(\d{1,5}[.,]\d{2})/i,
+      ) || text.match(/\bTOTAL\b[^\n]{0,30}?(\d{1,5}[.,]\d{2})/i);
+    if (totalLine) {
+      const n = parseReceiptAmount(totalLine[1]);
+      if (Number.isFinite(n) && n > 0) out.total = formatAmount2(n);
+    }
+  }
+
+  if (!out.payment_explicit) {
+    const pay = normalizePaymentMethod(
+      /TARJETA|CARD|VISA|MASTERCARD|EFECTIVO|MET[AÁ]LICO|CASH|\bBAR\b/i.exec(text)?.[0] || '',
+    );
+    if (pay.explicit) {
+      out.payment_method = pay.method;
+      out.payment_explicit = true;
+    }
+  }
+
+  if (!out.receipt_number?.trim()) {
+    const factura =
+      text.match(
+        /(?:FACTURA\s+SIMPLIFICADA|N[º°o\.]*\s*(?:Factura|Ticket)?|Ticket\s*(?:No|Nr)?\.?|Fra\.?)[:\s#]*([A-Z0-9][A-Z0-9\-\/]{3,30})/i,
+      ) || text.match(/\b(?:FAC|FRA|TCK)[-:\s]?([A-Z0-9\-\/]{4,24})\b/i);
+    if (factura?.[1]) out.receipt_number = factura[1].trim();
+  }
+
+  if (!out.date?.trim()) {
+    const d = normalizeReceiptDateSafe(
+      text.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})(?:\s+\d{1,2}:\d{2})?/)?.[0] || '',
+    );
+    if (d) out.date = d;
+  }
+
+  // Grocery brands → food when category still generic
+  if (
+    (!out.category || out.category === 'other') &&
+    /mercadona|carrefour|lidl|aldi|\bdia\b|rewe|edeka|penny|corte\s+ingl/i.test(
+      `${out.merchant} ${text}`,
+    )
+  ) {
+    out.category = 'food';
+  }
+
+  return out;
+}
+
 /** Normalize any AI/OCR JSON blob into display-ready receipt fields. */
 export function normalizeReceiptFields(
   rawUnknown: unknown,
@@ -257,16 +356,16 @@ export function normalizeReceiptFields(
 ): NormalizedReceiptFields {
   const raw = unwrapReceiptPayload(rawUnknown);
 
-  const merchant = firstString(raw, MERCHANT_KEYS);
+  let merchant = firstString(raw, MERCHANT_KEYS);
   const totalNum = parseReceiptAmount(firstString(raw, TOTAL_KEYS) || raw.total_amount);
-  const total = formatAmount2(totalNum);
-  const date = normalizeReceiptDateSafe(firstString(raw, DATE_KEYS), now);
+  let total = formatAmount2(totalNum);
+  let date = normalizeReceiptDateSafe(firstString(raw, DATE_KEYS), now);
   const currency =
     (firstString(raw, CURRENCY_KEYS) || 'EUR').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3) ||
     'EUR';
-  const category = normalizeExpenseCategory(firstString(raw, CATEGORY_KEYS) || raw.category);
-  const pay = normalizePaymentMethod(firstString(raw, PAYMENT_KEYS));
-  const receipt_number = firstString(raw, RECEIPT_NO_KEYS);
+  let category = normalizeExpenseCategory(firstString(raw, CATEGORY_KEYS) || raw.category);
+  let pay = normalizePaymentMethod(firstString(raw, PAYMENT_KEYS));
+  let receipt_number = firstString(raw, RECEIPT_NO_KEYS);
 
   let items = '';
   for (const key of ITEMS_KEYS) {
@@ -274,7 +373,15 @@ export function normalizeReceiptFields(
     if (items) break;
   }
 
-  return {
+  // Also harvest free-text blobs the model sometimes stuffs into notes/raw_text
+  const freeText = [
+    items,
+    firstString(raw, ['raw_text', 'ocr_text', 'text', 'full_text', 'notes', 'description']),
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  let fields: NormalizedReceiptFields = {
     merchant,
     total,
     date,
@@ -285,6 +392,12 @@ export function normalizeReceiptFields(
     receipt_number,
     items,
   };
+
+  if (freeText) {
+    fields = enrichFieldsFromText(fields, freeText);
+  }
+
+  return fields;
 }
 
 /** Confidence based on fields that will actually show in the review UI. */
@@ -296,14 +409,26 @@ export function confidenceFromFields(f: {
   payment_explicit?: boolean;
   items?: string;
 }): number {
+  const hasMerchant = !!f.merchant?.trim();
+  const hasTotal = !!f.total?.trim();
+
+  // Critical fields empty → never show Lexware-like 90%+ confidence
+  if (!hasMerchant && !hasTotal) return Math.min(15, 5 + (f.date ? 5 : 0) + (f.payment_explicit ? 5 : 0));
+  if (!hasMerchant || !hasTotal) {
+    let weak = 20;
+    if (hasMerchant || hasTotal) weak += 15;
+    if (f.date?.trim()) weak += 10;
+    if (f.category && f.category !== 'other') weak += 5;
+    if (f.payment_explicit) weak += 5;
+    return Math.min(55, weak);
+  }
+
   let c = 0;
-  if (f.merchant?.trim()) c += 25;
-  if (f.total?.trim()) c += 35;
+  if (hasMerchant) c += 25;
+  if (hasTotal) c += 35;
   if (f.date?.trim()) c += 15;
   if (f.category && f.category !== 'other') c += 10;
   if (f.payment_explicit) c += 5;
   if (f.items?.trim()) c += 5;
-  // Never look Lexware-confident with empty merchant+amount
-  if (!f.merchant?.trim() && !f.total?.trim()) c = Math.min(c, 25);
   return Math.min(99, c);
 }

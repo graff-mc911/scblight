@@ -70,10 +70,10 @@ function FieldRow({
 }
 
 const inputCls = (detected: boolean) =>
-  `w-full px-3 py-2.5 rounded-xl text-sm text-white bg-white/6 border transition-all outline-none focus:ring-1 ${
+  `scan-review-field w-full px-3 py-2.5 rounded-xl text-sm text-slate-900 bg-slate-100 placeholder:text-slate-400 border transition-all outline-none focus:ring-1 ${
     detected
-      ? 'border-teal-500/40 focus:border-teal-400 focus:ring-teal-400/20'
-      : 'border-white/10 focus:border-white/30 focus:ring-white/10'
+      ? 'border-teal-500/60 focus:border-teal-500 focus:ring-teal-500/30'
+      : 'border-slate-300 focus:border-slate-500 focus:ring-slate-400/30'
   }`;
 
 export default function ReceiptScanReview({
@@ -304,7 +304,7 @@ export default function ReceiptScanReview({
                       onChange={e => setData(d => d ? { ...d, category: e.target.value } : d)}
                     >
                       {EXPENSE_CATEGORIES.map((c) => (
-                        <option key={c} value={c}>
+                        <option key={c} value={c} className="bg-white text-slate-900">
                           {t(`expenseCat_${c}`) || c}
                         </option>
                       ))}
@@ -347,7 +347,9 @@ export default function ReceiptScanReview({
                         value={data.currency}
                         onChange={e => setData(d => d ? { ...d, currency: e.target.value } : d)}
                       >
-                        {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        {CURRENCIES.map(c => (
+                          <option key={c} value={c} className="bg-white text-slate-900">{c}</option>
+                        ))}
                       </select>
                     </FieldRow>
                   </div>
@@ -370,19 +372,21 @@ export default function ReceiptScanReview({
                         <div>
                           <p className="text-[10px] text-white/40 mb-1 uppercase tracking-wider">{t('vatRateLabel')}</p>
                           <select
-                            className="w-full px-2 py-2 rounded-lg bg-white/8 border border-white/10 text-white text-xs focus:outline-none"
+                            className="scan-review-field w-full px-2 py-2 rounded-lg bg-slate-100 border border-slate-300 text-slate-900 text-xs focus:outline-none"
                             value={data.vat_rate}
                             onChange={e => setData(d => d ? { ...d, vat_rate: e.target.value } : d)}
                           >
-                            {VAT_RATES.map(r => <option key={r} value={r}>{r}%</option>)}
+                            {VAT_RATES.map(r => (
+                              <option key={r} value={r} className="bg-white text-slate-900">{r}%</option>
+                            ))}
                           </select>
                         </div>
                         <div>
                           <p className="text-[10px] text-white/40 mb-1 uppercase tracking-wider">{t('vatAmount')}</p>
                           <input
-                            type="number"
-                            step="0.01"
-                            className="w-full px-2 py-2 rounded-lg bg-white/8 border border-white/10 text-white/80 text-xs focus:outline-none"
+                            type="text"
+                            inputMode="decimal"
+                            className="scan-review-field w-full px-2 py-2 rounded-lg bg-slate-100 border border-slate-300 text-slate-900 text-xs focus:outline-none"
                             value={data.vat_amount}
                             onChange={e => setData(d => d ? { ...d, vat_amount: e.target.value } : d)}
                           />
@@ -390,9 +394,9 @@ export default function ReceiptScanReview({
                         <div>
                           <p className="text-[10px] text-white/40 mb-1 uppercase tracking-wider">{t('amountNet')}</p>
                           <input
-                            type="number"
-                            step="0.01"
-                            className="w-full px-2 py-2 rounded-lg bg-white/8 border border-white/10 text-white/80 text-xs focus:outline-none"
+                            type="text"
+                            inputMode="decimal"
+                            className="scan-review-field w-full px-2 py-2 rounded-lg bg-slate-100 border border-slate-300 text-slate-900 text-xs focus:outline-none"
                             value={data.amount_net}
                             onChange={e => setData(d => d ? { ...d, amount_net: e.target.value } : d)}
                           />
@@ -407,7 +411,9 @@ export default function ReceiptScanReview({
                       value={data.payment_method}
                       onChange={e => setData(d => d ? { ...d, payment_method: e.target.value } : d)}
                     >
-                      {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+                      {PAYMENT_METHODS.map(m => (
+                        <option key={m} value={m} className="bg-white text-slate-900">{m}</option>
+                      ))}
                     </select>
                   </FieldRow>
 

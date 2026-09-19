@@ -58,11 +58,18 @@ function coercePayload(parsed: Record<string, unknown>): Record<string, unknown>
 
   // Accept alias keys the model sometimes invents
   if (out.merchant == null || out.merchant === "") {
-    out.merchant = out.store_name ?? out.vendor ?? out.vendor_name ?? out.comercio ?? "";
+    out.merchant =
+      out.store_name ?? out.vendor ?? out.vendor_name ?? out.comercio ?? out.establecimiento ?? "";
   }
-  if (out.total_amount == null || out.total_amount === "" || out.total_amount === 0) {
-    const alt = out.total ?? out.importe_total ?? out.importe ?? out.amount_gross ?? out.amount;
-    if (alt != null && alt !== "") out.total_amount = alt;
+  const totalEmpty =
+    out.total_amount == null ||
+    out.total_amount === "" ||
+    out.total_amount === 0 ||
+    out.total_amount === "0" ||
+    out.total_amount === "0.00";
+  if (totalEmpty) {
+    const alt = out.total ?? out.importe_total ?? out.importe ?? out.amount_gross ?? out.amount ?? out.summe;
+    if (alt != null && alt !== "" && alt !== 0) out.total_amount = alt;
   }
 
   // European decimal string → number
@@ -84,6 +91,53 @@ function coercePayload(parsed: Record<string, unknown>): Record<string, unknown>
 
   if (typeof out.date === "string") {
     out.date = out.date.replace(/[T\s]\d{1,2}:\d{2}(:\d{2})?.*$/, "").trim();
+    // DD/MM/YYYY → YYYY-MM-DD when model ignores schema
+    const eu = out.date.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+    if (eu) {
+      out.date = `${eu[3]}-${eu[2].padStart(2, "0")}-${eu[1].padStart(2, "0")}`;
+    }
+  }
+
+  // Normalize payment vocabulary for the client mapper
+  if (typeof out.payment_method === "string") {
+    const p = out.payment_method.toLowerCase().trim();
+    if (/tarjeta|card|credit|debit|visa|mastercard|kredit/.test(p)) {
+      out.payment_method = "card";
+    } else if (/efectivo|met[aá]lico|cash|bar/.test(p)) {
+      out.payment_method = "cash";
+    }
+  }
+
+  // Merchant: strip address-only lines the model sometimes returns
+  if (typeof out.merchant === "string") {
+    const m = out.merchant.trim();
+    if (/^(av\.?|calle|c\/|c\.c\.|cif|nif)\b/i.test(m) || /^\d+$/.test(m)) {
+      out.merchant = "";
+    }
+  }
+
+  // Harvest TOTAL from free-text items / notes when structured total is still 0
+  if (!out.total_amount || out.total_amount === 0) {
+    const blob = [out.items, out.notes, out.raw_text, out.text].filter(Boolean).join("\n");
+    const tm = String(blob).match(
+      /(?:TOTAL|IMPORTE\s*TOTAL|TOTAL\s*A\s*PAGAR)[^\d\n]{0,20}(\d{1,5}[.,]\d{2})/i,
+    );
+    if (tm) {
+      const s = tm[1].includes(",") ? tm[1].replace(/\./g, "").replace(",", ".") : tm[1];
+      const n = Number(s);
+      if (Number.isFinite(n) && n > 0) out.total_amount = n;
+    }
+  }
+
+  if (!out.merchant || out.merchant === "") {
+    const blob = [out.items, out.notes, out.raw_text, out.text, out.merchant].filter(Boolean).join("\n");
+    if (/\bMERCADONA\b/i.test(blob)) out.merchant = "Mercadona";
+    else if (/\bCARREFOUR\b/i.test(blob)) out.merchant = "Carrefour";
+    else if (/\bLIDL\b/i.test(blob)) out.merchant = "LIDL";
+  }
+
+  if ((!out.category || out.category === "other") && /mercadona|carrefour|lidl|aldi|\bdia\b/i.test(String(out.merchant || ""))) {
+    out.category = "food";
   }
 
   return out;

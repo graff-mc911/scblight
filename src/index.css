@@ -244,6 +244,24 @@ input[type=number] {
   -moz-appearance: textfield;
 }
 
+/* Scan review: native date/select often force light chrome — keep dark text on light fields */
+.scan-review-field {
+  color-scheme: light;
+  color: #0f172a !important;
+  background-color: #f1f5f9 !important;
+  -webkit-text-fill-color: #0f172a;
+}
+
+.scan-review-field::placeholder {
+  color: #94a3b8 !important;
+  -webkit-text-fill-color: #94a3b8;
+}
+
+.scan-review-field option {
+  color: #0f172a;
+  background-color: #ffffff;
+}
+
 button {
   -webkit-tap-highlight-color: transparent;
 }

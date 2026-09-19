@@ -4,6 +4,7 @@
  */
 import {
   confidenceFromFields,
+  enrichFieldsFromText,
   normalizePaymentMethod,
   normalizeReceiptDateSafe,
   normalizeReceiptFields,
@@ -60,9 +61,37 @@ assert(f.payment_explicit === true, 'payment explicit');
 const conf = confidenceFromFields(f);
 assert(conf >= 70, `confidence with filled fields → ${conf}`);
 assert(
-  confidenceFromFields({ merchant: '', total: '', date: '2026-09-18', category: 'food' }) <= 25,
-  'empty merchant+total caps confidence',
+  confidenceFromFields({ merchant: '', total: '', date: '2026-09-18', category: 'food' }) <= 15,
+  'empty merchant+total caps confidence ≤15',
 );
+
+const mercadonaText = `
+MERCADONA
+AV DE DENIA
+FACTURA SIMPLIFICADA 1234-AB
+TOTAL 17,59 €
+TARJETA BANCARIA
+`;
+const fromText = enrichFieldsFromText(
+  {
+    merchant: '',
+    total: '',
+    date: '',
+    currency: 'EUR',
+    category: 'other',
+    payment_method: 'Bar',
+    payment_explicit: false,
+    receipt_number: '',
+    items: '',
+  },
+  mercadonaText,
+);
+assert(fromText.merchant === 'Mercadona', `text merchant → ${fromText.merchant}`);
+assert(fromText.total === '17.59', `text TOTAL → ${fromText.total}`);
+assert(fromText.payment_method === 'Kreditkarte', `text TARJETA → ${fromText.payment_method}`);
+assert(fromText.payment_explicit === true, 'text payment explicit');
+assert(fromText.category === 'food', `mercadona category → ${fromText.category}`);
+assert(!!fromText.receipt_number, `factura number → ${fromText.receipt_number}`);
 
 const n = normalizeReceiptFields(nested, now);
 assert(n.merchant === 'Mercadona', `nested vendor → ${n.merchant}`);
