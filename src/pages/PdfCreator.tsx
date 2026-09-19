@@ -6,23 +6,28 @@ import {
   ArrowLeft,
   FileCheck,
   FileText,
-  GripVertical,
-  Image as ImageIcon,
   Layers,
   Loader2,
   Minimize2,
   PenLine,
   RefreshCw,
   ScanText,
-  Trash2,
-  Upload,
+  Scissors,
   Download,
+  Image as ImageIcon,
+  RotateCw,
+  PenTool,
+  Layout,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { UniversalDocumentEditor } from '../components/documentEditor/UniversalDocumentEditor';
 import { PdfOcrPanel } from '../components/PdfOcrPanel';
+import {
+  PdfFileDropzone,
+  type PdfDropFile,
+  type PdfDropFileKind,
+} from '../components/documentEditor/PdfFileDropzone';
 import {
   createQuickTemplate,
   type QuickTemplateId,
@@ -30,8 +35,12 @@ import {
 import type { UniversalDocument } from '../lib/documentEditor/types';
 import {
   compressFilesToPdf,
-  type CompressQuality,
+  exportPdfPagesAsJpg,
   renderPdfPageToDataUrl,
+  rotatePdfPages,
+  splitPdfToPages,
+  type CompressQuality,
+  type RotateDegrees,
 } from '../lib/documentEditor/pdfTools';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -39,32 +48,19 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 
-/** Режими як у Soda PDF */
-type HubMode = 'edit' | 'merge' | 'convert' | 'ocr';
-
-type FileKind = 'image' | 'pdf' | 'other';
-
-interface UploadedFile {
-  id: string;
-  file: File;
-  previewUrl: string | null;
-  type: FileKind;
-}
-
-const HUB_TABS: { id: HubMode; labelKey: string; icon: typeof PenLine }[] = [
-  { id: 'edit', labelKey: 'pdfHubEdit', icon: PenLine },
-  { id: 'merge', labelKey: 'pdfHubMerge', icon: Layers },
-  { id: 'convert', labelKey: 'pdfHubConvert', icon: RefreshCw },
-  { id: 'ocr', labelKey: 'pdfHubOcr', icon: ScanText },
-];
-
-const QUICK_TEMPLATES: { id: QuickTemplateId; icon: typeof FileText; titleKey: string; descKey: string }[] = [
-  { id: 'blank', icon: PenLine, titleKey: 'pdfTplBlank', descKey: 'pdfTplBlankDesc' },
-  { id: 'act', icon: FileCheck, titleKey: 'pdfTplAct', descKey: 'pdfTplActDesc' },
-  { id: 'letter', icon: FileText, titleKey: 'pdfTplLetter', descKey: 'pdfTplLetterDesc' },
-  { id: 'presentation', icon: RefreshCw, titleKey: 'pdfTplPresentation', descKey: 'pdfTplPresentationDesc' },
-  { id: 'receipt', icon: FileText, titleKey: 'pdfTplReceipt', descKey: 'pdfTplReceiptDesc' },
-];
+/** Інструменти як у Soda PDF: хаб → окремий робочий екран */
+type ToolId =
+  | 'hub'
+  | 'merge'
+  | 'compress'
+  | 'edit'
+  | 'convert'
+  | 'split'
+  | 'ocr'
+  | 'pdf-to-jpg'
+  | 'rotate'
+  | 'sign'
+  | 'templates';
 
 const IMAGE_TYPES = [
   'image/jpeg',
@@ -78,16 +74,11 @@ const IMAGE_TYPES = [
   'image/heif',
 ];
 
-function detectFileType(file: File): FileKind {
-  if (
-    IMAGE_TYPES.includes(file.type) ||
-    /\.(jpg|jpeg|png|gif|webp|bmp|tiff|heic|heif)$/i.test(file.name)
-  ) {
+function detectFileType(file: File): PdfDropFileKind {
+  if (IMAGE_TYPES.includes(file.type) || /\.(jpg|jpeg|png|gif|webp|bmp|tiff|heic|heif)$/i.test(file.name)) {
     return 'image';
   }
-  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
-    return 'pdf';
-  }
+  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) return 'pdf';
   return 'other';
 }
 
@@ -109,46 +100,94 @@ function getImageDimensions(dataUrl: string): Promise<{ width: number; height: n
   });
 }
 
-async function renderPdfPageToImage(file: File, pageNum: number): Promise<string> {
-  return renderPdfPageToDataUrl(file, pageNum, 2, 0.92);
-}
+const PRIMARY_TOOLS: {
+  id: ToolId;
+  icon: typeof PenLine;
+  titleKey: string;
+  descKey: string;
+}[] = [
+  { id: 'merge', icon: Layers, titleKey: 'pdfToolMerge', descKey: 'pdfToolMergeDesc' },
+  { id: 'compress', icon: Minimize2, titleKey: 'pdfToolCompress', descKey: 'pdfToolCompressDesc' },
+  { id: 'edit', icon: PenLine, titleKey: 'pdfToolEdit', descKey: 'pdfToolEditDesc' },
+  { id: 'convert', icon: RefreshCw, titleKey: 'pdfToolConvert', descKey: 'pdfToolConvertDesc' },
+  { id: 'split', icon: Scissors, titleKey: 'pdfToolSplit', descKey: 'pdfToolSplitDesc' },
+];
 
-function formatFileSize(size: number): string {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
+const SECONDARY_TOOLS: { id: ToolId; labelKey: string }[] = [
+  { id: 'sign', labelKey: 'pdfToolSign' },
+  { id: 'templates', labelKey: 'pdfToolTemplates' },
+  { id: 'pdf-to-jpg', labelKey: 'pdfToolPdfToJpg' },
+  { id: 'rotate', labelKey: 'pdfToolRotate' },
+  { id: 'ocr', labelKey: 'pdfToolOcr' },
+  { id: 'edit', labelKey: 'pdfToolBlankDoc' },
+];
+
+const QUICK_TEMPLATES: {
+  id: QuickTemplateId;
+  icon: typeof FileText;
+  titleKey: string;
+  descKey: string;
+}[] = [
+  { id: 'blank', icon: PenLine, titleKey: 'pdfTplBlank', descKey: 'pdfTplBlankDesc' },
+  { id: 'act', icon: FileCheck, titleKey: 'pdfTplAct', descKey: 'pdfTplActDesc' },
+  { id: 'letter', icon: FileText, titleKey: 'pdfTplLetter', descKey: 'pdfTplLetterDesc' },
+  { id: 'presentation', icon: Layout, titleKey: 'pdfTplPresentation', descKey: 'pdfTplPresentationDesc' },
+  { id: 'receipt', icon: FileText, titleKey: 'pdfTplReceipt', descKey: 'pdfTplReceiptDesc' },
+];
+
+const TOOL_TITLES: Record<Exclude<ToolId, 'hub'>, string> = {
+  merge: 'pdfToolMerge',
+  compress: 'pdfToolCompress',
+  edit: 'pdfToolEdit',
+  convert: 'pdfToolConvert',
+  split: 'pdfToolSplit',
+  ocr: 'pdfToolOcr',
+  'pdf-to-jpg': 'pdfToolPdfToJpg',
+  rotate: 'pdfToolRotate',
+  sign: 'pdfToolSign',
+  templates: 'pdfToolTemplates',
+};
 
 export default function PdfCreator() {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const { showError, showSuccess } = useToastContext();
 
-  const [hubMode, setHubMode] = useState<HubMode>('edit');
+  const [tool, setTool] = useState<ToolId>('hub');
   const [bootDoc, setBootDoc] = useState<UniversalDocument | null>(null);
   const [editorKey, setEditorKey] = useState(0);
 
-  const [files, setFiles] = useState<UploadedFile[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
+  const [files, setFiles] = useState<PdfDropFile[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [uploadFilename, setUploadFilename] = useState('document');
   const [compressQuality, setCompressQuality] = useState<CompressQuality>('medium');
-  const [compressStatus, setCompressStatus] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [statusMsg, setStatusMsg] = useState('');
+  const [rotateDeg, setRotateDeg] = useState<RotateDegrees>(90);
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
+  const signCanvasRef = useRef<HTMLCanvasElement>(null);
+  const drawingRef = useRef(false);
 
   const openInEditor = (doc: UniversalDocument) => {
     setBootDoc(doc);
     setEditorKey((k) => k + 1);
-    setHubMode('edit');
+    setTool('edit');
   };
 
   const openTemplate = (id: QuickTemplateId) => {
     openInEditor(createQuickTemplate(id));
   };
 
+  const goHub = () => {
+    setTool('hub');
+    setFiles([]);
+    setStatusMsg('');
+    setBootDoc(null);
+    setSignatureDataUrl(null);
+  };
+
   const addFiles = useCallback(
     async (incoming: FileList | File[]) => {
-      const next: UploadedFile[] = [];
+      const next: PdfDropFile[] = [];
       for (const file of Array.from(incoming)) {
         if (file.size > 50 * 1024 * 1024) {
           showError(`${file.name}: файл завеликий (макс. 50 МБ)`);
@@ -200,7 +239,7 @@ export default function PdfCreator() {
           const arrayBuffer = await item.file.arrayBuffer();
           const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
           for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
-            const imageData = await renderPdfPageToImage(item.file, pageNum);
+            const imageData = await renderPdfPageToDataUrl(item.file, pageNum, 2, 0.92);
             const dimensions = await getImageDimensions(imageData);
             const ratio = dimensions.width / dimensions.height;
             let width = pageWidth - 10;
@@ -237,297 +276,565 @@ export default function PdfCreator() {
       }
 
       doc.save(`${uploadFilename || 'document'}.pdf`);
-      showSuccess('PDF успішно обʼєднано!');
+      showSuccess(t('pdfMergedOk') || 'PDF успішно обʼєднано!');
     } catch {
-      showError('Не вдалося створити PDF. Спробуйте ще раз.');
+      showError(t('pdfMergeFailed') || 'Не вдалося створити PDF');
     } finally {
       setIsGenerating(false);
     }
-  }, [files, uploadFilename, showError, showSuccess]);
+  }, [files, uploadFilename, showError, showSuccess, t]);
 
   const handleCompress = useCallback(async () => {
     if (files.length === 0) return;
     setIsGenerating(true);
-    setCompressStatus('');
+    setStatusMsg('');
     try {
       await compressFilesToPdf(
         files.map((f) => f.file),
         compressQuality,
         `${uploadFilename || 'compressed'}_compressed`,
-        setCompressStatus,
+        setStatusMsg,
       );
       showSuccess(t('pdfCompressed') || 'PDF compressed and downloaded');
     } catch {
       showError(t('pdfCompressFailed') || 'Could not compress PDF');
     } finally {
       setIsGenerating(false);
-      setCompressStatus('');
+      setStatusMsg('');
     }
-  }, [files, compressQuality, uploadFilename, showError, showSuccess]);
+  }, [files, compressQuality, uploadFilename, showError, showSuccess, t]);
 
-  const typeIcon = {
-    image: <ImageIcon size={18} className="text-blue-400" />,
-    pdf: <FileText size={18} className="text-red-400" />,
-    other: <FileText size={18} className="text-white/50" />,
+  const handleSplit = useCallback(async () => {
+    const pdfFile = files.find((f) => f.type === 'pdf')?.file;
+    if (!pdfFile) {
+      showError(t('pdfNeedPdf') || 'Додайте PDF-файл');
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const n = await splitPdfToPages(pdfFile, uploadFilename || pdfFile.name, setStatusMsg);
+      showSuccess((t('pdfSplitOk') || 'Розділено на {n} файлів').replace('{n}', String(n)));
+    } catch {
+      showError(t('pdfSplitFailed') || 'Не вдалося розділити PDF');
+    } finally {
+      setIsGenerating(false);
+      setStatusMsg('');
+    }
+  }, [files, uploadFilename, showError, showSuccess, t]);
+
+  const handlePdfToJpg = useCallback(async () => {
+    const pdfFile = files.find((f) => f.type === 'pdf')?.file;
+    if (!pdfFile) {
+      showError(t('pdfNeedPdf') || 'Додайте PDF-файл');
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const n = await exportPdfPagesAsJpg(pdfFile, uploadFilename || pdfFile.name, setStatusMsg);
+      showSuccess((t('pdfJpgOk') || 'Збережено {n} зображень').replace('{n}', String(n)));
+    } catch {
+      showError(t('pdfJpgFailed') || 'Не вдалося конвертувати');
+    } finally {
+      setIsGenerating(false);
+      setStatusMsg('');
+    }
+  }, [files, uploadFilename, showError, showSuccess, t]);
+
+  const handleRotate = useCallback(async () => {
+    const pdfFile = files.find((f) => f.type === 'pdf')?.file;
+    if (!pdfFile) {
+      showError(t('pdfNeedPdf') || 'Додайте PDF-файл');
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      await rotatePdfPages(pdfFile, rotateDeg, `${uploadFilename || 'rotated'}_rotated`, setStatusMsg);
+      showSuccess(t('pdfRotateOk') || 'PDF повернуто і завантажено');
+    } catch {
+      showError(t('pdfRotateFailed') || 'Не вдалося повернути PDF');
+    } finally {
+      setIsGenerating(false);
+      setStatusMsg('');
+    }
+  }, [files, rotateDeg, uploadFilename, showError, showSuccess, t]);
+
+  const initSignCanvas = useCallback(() => {
+    const canvas = signCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#1e3a5f';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+  }, []);
+
+  const clearSignature = () => {
+    initSignCanvas();
+    setSignatureDataUrl(null);
   };
 
-  const hubSubtitle: Record<HubMode, string> = {
-    edit: t('pdfEditorSubtitle'),
-    merge: t('pdfHubMerge'),
-    convert: t('pdfHubConvert'),
-    ocr: t('pdfHubOcr'),
+  const pointerPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = signCanvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((e.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((e.clientY - rect.top) / rect.height) * canvas.height,
+    };
   };
 
-  return (
-    <div className="min-h-screen pt-20 pb-28 px-4 md:px-6 mx-auto max-w-7xl">
-      <div className="flex items-center gap-3 mb-4">
-        <button
-          type="button"
-          onClick={() => navigate('/')}
-          className="p-2 rounded-xl bg-white/8 border border-white/10 text-white/60 hover:bg-white/15 hover:text-white transition-all"
-        >
-          <ArrowLeft size={18} />
-        </button>
-        <div>
-          <h2 className="text-2xl font-semibold text-white">
-            {t('createPdfBtn') || 'PDF'}
-          </h2>
-          <p className="text-white/50 text-sm mt-0.5">{hubSubtitle[hubMode]}</p>
+  const handleSignDownload = useCallback(async () => {
+    const pdfOrImage = files[0];
+    if (!pdfOrImage) {
+      showError(t('pdfNeedFile') || 'Додайте файл');
+      return;
+    }
+    const canvas = signCanvasRef.current;
+    if (!canvas) return;
+    const sig = canvas.toDataURL('image/png');
+    setIsGenerating(true);
+    try {
+      let pageImage: string;
+      if (pdfOrImage.type === 'pdf') {
+        pageImage = await renderPdfPageToDataUrl(pdfOrImage.file, 1, 1.6, 0.92);
+      } else if (pdfOrImage.type === 'image') {
+        pageImage = pdfOrImage.previewUrl || (await readAsDataURL(pdfOrImage.file));
+      } else {
+        showError(t('pdfNeedPdfOrImage') || 'Потрібен PDF або зображення');
+        return;
+      }
+
+      const dims = await getImageDimensions(pageImage);
+      const doc = new jsPDF({
+        orientation: dims.width >= dims.height ? 'l' : 'p',
+        unit: 'mm',
+        format: 'a4',
+      });
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const ratio = dims.width / dims.height;
+      let w = pageW - 10;
+      let h = w / ratio;
+      if (h > pageH - 10) {
+        h = pageH - 10;
+        w = h * ratio;
+      }
+      const x = (pageW - w) / 2;
+      const y = (pageH - h) / 2;
+      doc.addImage(pageImage, 'JPEG', x, y, w, h);
+      const sigW = Math.min(60, w * 0.35);
+      const sigH = 22;
+      doc.addImage(sig, 'PNG', x + w - sigW - 4, y + h - sigH - 8, sigW, sigH);
+      doc.save(`${uploadFilename || 'signed'}_signed.pdf`);
+      showSuccess(t('pdfSignOk') || 'Підписаний PDF завантажено');
+      setSignatureDataUrl(sig);
+    } catch {
+      showError(t('pdfSignFailed') || 'Не вдалося підписати');
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [files, uploadFilename, showError, showSuccess, t]);
+
+  const filenameRow = (
+    <div className="mt-3 flex gap-2 items-center">
+      <input
+        type="text"
+        value={uploadFilename}
+        onChange={(e) => setUploadFilename(e.target.value)}
+        placeholder="document"
+        className="flex-1 bg-white/8 border border-white/10 rounded-xl px-4 py-2 text-white text-sm"
+      />
+      <span className="text-white/30 text-sm">.pdf</span>
+    </div>
+  );
+
+  const primaryAction = (
+    label: string,
+    onClick: () => void,
+    disabled?: boolean,
+  ) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || isGenerating}
+      className="w-full flex items-center justify-center gap-2 bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-white font-semibold py-3.5 rounded-2xl mt-4 transition-colors"
+    >
+      {isGenerating ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+      {label}
+    </button>
+  );
+
+  /* ─── HUB (як головна Soda PDF) ─── */
+  if (tool === 'hub') {
+    return (
+      <div className="min-h-screen pt-20 pb-28 px-4 md:px-6 mx-auto max-w-6xl">
+        <div className="flex items-center gap-3 mb-8">
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="p-2 rounded-xl bg-white/8 border border-white/10 text-white/60 hover:bg-white/15 hover:text-white transition-all"
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <div>
+            <h1 className="text-2xl md:text-3xl font-semibold text-white tracking-tight">
+              {t('pdfEditorTitle') || 'PDF'}
+            </h1>
+            <p className="text-white/50 text-sm mt-1">
+              {t('pdfHubTagline') || 'Простий редактор PDF і файлів — оберіть інструмент'}
+            </p>
+          </div>
+        </div>
+
+        {/* 5 основних карток */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 mb-10">
+          {PRIMARY_TOOLS.map(({ id, icon: Icon, titleKey, descKey }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTool(id)}
+              className="group text-left rounded-2xl bg-[#f4f6f8] hover:bg-white p-5 md:p-6 shadow-sm hover:shadow-md transition-all border border-white/0 hover:border-sky-200 min-h-[168px] flex flex-col"
+            >
+              <div className="w-12 h-12 rounded-xl bg-sky-50 flex items-center justify-center mb-4 group-hover:bg-sky-100 transition-colors">
+                <Icon size={26} className="text-sky-600" strokeWidth={1.75} />
+              </div>
+              <p className="text-[#1a1f36] font-semibold text-[15px] leading-snug mb-2">
+                {t(titleKey)}
+              </p>
+              <p className="text-[#5c6378] text-xs leading-relaxed flex-1">{t(descKey)}</p>
+            </button>
+          ))}
+        </div>
+
+        {/* Другорядні інструменти — сітка посилань */}
+        <div className="rounded-2xl bg-white/[0.04] border border-white/10 px-4 py-5 md:px-6">
+          <p className="text-white/40 text-xs uppercase tracking-wider mb-4 font-medium">
+            {t('pdfMoreTools') || 'Більше інструментів'}
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-x-4 gap-y-3">
+            {SECONDARY_TOOLS.map((item) => (
+              <button
+                key={`${item.id}-${item.labelKey}`}
+                type="button"
+                onClick={() => setTool(item.id)}
+                className="text-left text-sm text-white/70 hover:text-sky-300 transition-colors py-1"
+              >
+                {t(item.labelKey)}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+    );
+  }
 
-      {/* PDF tools tabs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-6">
-        {HUB_TABS.map(({ id, labelKey, icon: Icon }) => (
+  /* ─── EDIT: універсальний редактор ─── */
+  if (tool === 'edit') {
+    return (
+      <div className="min-h-screen pt-20 pb-28 px-4 md:px-6 mx-auto max-w-7xl">
+        <div className="flex items-center gap-3 mb-4">
           <button
-            key={id}
             type="button"
-            onClick={() => setHubMode(id)}
-            className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-sm font-medium transition-all border ${
-              hubMode === id
-                ? 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-500/20'
-                : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10 hover:text-white'
-            }`}
+            onClick={goHub}
+            className="p-2 rounded-xl bg-white/8 border border-white/10 text-white/60 hover:bg-white/15 hover:text-white"
           >
-            <Icon size={18} />
-            {t(labelKey)}
+            <ArrowLeft size={18} />
           </button>
-        ))}
-      </div>
+          <div>
+            <h2 className="text-xl font-semibold text-white">{t('pdfToolEdit')}</h2>
+            <p className="text-white/45 text-sm">{t('pdfEditorSubtitle')}</p>
+          </div>
+        </div>
 
-      {/* Редагування — головний режим */}
-      {hubMode === 'edit' && (
+        {/* Стрічка режимів як у Soda */}
+        <div className="flex flex-wrap gap-1 mb-4 p-1 rounded-xl bg-white/5 border border-white/10 overflow-x-auto">
+          {(
+            [
+              ['edit', 'pdfRibbonEdit'],
+              ['sign', 'pdfRibbonSign'],
+              ['convert', 'pdfRibbonConvert'],
+              ['ocr', 'pdfRibbonOcr'],
+              ['templates', 'pdfRibbonTemplates'],
+            ] as const
+          ).map(([id, key]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTool(id)}
+              className={`px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                id === 'edit'
+                  ? 'bg-sky-500/25 text-sky-200'
+                  : 'text-white/55 hover:text-white hover:bg-white/8'
+              }`}
+            >
+              {t(key)}
+            </button>
+          ))}
+        </div>
+
         <UniversalDocumentEditor
           key={editorKey}
           documentKey={String(editorKey)}
           initialDocument={bootDoc}
+          onClose={goHub}
         />
-      )}
+      </div>
+    );
+  }
 
-      {/* Об'єднання файлів */}
-      {hubMode === 'merge' && (
-        <div className="max-w-3xl mx-auto">
-          <div
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDragging(false);
-              if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setIsDragging(true);
-            }}
-            onDragLeave={(e) => {
-              e.preventDefault();
-              setIsDragging(false);
-            }}
-            onClick={() => fileInputRef.current?.click()}
-            className={`relative border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all mb-6 ${
-              isDragging
-                ? 'border-orange-400/60 bg-orange-500/10'
-                : 'border-white/15 bg-white/5 hover:border-white/30 hover:bg-white/8'
-            }`}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.csv"
-              onChange={(e) => {
-                if (e.target.files?.length) void addFiles(e.target.files);
-                if (fileInputRef.current) fileInputRef.current.value = '';
-              }}
-              className="hidden"
-            />
-            <Upload size={26} className={`mx-auto mb-4 ${isDragging ? 'text-orange-400' : 'text-white/50'}`} />
-            <p className="text-white/80 font-medium mb-1">Перетягніть файли або натисніть для вибору</p>
-            <p className="text-white/40 text-sm">PDF, зображення, текст — до 50 МБ кожен</p>
-          </div>
+  /* ─── OCR ─── */
+  if (tool === 'ocr') {
+    return (
+      <div className="min-h-screen pt-20 pb-28 px-4 md:px-6 mx-auto max-w-3xl">
+        <ToolHeader title={t(TOOL_TITLES.ocr)} onBack={goHub} />
+        <PdfOcrPanel onOpenInEditor={openInEditor} />
+      </div>
+    );
+  }
 
-          <AnimatePresence>
-            {files.length > 0 && (
-              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-                <div className="flex justify-between mb-3">
-                  <h3 className="text-white/70 text-sm">Файли ({files.length})</h3>
-                  <button type="button" onClick={() => setFiles([])} className="text-white/40 hover:text-red-400 text-xs">
-                    Очистити
-                  </button>
-                </div>
-                <div className="bg-white/8 border border-white/10 rounded-2xl overflow-hidden">
-                  {files.map((item, index) => (
-                    <div
-                      key={item.id}
-                      className={`flex items-center gap-3 px-4 py-3 ${index < files.length - 1 ? 'border-b border-white/5' : ''}`}
-                    >
-                      <GripVertical size={14} className="text-white/20" />
-                      {item.previewUrl ? (
-                        <img src={item.previewUrl} alt="" className="w-10 h-10 rounded-lg object-cover" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-lg bg-white/8 flex items-center justify-center">
-                          {typeIcon[item.type]}
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white text-sm truncate">{item.file.name}</p>
-                        <p className="text-white/40 text-xs">{formatFileSize(item.file.size)}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setFiles(files.filter((f) => f.id !== item.id))}
-                        className="p-1.5 hover:text-red-400 text-white/40"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-4 flex gap-2">
-                  <input
-                    type="text"
-                    value={uploadFilename}
-                    onChange={(e) => setUploadFilename(e.target.value)}
-                    placeholder="document"
-                    className="flex-1 bg-white/8 border border-white/10 rounded-xl px-4 py-2 text-white text-sm"
-                  />
-                  <span className="text-white/30 self-center">.pdf</span>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <div className="flex flex-col sm:flex-row gap-2">
+  /* ─── TEMPLATES ─── */
+  if (tool === 'templates') {
+    return (
+      <div className="min-h-screen pt-20 pb-28 px-4 md:px-6 mx-auto max-w-3xl">
+        <ToolHeader title={t(TOOL_TITLES.templates)} onBack={goHub} />
+        <p className="text-white/45 text-sm mb-5">{t('pdfQuickTemplatesHint')}</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {QUICK_TEMPLATES.map((tpl) => (
             <button
+              key={tpl.id}
               type="button"
-              onClick={() => void handleMergeGenerate()}
-              disabled={files.length === 0 || isGenerating}
-              className="flex-1 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-400 disabled:opacity-40 text-white font-semibold py-3.5 rounded-2xl"
+              onClick={() => openTemplate(tpl.id)}
+              className="text-left p-4 rounded-2xl bg-white/8 border border-white/10 hover:border-sky-500/40 hover:bg-sky-500/10 transition-all"
             >
-              {isGenerating && !compressStatus ? (
-                <Loader2 size={18} className="animate-spin" />
-              ) : (
-                <Download size={18} />
-              )}
-              {files.length === 0 ? 'Додайте файли' : `Обʼєднати в PDF (${files.length})`}
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-sky-500/15 flex items-center justify-center flex-shrink-0">
+                  <tpl.icon size={20} className="text-sky-400" />
+                </div>
+                <div>
+                  <p className="text-white font-medium text-sm">{t(tpl.titleKey)}</p>
+                  <p className="text-white/45 text-xs mt-1">{t(tpl.descKey)}</p>
+                </div>
+              </div>
             </button>
-            <button
-              type="button"
-              onClick={() => void handleCompress()}
-              disabled={files.length === 0 || isGenerating}
-              className="flex-1 flex items-center justify-center gap-2 bg-white/10 hover:bg-white/15 disabled:opacity-40 text-white font-semibold py-3.5 rounded-2xl border border-white/10"
-            >
-              {isGenerating && compressStatus ? (
-                <Loader2 size={18} className="animate-spin" />
-              ) : (
-                <Minimize2 size={18} />
-              )}
-              Стиснути PDF
-            </button>
-          </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
-          <div className="mt-4 p-4 rounded-xl bg-white/5 border border-white/10">
-            <p className="text-white/70 text-sm mb-3">Якість стиснення</p>
-            <div className="flex gap-2">
-              {(
-                [
-                  ['high', 'Висока'],
-                  ['medium', 'Середня'],
-                  ['low', 'Сильна'],
-                ] as const
-              ).map(([q, label]) => (
-                <button
-                  key={q}
-                  type="button"
-                  onClick={() => setCompressQuality(q)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
-                    compressQuality === q
-                      ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40'
-                      : 'bg-white/5 text-white/50 border border-white/10 hover:bg-white/10'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <p className="text-white/35 text-xs mt-2">
-              Сильніше стиснення = менший файл, трохи гірша чіткість
+  /* ─── CONVERT hub ─── */
+  if (tool === 'convert') {
+    return (
+      <div className="min-h-screen pt-20 pb-28 px-4 md:px-6 mx-auto max-w-3xl">
+        <ToolHeader title={t(TOOL_TITLES.convert)} onBack={goHub} />
+        <div className="space-y-3">
+          {(
+            [
+              ['merge', Layers, 'pdfFilesToPdf', 'pdfFilesToPdfHint'],
+              ['pdf-to-jpg', ImageIcon, 'pdfToolPdfToJpg', 'pdfToolPdfToJpgDesc'],
+              ['templates', FileText, 'pdfToolTemplates', 'pdfQuickTemplatesHint'],
+              ['ocr', ScanText, 'pdfToolOcr', 'pdfToolOcrDesc'],
+            ] as const
+          ).map(([id, Icon, titleKey, descKey]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTool(id)}
+              className="w-full flex items-start gap-4 p-4 rounded-2xl bg-white/8 border border-white/10 hover:border-sky-500/40 text-left transition-all"
+            >
+              <div className="w-11 h-11 rounded-xl bg-sky-500/15 flex items-center justify-center flex-shrink-0">
+                <Icon size={22} className="text-sky-400" />
+              </div>
+              <div>
+                <p className="text-white font-medium">{t(titleKey)}</p>
+                <p className="text-white/45 text-sm mt-1">{t(descKey)}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  /* ─── SIGN ─── */
+  if (tool === 'sign') {
+    return (
+      <div className="min-h-screen pt-20 pb-28 px-4 md:px-6 mx-auto max-w-3xl">
+        <ToolHeader title={t(TOOL_TITLES.sign)} onBack={goHub} />
+        <p className="text-white/45 text-sm mb-4">
+          {t('pdfSignHint') || 'Завантажте PDF або фото, намалюйте підпис і завантажте результат'}
+        </p>
+        <PdfFileDropzone
+          files={files}
+          onAdd={(f) => void addFiles(f)}
+          onRemove={(id) => setFiles(files.filter((x) => x.id !== id))}
+          onClear={() => setFiles([])}
+          accept="image/*,.pdf"
+          hint="PDF або зображення (перша сторінка)"
+          multiple={false}
+        />
+        <div className="rounded-2xl bg-white/8 border border-white/10 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-white/70 text-sm flex items-center gap-2">
+              <PenTool size={16} className="text-sky-400" />
+              {t('pdfYourSignature') || 'Ваш підпис'}
             </p>
-            {compressStatus && (
-              <p className="text-orange-300 text-xs mt-2 flex items-center gap-2">
-                <Loader2 size={12} className="animate-spin" /> {compressStatus}
-              </p>
-            )}
+            <button type="button" onClick={clearSignature} className="text-xs text-white/40 hover:text-white">
+              {t('clear') || 'Очистити'}
+            </button>
+          </div>
+          <canvas
+            ref={(el) => {
+              signCanvasRef.current = el;
+              if (el && !signatureDataUrl) {
+                // init once mounted
+                requestAnimationFrame(() => initSignCanvas());
+              }
+            }}
+            width={560}
+            height={180}
+            className="w-full h-36 rounded-xl bg-white touch-none cursor-crosshair"
+            onPointerDown={(e) => {
+              const canvas = signCanvasRef.current;
+              const ctx = canvas?.getContext('2d');
+              if (!canvas || !ctx) return;
+              drawingRef.current = true;
+              canvas.setPointerCapture(e.pointerId);
+              const { x, y } = pointerPos(e);
+              ctx.beginPath();
+              ctx.moveTo(x, y);
+            }}
+            onPointerMove={(e) => {
+              if (!drawingRef.current) return;
+              const canvas = signCanvasRef.current;
+              const ctx = canvas?.getContext('2d');
+              if (!canvas || !ctx) return;
+              const { x, y } = pointerPos(e);
+              ctx.lineTo(x, y);
+              ctx.stroke();
+            }}
+            onPointerUp={() => {
+              drawingRef.current = false;
+            }}
+          />
+        </div>
+        {filenameRow}
+        {primaryAction(
+          t('pdfSignDownload') || 'Завантажити підписаний PDF',
+          () => void handleSignDownload(),
+          files.length === 0,
+        )}
+      </div>
+    );
+  }
+
+  /* ─── MERGE / COMPRESS / SPLIT / PDF→JPG / ROTATE ─── */
+  const isPdfOnly = tool === 'split' || tool === 'pdf-to-jpg' || tool === 'rotate';
+
+  return (
+    <div className="min-h-screen pt-20 pb-28 px-4 md:px-6 mx-auto max-w-3xl">
+      <ToolHeader title={t(TOOL_TITLES[tool])} onBack={goHub} />
+
+      <PdfFileDropzone
+        files={files}
+        onAdd={(f) => void addFiles(f)}
+        onRemove={(id) => setFiles(files.filter((x) => x.id !== id))}
+        onClear={() => setFiles([])}
+        accept={isPdfOnly ? '.pdf,application/pdf' : 'image/*,.pdf,.txt,.doc,.docx,.xls,.xlsx,.csv'}
+        hint={isPdfOnly ? 'Лише PDF — до 50 МБ' : 'PDF, зображення, текст — до 50 МБ'}
+        multiple={tool === 'merge' || tool === 'compress'}
+      />
+
+      {filenameRow}
+
+      {tool === 'compress' && (
+        <div className="mt-4 p-4 rounded-xl bg-white/5 border border-white/10">
+          <p className="text-white/70 text-sm mb-3">{t('pdfCompressQuality') || 'Якість стиснення'}</p>
+          <div className="flex gap-2">
+            {(
+              [
+                ['high', t('pdfQualityHigh') || 'Висока'],
+                ['medium', t('pdfQualityMedium') || 'Середня'],
+                ['low', t('pdfQualityLow') || 'Сильна'],
+              ] as const
+            ).map(([q, label]) => (
+              <button
+                key={q}
+                type="button"
+                onClick={() => setCompressQuality(q)}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                  compressQuality === q
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                    : 'bg-white/5 text-white/50 border border-white/10 hover:bg-white/10'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Перетворення + швидкі шаблони */}
-      {hubMode === 'convert' && (
-        <div className="max-w-3xl mx-auto space-y-8">
-          <section>
-            <h3 className="text-white font-medium mb-1">{t('pdfQuickTemplates') || 'Templates'}</h3>
-            <p className="text-white/45 text-sm mb-4">
-              {t('pdfQuickTemplatesHint') || 'Open in the universal editor — edit, save, export PDF'}
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {QUICK_TEMPLATES.map((tool) => (
-                <button
-                  key={tool.id}
-                  type="button"
-                  onClick={() => openTemplate(tool.id)}
-                  className="text-left p-4 rounded-2xl bg-white/8 border border-white/10 hover:border-orange-500/40 hover:bg-orange-500/10 transition-all group"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-orange-500/15 flex items-center justify-center flex-shrink-0">
-                      <tool.icon size={20} className="text-orange-400" />
-                    </div>
-                    <div>
-                      <p className="text-white font-medium text-sm">{t(tool.titleKey)}</p>
-                      <p className="text-white/45 text-xs mt-1">{t(tool.descKey)}</p>
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="p-4 rounded-2xl bg-white/5 border border-white/10">
-            <h3 className="text-white font-medium mb-2">{t('pdfFilesToPdf') || 'Files → PDF'}</h3>
-            <p className="text-white/45 text-sm mb-3">
-              {t('pdfFilesToPdfHint') || 'Merge PDFs/photos — use the Merge tab'}
-            </p>
+      {tool === 'rotate' && (
+        <div className="mt-4 flex gap-2">
+          {([90, 180, 270] as RotateDegrees[]).map((d) => (
             <button
+              key={d}
               type="button"
-              onClick={() => setHubMode('merge')}
-              className="text-orange-400 text-sm font-medium hover:underline"
+              onClick={() => setRotateDeg(d)}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium ${
+                rotateDeg === d
+                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                  : 'bg-white/5 text-white/50 border border-white/10'
+              }`}
             >
-              Перейти до обʼєднання →
+              <RotateCw size={14} /> {d}°
             </button>
-          </section>
+          ))}
         </div>
       )}
 
-      {/* OCR */}
-      {hubMode === 'ocr' && <PdfOcrPanel onOpenInEditor={openInEditor} />}
+      {statusMsg && (
+        <p className="text-sky-300 text-xs mt-3 flex items-center gap-2">
+          <Loader2 size={12} className="animate-spin" /> {statusMsg}
+        </p>
+      )}
+
+      {tool === 'merge' &&
+        primaryAction(
+          files.length === 0 ? t('pdfAddFiles') || 'Додайте файли' : `${t('pdfMergeAction') || "Об'єднати"} (${files.length})`,
+          () => void handleMergeGenerate(),
+          files.length === 0,
+        )}
+      {tool === 'compress' &&
+        primaryAction(
+          t('pdfCompressAction') || 'Стиснути PDF',
+          () => void handleCompress(),
+          files.length === 0,
+        )}
+      {tool === 'split' &&
+        primaryAction(t('pdfSplitAction') || 'Розділити на сторінки', () => void handleSplit(), files.length === 0)}
+      {tool === 'pdf-to-jpg' &&
+        primaryAction(t('pdfJpgAction') || 'PDF → JPG', () => void handlePdfToJpg(), files.length === 0)}
+      {tool === 'rotate' &&
+        primaryAction(t('pdfRotateAction') || 'Повернути PDF', () => void handleRotate(), files.length === 0)}
+    </div>
+  );
+}
+
+function ToolHeader({ title, onBack }: { title: string; onBack: () => void }) {
+  return (
+    <div className="flex items-center gap-3 mb-6">
+      <button
+        type="button"
+        onClick={onBack}
+        className="p-2 rounded-xl bg-white/8 border border-white/10 text-white/60 hover:bg-white/15 hover:text-white"
+      >
+        <ArrowLeft size={18} />
+      </button>
+      <h2 className="text-xl font-semibold text-white">{title}</h2>
     </div>
   );
 }

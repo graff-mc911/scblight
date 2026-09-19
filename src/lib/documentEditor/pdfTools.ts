@@ -116,3 +116,118 @@ function fitImage(
   }
   return { w, h, x: (pageW - w) / 2, y: (pageH - h) / 2 };
 }
+
+function downloadDataUrl(dataUrl: string, filename: string) {
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = filename;
+  a.click();
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Розділити PDF: кожна сторінка → окремий PDF-файл */
+export async function splitPdfToPages(
+  file: File,
+  basename: string,
+  onProgress?: (msg: string) => void,
+): Promise<number> {
+  const count = await getPdfPageCount(file);
+  const base = (basename || file.name.replace(/\.pdf$/i, '') || 'page').replace(/[^\w\u0400-\u04FF.-]+/g, '_');
+
+  for (let p = 1; p <= count; p += 1) {
+    onProgress?.(`Сторінка ${p}/${count}`);
+    const imageData = await renderPdfPageToDataUrl(file, p, 1.8, 0.92);
+    const dims = await getImageDimensions(imageData);
+    const doc = new jsPDF({
+      orientation: dims.width >= dims.height ? 'l' : 'p',
+      unit: 'mm',
+      format: 'a4',
+    });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const { w, h, x, y } = fitImage(dims.width, dims.height, pageW, pageH, 4);
+    doc.addImage(imageData, 'JPEG', x, y, w, h);
+    doc.save(`${base}_p${p}.pdf`);
+    if (p < count) await sleep(350);
+  }
+  return count;
+}
+
+/** PDF → JPG (по одній картинці на сторінку) */
+export async function exportPdfPagesAsJpg(
+  file: File,
+  basename: string,
+  onProgress?: (msg: string) => void,
+): Promise<number> {
+  const count = await getPdfPageCount(file);
+  const base = (basename || file.name.replace(/\.pdf$/i, '') || 'page').replace(/[^\w\u0400-\u04FF.-]+/g, '_');
+
+  for (let p = 1; p <= count; p += 1) {
+    onProgress?.(`Сторінка ${p}/${count}`);
+    const imageData = await renderPdfPageToDataUrl(file, p, 2, 0.92);
+    downloadDataUrl(imageData, `${base}_p${p}.jpg`);
+    if (p < count) await sleep(350);
+  }
+  return count;
+}
+
+export type RotateDegrees = 90 | 180 | 270;
+
+/** Повернути всі сторінки PDF і завантажити новий файл */
+export async function rotatePdfPages(
+  file: File,
+  degrees: RotateDegrees,
+  filename: string,
+  onProgress?: (msg: string) => void,
+): Promise<void> {
+  const count = await getPdfPageCount(file);
+  let doc: jsPDF | null = null;
+
+  for (let p = 1; p <= count; p += 1) {
+    onProgress?.(`Сторінка ${p}/${count}`);
+    const imageData = await renderPdfPageToDataUrl(file, p, 1.8, 0.92);
+    const rotated = await rotateDataUrl(imageData, degrees);
+    const dims = await getImageDimensions(rotated);
+    const landscape = dims.width >= dims.height;
+    if (!doc) {
+      doc = new jsPDF({ orientation: landscape ? 'l' : 'p', unit: 'mm', format: 'a4' });
+    } else {
+      doc.addPage('a4', landscape ? 'l' : 'p');
+    }
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const { w, h, x, y } = fitImage(dims.width, dims.height, pageW, pageH, 4);
+    doc.addImage(rotated, 'JPEG', x, y, w, h);
+  }
+
+  if (!doc) throw new Error('Empty PDF');
+  doc.save(`${filename || 'rotated'}.pdf`);
+}
+
+function rotateDataUrl(dataUrl: string, degrees: RotateDegrees): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = document.createElement('img');
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const rad = (degrees * Math.PI) / 180;
+      const cos = Math.abs(Math.cos(rad));
+      const sin = Math.abs(Math.sin(rad));
+      canvas.width = Math.round(img.naturalWidth * cos + img.naturalHeight * sin);
+      canvas.height = Math.round(img.naturalWidth * sin + img.naturalHeight * cos);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Canvas unavailable'));
+        return;
+      }
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(rad);
+      ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+      resolve(canvas.toDataURL('image/jpeg', 0.92));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
