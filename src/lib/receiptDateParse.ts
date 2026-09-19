@@ -89,7 +89,8 @@ function validYmd(y: string, m: string, d: string): string {
  */
 export function normalizeReceiptDate(raw: string): string {
   if (!raw) return '';
-  const s = raw.trim();
+  // Strip time: "18/09/2026 21:34" or ISO datetime
+  const s = raw.trim().replace(/[T\s]\d{1,2}:\d{2}(:\d{2})?.*$/, '').trim();
 
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (iso) return validYmd(iso[1], iso[2], iso[3]);
