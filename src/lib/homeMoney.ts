@@ -1,8 +1,9 @@
 /**
  * Home dashboard money aggregations.
- * Paid invoices → received.
- * Scanned/attached receipts (expense docs with invoice_id) → spent.
- * Net profit = received − spent. Chart + cards share the same YTD window.
+ * Total received = sum of paid invoices (no expenses subtracted).
+ * Total spent    = sum of ALL valid receipts/expenses (positive amounts).
+ * Net profit     = received − spent.
+ * Chart + cards share the same YTD window.
  */
 
 import { normalizeReceiptDate } from './receiptDateParse';
@@ -19,6 +20,17 @@ export interface MoneyTotals {
   profit: number;
   months: MonthData[];
 }
+
+export type LedgerExpense = {
+  document_date?: string | null;
+  created_at?: string | null;
+  /** Primary amount field used by expense_documents */
+  total_amount?: number | string | null;
+  /** Alternate names from receipts / OCR payloads */
+  amount?: number | string | null;
+  total?: number | string | null;
+  invoice_id?: string | null;
+};
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
@@ -68,6 +80,48 @@ export function parseLedgerDate(raw: unknown, fallback?: unknown): { year: numbe
   return tryOne(raw) || tryOne(fallback);
 }
 
+/** Safe money parse: number | "17,59" | "17.59" → finite number or 0 (never NaN). */
+export function parseMoneyAmount(raw: unknown): number {
+  if (typeof raw === 'number') {
+    return Number.isFinite(raw) ? raw : 0;
+  }
+  if (raw == null || raw === '') return 0;
+
+  const s = String(raw)
+    .trim()
+    .replace(/\s/g, '')
+    .replace(/€/g, '')
+    .replace(/[^\d,.\-]/g, '');
+
+  if (!s || s === '-' || s === '.' || s === ',') return 0;
+
+  // EU: 1.234,56 → 1234.56 ; plain 17,59 → 17.59
+  let normalized = s;
+  if (s.includes(',') && s.includes('.')) {
+    normalized = s.replace(/\./g, '').replace(',', '.');
+  } else if (s.includes(',')) {
+    normalized = s.replace(',', '.');
+  }
+
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Pick first usable amount from expense/receipt-shaped rows. */
+export function expenseAmount(exp: LedgerExpense): number {
+  const candidates = [exp.total_amount, exp.amount, exp.total];
+  for (const c of candidates) {
+    if (c == null || c === '') continue;
+    const n = parseMoneyAmount(c);
+    if (n !== 0 || String(c).trim() === '0' || String(c).trim() === '0.0' || String(c).trim() === '0,0') {
+      return Math.abs(n);
+    }
+    // explicitly zero
+    if (parseMoneyAmount(c) === 0 && /0/.test(String(c))) return 0;
+  }
+  return Math.abs(parseMoneyAmount(candidates.find((c) => c != null && c !== '') ?? 0));
+}
+
 function emptyMonths(): MonthData[] {
   return Array.from({ length: 12 }, (_, i) => ({
     month: MONTH_NAMES[i],
@@ -76,14 +130,9 @@ function emptyMonths(): MonthData[] {
   }));
 }
 
-/** Only costs linked to an invoice/object count toward Total spent / Net profit. */
-export function isAttachedExpense(exp: { invoice_id?: string | null }): boolean {
-  return !!exp.invoice_id;
-}
-
 /**
  * Build YTD monthly series + totals for the current calendar year.
- * By default only expenses with `invoice_id` count toward spent (prompt §4).
+ * ALL valid receipts/expenses count toward spent (not only invoice-linked).
  */
 export function computeHomeMoney(
   invoices: Array<{
@@ -91,33 +140,26 @@ export function computeHomeMoney(
     date?: string | null;
     created_at?: string | null;
     total_gross?: number | string | null;
+    total?: number | string | null;
   }>,
-  expenseDocuments: Array<{
-    document_date?: string | null;
-    created_at?: string | null;
-    total_amount?: number | string | null;
-    invoice_id?: string | null;
-  }>,
+  expenseDocuments: LedgerExpense[],
   now: Date = new Date(),
-  options: { onlyAttached?: boolean } = { onlyAttached: true },
 ): MoneyTotals {
   const currentYear = now.getFullYear();
   const months = emptyMonths();
-  const onlyAttached = options.onlyAttached !== false;
 
   for (const inv of invoices) {
     if (inv.status !== 'paid') continue;
     const d = parseLedgerDate(inv.date, inv.created_at);
     if (!d || d.year !== currentYear) continue;
-    months[d.month].income += Number(inv.total_gross || 0) || 0;
+    const income = parseMoneyAmount(inv.total_gross ?? inv.total);
+    months[d.month].income += Math.abs(income);
   }
 
   for (const exp of expenseDocuments) {
-    if (onlyAttached && !isAttachedExpense(exp)) continue;
     const d = parseLedgerDate(exp.document_date, exp.created_at);
     if (!d || d.year !== currentYear) continue;
-    const amount = Number(exp.total_amount || 0) || 0;
-    months[d.month].expenses += Math.abs(amount);
+    months[d.month].expenses += expenseAmount(exp);
   }
 
   const received = months.reduce((s, m) => s + m.income, 0);

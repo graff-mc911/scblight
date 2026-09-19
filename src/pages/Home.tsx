@@ -227,15 +227,11 @@ export const Home: React.FC = () => {
       total_amount: Number(inv.uploaded_amount ?? inv.total_gross ?? inv.total_net ?? 0),
       document_date: inv.date || inv.created_at,
       created_at: inv.created_at,
-      // Treat legacy uploaded supplier PDF as attached to its own invoice/object
-      invoice_id: inv.id as string,
     }));
 
+  // All expense docs + legacy uploaded costs (no invoice_id filter)
   const mergedExpenses = [...expenseDocuments, ...uploadedExpenses];
-
-  // Prompt §4: spent = receipts/costs attached to invoices/objects only
-  const attachedForMoney = mergedExpenses.filter((exp: any) => !!exp.invoice_id);
-  const money = computeHomeMoney(incomeInvoices, attachedForMoney);
+  const money = computeHomeMoney(incomeInvoices, mergedExpenses);
 
   const unpaidTotal = incomeInvoices
     .filter((inv) => inv.status === 'sent' || inv.status === 'draft')
