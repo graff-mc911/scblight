@@ -664,7 +664,18 @@ const baseTranslations = {
   groupByYear: 'By year',
   groupByDay: 'By day',
   invoiceArchiveSearch: 'Search by number, name, date, address',
-  calcOnSiteHint: 'Enter 5+3 or 10*2 in Qty — calculate and invoice in one flow. Material becomes its own invoice line (1 × Pauschal).',
+  calcOnSiteHint: 'Enter 5+3 or 10*2 in Qty — calculate and invoice in one flow. Material becomes its own flat-rate invoice line.',
+  unitPauschal: 'Flat rate',
+  unitStunde: 'Hour',
+  unitHour: 'h',
+  unitPcs: 'pcs',
+  unitLm: 'lm',
+  unitM2: 'm²',
+  unitM3: 'm³',
+  unitFt2: 'ft²',
+  addFile: 'Add file',
+  expense: 'Expense',
+  file: 'File',
 };
 
 export const translations: Record<string, Record<string, string>> = {
@@ -876,7 +887,18 @@ export const translations: Record<string, Record<string, string>> = {
     groupByYear: 'За роком',
     groupByDay: 'За днем',
     invoiceArchiveSearch: 'Пошук за номером, ім\'ям, датою, адресою',
-    calcOnSiteHint: 'У кількості 5+3 або 10*2 — розрахунок і рахунок в одному потоці. Матеріал стає окремим рядком рахунку (1 × Pauschal).',
+    calcOnSiteHint: 'У кількості 5+3 або 10*2 — розрахунок і рахунок в одному потоці. Матеріал стає окремим рядком (паушально).',
+    unitPauschal: 'Паушально',
+    unitStunde: 'Година',
+    unitHour: 'год',
+    unitPcs: 'шт',
+    unitLm: 'п.м.',
+    unitM2: 'м²',
+    unitM3: 'м³',
+    unitFt2: 'фт²',
+    addFile: 'Додати файл',
+    expense: 'Витрата',
+    file: 'Файл',
     fileTooLarge: 'Файл занадто великий (макс. 20 МБ)',
     expenseCategory: 'Категорія',
     expenseBalance: 'Сума витрат',
@@ -1498,7 +1520,18 @@ export const translations: Record<string, Record<string, string>> = {
     pdfReaderEditor: 'PDF-Reader & Editor',
     sendToAccountant: 'An Buchhalter senden',
     invoiceArchiveSearch: 'Suche nach Nummer, Name, Datum, Adresse',
-    calcOnSiteHint: 'In Menge 5+3 oder 10*2 — kalkulieren und Rechnung im gleichen Ablauf. Material wird zur eigenen Position (1 × Pauschal).',
+    calcOnSiteHint: 'In Menge 5+3 oder 10*2 — kalkulieren und Rechnung im gleichen Ablauf. Material wird zur eigenen Pauschal-Position.',
+    unitPauschal: 'Pauschal',
+    unitStunde: 'Stunde',
+    unitHour: 'Std.',
+    unitPcs: 'Stk',
+    unitLm: 'lfm',
+    unitM2: 'm²',
+    unitM3: 'm³',
+    unitFt2: 'ft²',
+    addFile: 'Datei hinzufügen',
+    expense: 'Ausgabe',
+    file: 'Datei',
     fileTooLarge: 'Datei zu groß (max. 20 MB)',
     expenseCategory: 'Kategorie',
     expenseBalance: 'Ausgabensumme',
@@ -4851,15 +4884,46 @@ export const currencies = [
 ];
 
 export const units = [
-  { value: 'Pauschal', label: 'Pauschal' },
-  { value: 'Stunde', label: 'Stunde' },
-  { value: 'm²', label: 'm²' },
-  { value: 'm³', label: 'm³' },
-  { value: 'ft²', label: 'ft²' },
-  { value: 'h', label: 'h' },
-  { value: 'pcs', label: 'pcs' },
-  { value: 'lm', label: 'lm' },
+  { value: 'Pauschal', labelKey: 'unitPauschal' },
+  { value: 'Stunde', labelKey: 'unitStunde' },
+  { value: 'm²', labelKey: 'unitM2' },
+  { value: 'm³', labelKey: 'unitM3' },
+  { value: 'ft²', labelKey: 'unitFt2' },
+  { value: 'h', labelKey: 'unitHour' },
+  { value: 'pcs', labelKey: 'unitPcs' },
+  { value: 'lm', labelKey: 'unitLm' },
 ];
+
+/** Map stored unit codes → i18n keys */
+export const UNIT_LABEL_KEYS: Record<string, string> = {
+  Pauschal: 'unitPauschal',
+  Stunde: 'unitStunde',
+  h: 'unitHour',
+  pcs: 'unitPcs',
+  lm: 'unitLm',
+  'm²': 'unitM2',
+  'm³': 'unitM3',
+  'ft²': 'unitFt2',
+};
+
+/** Translate a stored unit value for UI / invoice table display. */
+export function translateUnit(
+  unit: string | null | undefined,
+  t: (key: string) => string
+): string {
+  const raw = String(unit || '').trim();
+  if (!raw) return '';
+  const key = UNIT_LABEL_KEYS[raw];
+  return key ? t(key) : raw;
+}
+
+/** Select options with labels in the current (or invoice) language. */
+export function unitSelectOptions(t: (key: string) => string): Array<{ value: string; label: string }> {
+  return units.map((u) => ({
+    value: u.value,
+    label: t(u.labelKey),
+  }));
+}
 
 export const statuses = [
   { value: 'draft', label: 'Draft' },

@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { translations } from './languages';
+import { translations, translateUnit } from './languages';
 import { expandItemsForInvoiceTable } from './invoiceTotals';
 import { ensurePdfUnicodeFont } from './pdfUnicodeFont';
 
@@ -201,11 +201,15 @@ export const generateInvoicePDF = async (
   doc.text(quality, leftMargin, y);
   y += quality.length * 4.5 + 6;
 
-  // —— Items (Lexware-style: material = own Pauschal row) ——
+  // —— Items (Lexware-style: material = own flat-rate row) ——
   const tableRows = expandItemsForInvoiceTable(invoice.items || [], {
     materialLabel: t('material'),
-    pauschalUnit: 'Pauschal',
-  });
+    pauschalUnit: t('unitPauschal'),
+  }).map((row) =>
+    row.is_section
+      ? row
+      : { ...row, unit: translateUnit(row.unit, t) }
+  );
 
   let pos = 0;
   const body = tableRows.map((item) => {

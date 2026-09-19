@@ -352,7 +352,7 @@ export const InvoiceView: React.FC = () => {
     if (!file) return;
 
     if (file.size > 20 * 1024 * 1024) {
-      showError('Файл занадто великий (макс. 20 МБ)');
+      showError(t('fileTooLarge') || 'File too large (max 20 MB)');
       e.target.value = '';
       return;
     }
@@ -832,10 +832,10 @@ export const InvoiceView: React.FC = () => {
 
                   <div className="min-w-0">
                     <p className="text-white font-medium break-words">
-                      {expense.vendor_name || 'Витрата'}
+                      {expense.vendor_name || t('expense')}
                     </p>
                     <p className="text-white/50 text-sm break-words">
-                      {expense.document_number || expense.expense_category || expense.document_type || 'expense'}
+                      {expense.document_number || expense.expense_category || expense.document_type || t('expense')}
                     </p>
                   </div>
                 </div>
@@ -874,7 +874,7 @@ export const InvoiceView: React.FC = () => {
                 capture="environment"
               />
               <span className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-block">
-                {uploadingFile ? (t('uploading') || 'Завантаження...') : 'Додати файл'}
+                {uploadingFile ? (t('uploading') || 'Uploading...') : t('addFile')}
               </span>
             </label>
 
@@ -907,7 +907,7 @@ export const InvoiceView: React.FC = () => {
                   <FileText className="text-orange-400 flex-shrink-0" size={24} />
                   <div className="min-w-0">
                     <p className="text-white font-medium break-words">
-                      {attachment.file_name || 'Файл'}
+                      {attachment.file_name || t('file')}
                     </p>
                     <p className="text-white/60 text-sm break-words">
                       {attachment.file_type || 'file'}
@@ -960,7 +960,7 @@ export const InvoiceView: React.FC = () => {
                   capture="environment"
                 />
                 <span className="bg-white/10 backdrop-blur-xl border border-white/10 text-orange-500 hover:bg-white/20 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition-all inline-block">
-                  {uploadingFile ? 'Завантаження...' : 'Додати файл'}
+                  {uploadingFile ? t('uploading') : t('addFile')}
                 </span>
               </label>
 

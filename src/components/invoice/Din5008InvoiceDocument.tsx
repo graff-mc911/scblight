@@ -1,5 +1,5 @@
 import React from 'react';
-import { currencies, translations } from '../../lib/languages';
+import { currencies, translations, translateUnit } from '../../lib/languages';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { expandItemsForInvoiceTable } from '../../lib/invoiceTotals';
 
@@ -102,8 +102,15 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
 
   const tableRows = expandItemsForInvoiceTable(data.items || [], {
     materialLabel: tInvoice('material'),
-    pauschalUnit: 'Pauschal',
-  });
+    pauschalUnit: tInvoice('unitPauschal'),
+  }).map((row) =>
+    row.is_section
+      ? row
+      : {
+          ...row,
+          unit: translateUnit(row.unit, tInvoice),
+        }
+  );
 
   const netTotal = tableRows.reduce((sum, item) => (item.is_section ? sum : sum + item.total), 0);
   const vatAmount = data.vat_enabled ? (netTotal * data.vat_rate) / 100 : 0;

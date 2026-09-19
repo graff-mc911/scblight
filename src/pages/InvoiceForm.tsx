@@ -8,7 +8,7 @@ import { Select } from '../components/ui/Select';
 import { Textarea } from '../components/ui/Textarea';
 import { InvoicePreview } from '../components/InvoicePreview';
 import { supabase } from '../lib/supabase';
-import { currencies, units, statuses } from '../lib/languages';
+import { currencies, statuses, unitSelectOptions } from '../lib/languages';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useToastContext } from '../contexts/ToastContext';
 import { evalFieldExpression } from '../lib/calculator';
@@ -780,7 +780,7 @@ export const InvoiceForm: React.FC = () => {
                       {t('unit')}
                     </label>
                     <Select
-                      options={units}
+                      options={unitSelectOptions(t)}
                       value={item.unit}
                       onChange={(e) => handleItemChange(index, 'unit', e.target.value)}
                     />
