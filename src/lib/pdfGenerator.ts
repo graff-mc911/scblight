@@ -60,7 +60,7 @@ function money(n: number): string {
 
 /**
  * DIN 5008 / German construction invoice PDF — mirrors InvoiceDocument layout.
- * Labels from translations[invoice_language].
+ * Labels from translations[invoice_language] (callers should pass the app UI language).
  */
 export const generateInvoicePDF = async (
   invoice: InvoiceData,
@@ -77,7 +77,7 @@ export const generateInvoicePDF = async (
   const topMargin = 15;
   let y = topMargin;
 
-  const lang = (invoice.invoice_language || 'de') as keyof typeof translations;
+  const lang = (invoice.invoice_language || 'uk') as keyof typeof translations;
   const dict = translations[lang] || translations.de;
   const t = (key: string): string =>
     ((dict as Record<string, string>)[key] as string) ||

@@ -93,7 +93,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   companyProfile,
   onClose,
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
@@ -164,7 +164,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
       notes: invoice?.notes || '',
       service_period_start: invoice?.work_period_start || '',
       service_period_end: invoice?.work_period_end || '',
-      invoice_language: invoice?.invoice_language || 'de',
+      invoice_language: language,
       signature_data_url: invoice?.signature_data_url || '',
       signed_by: invoice?.signed_by || '',
       signed_at: invoice?.signed_at || '',
@@ -178,7 +178,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
       company_bic: companyData.company_bic,
       company_logo_url: companyLogoUrl,
     }),
-    [invoice, client, companyData, companyLogoUrl],
+    [invoice, client, companyData, companyLogoUrl, language],
   );
 
   const zoomIn = () => setZoom((z) => Math.min(z + 0.15, 2.5));

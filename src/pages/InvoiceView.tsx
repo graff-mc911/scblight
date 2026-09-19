@@ -80,7 +80,7 @@ const formatMoney = (amount: number, currency = 'EUR') => {
 export const InvoiceView: React.FC = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { showSuccess, showError } = useToastContext();
 
   const [invoice, setInvoice] = useState<any>(null);
@@ -536,7 +536,7 @@ export const InvoiceView: React.FC = () => {
       service_period_start: invoice.work_period_start,
       service_period_end: invoice.work_period_end,
       object_address: invoice.object_address || '',
-      invoice_language: invoice.invoice_language || 'de',
+      invoice_language: language,
     };
   };
 
@@ -546,12 +546,13 @@ export const InvoiceView: React.FC = () => {
     setSharing(true);
     try {
       const docNo = invoice.document_no || invoice.document_number || 'invoice';
-      const invoiceLang = invoice.invoice_language || 'de';
+      const invoiceLang = language || 'uk';
       const shareLabel = invoiceDocumentLabel(invoiceLang, docNo);
       const fileName = invoicePdfFileName(invoiceLang, docNo);
       let blob: Blob | null = null;
 
-      if (pdfUrl) {
+      // Prefer regenerating so labels match the current app language
+      if (invoice.source === 'uploaded' && pdfUrl) {
         try {
           blob = await fetchPdfBlob(pdfUrl);
         } catch (error) {

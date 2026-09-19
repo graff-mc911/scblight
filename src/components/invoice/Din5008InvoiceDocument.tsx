@@ -84,8 +84,8 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
 }) => {
   const { language } = useLanguage();
   const logoUrl = data.company_logo_url;
-  // Match pdfGenerator: invoice language first, then UI, then DE
-  const labelLang = data.invoice_language || language || 'de';
+  // Always use the app language from Settings — not a separate invoice_language
+  const labelLang = language || 'uk';
 
   const tInvoice = (key: string) => {
     const langTranslations = translations[labelLang as keyof typeof translations];

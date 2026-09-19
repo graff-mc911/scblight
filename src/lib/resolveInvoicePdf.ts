@@ -6,22 +6,6 @@ import { invoicePdfFileName } from './languages';
 
 type AnyInvoice = Record<string, any>;
 
-async function findPdfInStorage(userId: string, invoiceId: string): Promise<string | null> {
-  const { data: files, error } = await supabase.storage.from('invoice-pdfs').list(userId);
-
-  if (error || !files) return null;
-
-  const matchedPdf = files.find((file) => file.name.startsWith(`${invoiceId}-invoice`));
-  if (!matchedPdf) return null;
-
-  const filePath = `${userId}/${matchedPdf.name}`;
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from('invoice-pdfs').getPublicUrl(filePath);
-
-  return publicUrl || null;
-}
-
 function buildCompanyFromInvoice(invoice: AnyInvoice, companyProfile?: AnyInvoice | null) {
   return {
     company_name: invoice.executor_name || companyProfile?.company_name || '',
@@ -38,7 +22,8 @@ function buildCompanyFromInvoice(invoice: AnyInvoice, companyProfile?: AnyInvoic
 async function generatePdfFromInvoice(
   invoice: AnyInvoice,
   userId: string,
-  companyProfile?: AnyInvoice | null
+  companyProfile?: AnyInvoice | null,
+  labelLanguage?: string
 ): Promise<Blob> {
   const { data: itemsData } = await supabase
     .from('invoice_items')
@@ -99,7 +84,7 @@ async function generatePdfFromInvoice(
     service_period_start: invoice.work_period_start,
     service_period_end: invoice.work_period_end,
     object_address: invoice.object_address || '',
-    invoice_language: invoice.invoice_language || '',
+    invoice_language: labelLanguage || 'uk',
   };
 
   const companyData = buildCompanyFromInvoice(invoice, companyProfile);
@@ -110,57 +95,51 @@ async function generatePdfFromInvoice(
 
 /**
  * Resolve a shareable/downloadable PDF for a saved invoice row.
- * Prefers stored/uploaded PDF URLs, then storage lookup, then local generation.
+ * Created invoices are always regenerated in the current app language.
  */
 export async function resolveInvoicePdfFile(
   invoice: AnyInvoice,
   userId: string,
-  companyProfile?: AnyInvoice | null
+  companyProfile?: AnyInvoice | null,
+  labelLanguage?: string
 ): Promise<{ blob: Blob; fileName: string }> {
   const docNo = invoice.document_no || invoice.document_number || invoice.id || 'invoice';
-  const fileName = invoicePdfFileName(invoice.invoice_language || 'de', String(docNo));
+  const lang = labelLanguage || 'uk';
+  const fileName = invoicePdfFileName(lang, String(docNo));
 
-  const candidateUrls = [
-    invoice.uploaded_pdf_url,
-    invoice.pdf_url,
-  ].filter((url): url is string => typeof url === 'string' && url.length > 0);
+  // Uploaded external PDFs keep their original file
+  if (invoice.source === 'uploaded') {
+    const candidateUrls = [
+      invoice.uploaded_pdf_url,
+      invoice.pdf_url,
+    ].filter((url): url is string => typeof url === 'string' && url.length > 0);
 
-  for (const url of candidateUrls) {
-    try {
-      const blob = await fetchPdfBlob(url);
-      return { blob, fileName };
-    } catch (error) {
-      console.warn('Could not fetch invoice PDF url', url, error);
-    }
-  }
-
-  if (invoice.source !== 'uploaded') {
-    try {
-      const storageUrl = await findPdfInStorage(userId, String(invoice.id));
-      if (storageUrl) {
-        const blob = await fetchPdfBlob(storageUrl);
+    for (const url of candidateUrls) {
+      try {
+        const blob = await fetchPdfBlob(url);
         return { blob, fileName };
+      } catch (error) {
+        console.warn('Could not fetch invoice PDF url', url, error);
       }
-    } catch (error) {
-      console.warn('Could not fetch invoice PDF from storage', error);
     }
-
-    const blob = await generatePdfFromInvoice(invoice, userId, companyProfile);
-    return { blob, fileName };
+    throw new Error(`PDF not available for invoice ${docNo}`);
   }
 
-  throw new Error(`PDF not available for invoice ${docNo}`);
+  // Always regenerate created invoices in the current app language
+  const blob = await generatePdfFromInvoice(invoice, userId, companyProfile, lang);
+  return { blob, fileName };
 }
 
 export async function resolveInvoicePdfFiles(
   invoices: AnyInvoice[],
   userId: string,
-  companyProfile?: AnyInvoice | null
+  companyProfile?: AnyInvoice | null,
+  labelLanguage?: string
 ): Promise<Array<{ blob: Blob; fileName: string }>> {
   const files: Array<{ blob: Blob; fileName: string }> = [];
 
   for (const invoice of invoices) {
-    files.push(await resolveInvoicePdfFile(invoice, userId, companyProfile));
+    files.push(await resolveInvoicePdfFile(invoice, userId, companyProfile, labelLanguage));
   }
 
   return files;

@@ -843,7 +843,7 @@ const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({
  */
 export const Invoices: React.FC = () => {
   const navigate = useNavigate();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { showSuccess, showError } = useToastContext();
   const queryClient = useQueryClient();
 
@@ -1068,9 +1068,9 @@ export const Invoices: React.FC = () => {
     }
 
     const companyProfile = await loadCompanyProfile();
-    const files = await resolveInvoicePdfFiles(targets, userId, companyProfile);
+    const files = await resolveInvoicePdfFiles(targets, userId, companyProfile, language);
     return { files, targets };
-  }, [session?.user?.id, invoices, selectedIds, loadCompanyProfile, t]);
+  }, [session?.user?.id, invoices, selectedIds, loadCompanyProfile, t, language]);
 
   /**
    * Поділитися обраними рахунками (Web Share API / завантаження).
@@ -1087,7 +1087,7 @@ export const Invoices: React.FC = () => {
       const singleLabel =
         files.length === 1
           ? invoiceDocumentLabel(
-              targets[0]?.invoice_language || 'de',
+              language || 'uk',
               targets[0]?.document_no || targets[0]?.document_number || files[0].fileName
             )
           : null;
@@ -1116,11 +1116,7 @@ export const Invoices: React.FC = () => {
     } finally {
       setSelectionBusy(false);
     }
-  }, [selectionCount, prepareSelectedPdfFiles, showError, showSuccess, t]);
-
-  /**
-   * Зберегти PDF обраних рахунків на пристрій.
-   */
+  }, [selectionCount, prepareSelectedPdfFiles, showError, showSuccess, t, language]);
   const handleSaveSelected = useCallback(async () => {
     if (selectionCount === 0) {
       showError(t('noInvoicesSelected') || 'No invoices selected');
