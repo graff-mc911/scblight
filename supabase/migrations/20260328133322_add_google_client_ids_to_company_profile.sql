@@ -6,13 +6,23 @@
   
   2. Security
     - Field is user-specific and protected by existing RLS policies
+
+  3. Notes
+    - Skip safely when company_profile was created outside migrations (preview/prod drift)
 */
 
 DO $$
 BEGIN
+  IF to_regclass('public.company_profile') IS NULL THEN
+    RAISE NOTICE 'company_profile missing — skip google_client_ids';
+    RETURN;
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'company_profile' AND column_name = 'google_client_ids'
+    WHERE table_schema = 'public'
+      AND table_name = 'company_profile'
+      AND column_name = 'google_client_ids'
   ) THEN
     ALTER TABLE company_profile ADD COLUMN google_client_ids text DEFAULT '';
   END IF;

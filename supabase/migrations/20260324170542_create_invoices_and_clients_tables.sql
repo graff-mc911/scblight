@@ -94,7 +94,9 @@ CREATE TABLE IF NOT EXISTS receipts (
   updated_at timestamptz DEFAULT now()
 );
 
--- Add indexes for performance (only if they don't exist)
+-- Add indexes for performance (only if they don't exist).
+-- Production schema may already have invoices.date (not invoice_date) when
+-- CREATE TABLE IF NOT EXISTS no-ops — pick whichever date column exists.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_clients_user_id') THEN
@@ -114,15 +116,37 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_invoices_date') THEN
-    CREATE INDEX idx_invoices_date ON invoices(invoice_date);
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'invoices' AND column_name = 'invoice_date'
+    ) THEN
+      CREATE INDEX idx_invoices_date ON invoices(invoice_date);
+    ELSIF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'invoices' AND column_name = 'date'
+    ) THEN
+      CREATE INDEX idx_invoices_date ON invoices(date);
+    END IF;
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_receipts_user_id') THEN
-    CREATE INDEX idx_receipts_user_id ON receipts(user_id);
+    IF to_regclass('public.receipts') IS NOT NULL THEN
+      CREATE INDEX idx_receipts_user_id ON receipts(user_id);
+    END IF;
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_receipts_date') THEN
-    CREATE INDEX idx_receipts_date ON receipts(receipt_date);
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'receipts' AND column_name = 'receipt_date'
+    ) THEN
+      CREATE INDEX idx_receipts_date ON receipts(receipt_date);
+    ELSIF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'receipts' AND column_name = 'date'
+    ) THEN
+      CREATE INDEX idx_receipts_date ON receipts(date);
+    END IF;
   END IF;
 END $$;
 
