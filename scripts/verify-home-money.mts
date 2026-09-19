@@ -25,44 +25,26 @@ assert(parseLedgerDate('garbage') == null, 'invalid → null');
 
 const money = computeHomeMoney(
   [],
-  [
-    {
-      document_date: '18/09/2026',
-      total_amount: 17.59,
-      created_at: '2026-09-18T20:00:00Z',
-      document_type: 'receipt',
-    },
-  ],
+  [{ document_date: '18/09/2026', total_amount: 17.59, created_at: '2026-09-18T20:00:00Z' }],
   now,
 );
-assert(money.spent === 17.59, `EU-date check → spent ${money.spent}`);
+assert(money.spent === 17.59, `EU-date expense → spent ${money.spent}`);
 assert(money.received === 0, 'no invoices → received 0');
-assert(money.profit === 0, `check must NOT reduce profit → ${money.profit}`);
+assert(money.profit === -17.59, `profit = 0 - 17.59 → ${money.profit}`);
 assert(money.months[8].expenses === 17.59, 'September bucket');
 
 const isoMoney = computeHomeMoney(
   [{ status: 'paid', date: '2026-03-01', total_gross: 100 }],
-  [{ document_date: '2026-09-18', total_amount: 17.59, document_type: 'receipt' }],
+  [{ document_date: '2026-09-18', total_amount: 17.59 }],
   now,
 );
 assert(isoMoney.received === 100, 'paid invoice received');
-assert(isoMoney.spent === 17.59, 'ISO check spent');
-assert(isoMoney.profit === 100, `paid 100 + check → profit stays 100, got ${isoMoney.profit}`);
-
-const supplierMoney = computeHomeMoney(
-  [{ status: 'paid', date: '2026-03-01', total_gross: 100 }],
-  [{ document_date: '2026-09-18', total_amount: 17.59, document_type: 'supplier_invoice' }],
-  now,
-);
-assert(supplierMoney.spent === 17.59, 'supplier invoice in spent');
-assert(
-  supplierMoney.profit === 82.41,
-  `supplier invoice still reduces profit → ${supplierMoney.profit}`,
-);
+assert(isoMoney.spent === 17.59, 'ISO expense spent');
+assert(isoMoney.profit === 82.41, `profit 100-17.59 → ${isoMoney.profit}`);
 
 const priorYear = computeHomeMoney(
   [],
-  [{ document_date: '2025-12-01', total_amount: 50, created_at: '2025-12-01', document_type: 'receipt' }],
+  [{ document_date: '2025-12-01', total_amount: 50, created_at: '2025-12-01' }],
   now,
 );
 assert(priorYear.spent === 0, 'prior-year expense excluded from YTD spent');
