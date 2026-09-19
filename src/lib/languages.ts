@@ -664,7 +664,7 @@ const baseTranslations = {
   groupByYear: 'By year',
   groupByDay: 'By day',
   invoiceArchiveSearch: 'Search by number, name, date, address',
-  calcOnSiteHint: 'Enter 5+3 or 10*2 in Qty — calculate and invoice in one flow',
+  calcOnSiteHint: 'Enter 5+3 or 10*2 in Qty — calculate and invoice in one flow. Material becomes its own invoice line (1 × Pauschal).',
 };
 
 export const translations: Record<string, Record<string, string>> = {
@@ -876,7 +876,7 @@ export const translations: Record<string, Record<string, string>> = {
     groupByYear: 'За роком',
     groupByDay: 'За днем',
     invoiceArchiveSearch: 'Пошук за номером, ім\'ям, датою, адресою',
-    calcOnSiteHint: 'У кількості 5+3 або 10*2 — розрахунок і рахунок в одному потоці',
+    calcOnSiteHint: 'У кількості 5+3 або 10*2 — розрахунок і рахунок в одному потоці. Матеріал стає окремим рядком рахунку (1 × Pauschal).',
     fileTooLarge: 'Файл занадто великий (макс. 20 МБ)',
     expenseCategory: 'Категорія',
     expenseBalance: 'Сума витрат',
@@ -1498,7 +1498,7 @@ export const translations: Record<string, Record<string, string>> = {
     pdfReaderEditor: 'PDF-Reader & Editor',
     sendToAccountant: 'An Buchhalter senden',
     invoiceArchiveSearch: 'Suche nach Nummer, Name, Datum, Adresse',
-    calcOnSiteHint: 'In Menge 5+3 oder 10*2 — kalkulieren und Rechnung im gleichen Ablauf',
+    calcOnSiteHint: 'In Menge 5+3 oder 10*2 — kalkulieren und Rechnung im gleichen Ablauf. Material wird zur eigenen Position (1 × Pauschal).',
     fileTooLarge: 'Datei zu groß (max. 20 MB)',
     expenseCategory: 'Kategorie',
     expenseBalance: 'Ausgabensumme',
@@ -4851,6 +4851,8 @@ export const currencies = [
 ];
 
 export const units = [
+  { value: 'Pauschal', label: 'Pauschal' },
+  { value: 'Stunde', label: 'Stunde' },
   { value: 'm²', label: 'm²' },
   { value: 'm³', label: 'm³' },
   { value: 'ft²', label: 'ft²' },

@@ -19,7 +19,7 @@ export function parseMaterialAmount(material: string | number | null | undefined
   return Number.isFinite(value) ? value : 0;
 }
 
-/** Line total = quantity × price + material cost. */
+/** Line total = quantity × price + material cost (form / storage). */
 export function calculateLineTotal(
   quantity: number | string | null | undefined,
   price: number | string | null | undefined,
@@ -39,4 +39,94 @@ export function calculateItemsNetTotal(
     }
     return sum + calculateLineTotal(item.quantity, item.price, item.material);
   }, 0);
+}
+
+export type InvoiceTableItem = {
+  description: string;
+  material?: string | number;
+  quantity: number;
+  unit: string;
+  price: number;
+  total: number;
+  is_section?: boolean;
+  /** True when this row was expanded from a line-item material field */
+  is_material_row?: boolean;
+};
+
+function isSectionRow(item: {
+  description?: string;
+  quantity?: number;
+  price?: number;
+  total?: number;
+  is_section?: boolean;
+}): boolean {
+  if (item.is_section) return true;
+  const qty = Number(item.quantity) || 0;
+  const price = Number(item.price) || 0;
+  const total = Number(item.total) || 0;
+  return !!item.description?.trim() && qty === 0 && price === 0 && total === 0;
+}
+
+/**
+ * Expand stored line items into Lexware-style table rows:
+ * material becomes its own Pos (1 × Pauschal × amount), then the work line
+ * (qty × price) without material folded into Gesamt.
+ */
+export function expandItemsForInvoiceTable(
+  items: Array<{
+    description?: string;
+    material?: string | number | null;
+    quantity?: number | string | null;
+    unit?: string | null;
+    price?: number | string | null;
+    total?: number | null;
+    is_section?: boolean;
+  }>,
+  options: { materialLabel: string; pauschalUnit?: string }
+): InvoiceTableItem[] {
+  const materialLabel = options.materialLabel || 'Material';
+  const pauschalUnit = options.pauschalUnit || 'Pauschal';
+  const rows: InvoiceTableItem[] = [];
+
+  for (const item of items) {
+    if (isSectionRow(item)) {
+      rows.push({
+        description: item.description || '',
+        quantity: 0,
+        unit: '',
+        price: 0,
+        total: 0,
+        is_section: true,
+      });
+      continue;
+    }
+
+    const qty = Number(item.quantity) || 0;
+    const unitPrice = Number(item.price) || 0;
+    const materialAmount = parseMaterialAmount(item.material);
+    const laborTotal = qty * unitPrice;
+
+    // Lexware order: Material position first, then Arbeit
+    if (materialAmount !== 0) {
+      rows.push({
+        description: materialLabel,
+        quantity: 1,
+        unit: pauschalUnit,
+        price: materialAmount,
+        total: materialAmount,
+        is_material_row: true,
+      });
+    }
+
+    rows.push({
+      description: item.description || '',
+      quantity: qty,
+      unit: item.unit || '',
+      price: unitPrice,
+      total: laborTotal,
+      material: '',
+    });
+  }
+
+  return rows;
 }

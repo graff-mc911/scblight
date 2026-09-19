@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { translations } from './languages';
-import { calculateLineTotal, parseMaterialAmount } from './invoiceTotals';
+import { expandItemsForInvoiceTable } from './invoiceTotals';
 import { ensurePdfUnicodeFont } from './pdfUnicodeFont';
 
 interface InvoiceItem {
@@ -45,14 +45,6 @@ interface InvoiceData {
   work_period_end?: string;
   object_address?: string;
   invoice_language?: string;
-}
-
-function isSectionRow(item: InvoiceItem): boolean {
-  if (item.is_section) return true;
-  const qty = Number(item.quantity) || 0;
-  const price = Number(item.price) || 0;
-  const total = Number(item.total) || 0;
-  return !!item.description?.trim() && qty === 0 && price === 0 && total === 0;
 }
 
 function formatDeDate(raw?: string): string {
@@ -209,23 +201,15 @@ export const generateInvoicePDF = async (
   doc.text(quality, leftMargin, y);
   y += quality.length * 4.5 + 6;
 
-  // —— Items ——
-  const normalized = invoice.items.map((item) => {
-    const total =
-      item.total != null && Number.isFinite(Number(item.total))
-        ? Number(item.total)
-        : calculateLineTotal(item.quantity, item.price, item.material);
-    const materialAmount = parseMaterialAmount(item.material);
-    const materialLabel =
-      materialAmount !== 0
-        ? `\n${t('material')}: ${money(materialAmount)}`
-        : '';
-    return { ...item, total, description: `${item.description || ''}${materialLabel}` };
+  // —— Items (Lexware-style: material = own Pauschal row) ——
+  const tableRows = expandItemsForInvoiceTable(invoice.items || [], {
+    materialLabel: t('material'),
+    pauschalUnit: 'Pauschal',
   });
 
   let pos = 0;
-  const body = normalized.map((item) => {
-    if (isSectionRow(item)) {
+  const body = tableRows.map((item) => {
+    if (item.is_section) {
       return [
         {
           content: item.description,
@@ -245,7 +229,7 @@ export const generateInvoicePDF = async (
     ];
   });
 
-  const netTotal = normalized.reduce((s, i) => (isSectionRow(i) ? s : s + i.total), 0);
+  const netTotal = tableRows.reduce((s, i) => (i.is_section ? s : s + i.total), 0);
   const vatAmount = invoice.vat_enabled ? (netTotal * invoice.vat_rate) / 100 : 0;
   const grossTotal = netTotal + vatAmount;
   const showReverseCharge = !invoice.vat_enabled;

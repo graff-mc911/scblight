@@ -1,7 +1,7 @@
 import React from 'react';
 import { currencies, translations } from '../lib/languages';
 import { useLanguage } from '../contexts/LanguageContext';
-import { calculateLineTotal, parseMaterialAmount } from '../lib/invoiceTotals';
+import { expandItemsForInvoiceTable } from '../lib/invoiceTotals';
 
 interface InvoiceItem {
   description: string;
@@ -54,14 +54,6 @@ interface InvoiceDocumentProps {
   totalRef?: React.RefObject<HTMLDivElement>;
 }
 
-function isSectionRow(item: InvoiceItem): boolean {
-  if (item.is_section) return true;
-  const qty = Number(item.quantity) || 0;
-  const price = Number(item.price) || 0;
-  const total = Number(item.total) || 0;
-  return !!item.description?.trim() && qty === 0 && price === 0 && total === 0;
-}
-
 function formatDeDate(raw?: string): string {
   if (!raw) return '';
   const d = new Date(raw);
@@ -74,9 +66,14 @@ function senderReturnLine(name?: string, address?: string): string {
   return parts.filter(Boolean).join(', ');
 }
 
+function withCurrencySymbol(label: string, symbol: string): string {
+  return label.replace(/\u20AC|�|€/g, symbol);
+}
+
 /**
  * DIN 5008 / German construction invoice layout (preview + print HTML).
  * All labels via translations - no hardcoded UI strings.
+ * Material field expands to its own Lexware-style Pauschal row.
  */
 export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
   data,
@@ -101,17 +98,14 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
   const formatCurrency = (amount: number) =>
     amount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const currencySymbol = currencies.find((c) => c.code === data.currency)?.symbol || '€';
+  const currencySymbol = currencies.find((c) => c.code === data.currency)?.symbol || '\u20AC';
 
-  const lineItems = data.items.map((item) => ({
-    ...item,
-    total:
-      item.total != null && Number.isFinite(Number(item.total))
-        ? Number(item.total)
-        : calculateLineTotal(item.quantity, item.price, item.material),
-  }));
+  const tableRows = expandItemsForInvoiceTable(data.items || [], {
+    materialLabel: tInvoice('material'),
+    pauschalUnit: 'Pauschal',
+  });
 
-  const netTotal = lineItems.reduce((sum, item) => (isSectionRow(item) ? sum : sum + item.total), 0);
+  const netTotal = tableRows.reduce((sum, item) => (item.is_section ? sum : sum + item.total), 0);
   const vatAmount = data.vat_enabled ? (netTotal * data.vat_rate) / 100 : 0;
   const grossTotal = netTotal + vatAmount;
   const showReverseCharge = !data.vat_enabled;
@@ -285,16 +279,16 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
                 {tInvoice('unit')}
               </th>
               <th style={{ textAlign: 'right', padding: '1.8mm', width: '24mm', border: cellBorder, fontWeight: 700 }}>
-                {tInvoice('unitPriceShort').replace('€', currencySymbol)}
+                {withCurrencySymbol(tInvoice('unitPriceShort'), currencySymbol)}
               </th>
               <th style={{ textAlign: 'right', padding: '1.8mm', width: '24mm', border: cellBorder, fontWeight: 700 }}>
-                {tInvoice('totalPriceShort').replace('€', currencySymbol)}
+                {withCurrencySymbol(tInvoice('totalPriceShort'), currencySymbol)}
               </th>
             </tr>
           </thead>
           <tbody>
-            {lineItems.map((item, index) => {
-              if (isSectionRow(item)) {
+            {tableRows.map((item, index) => {
+              if (item.is_section) {
                 return (
                   <tr key={index}>
                     <td
@@ -317,11 +311,6 @@ export const InvoiceDocument: React.FC<InvoiceDocumentProps> = ({
                   <td style={{ padding: '1.8mm', border: cellBorder }}>{posCounter}</td>
                   <td style={{ padding: '1.8mm', border: cellBorder, fontWeight: 600 }}>
                     {item.description}
-                    {parseMaterialAmount(item.material) !== 0 ? (
-                      <div style={{ fontWeight: 400, marginTop: '0.8mm', fontSize: '8pt' }}>
-                        {tInvoice('material')}: {formatCurrency(parseMaterialAmount(item.material))}
-                      </div>
-                    ) : null}
                   </td>
                   <td style={{ padding: '1.8mm', textAlign: 'right', border: cellBorder }}>
                     {Number(item.quantity).toLocaleString('de-DE')}
