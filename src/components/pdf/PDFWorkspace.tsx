@@ -57,7 +57,18 @@ export const PDFWorkspace: React.FC = () => {
   const placingType = usePdfStore((s) => s.placingType);
   const addField = usePdfStore((s) => s.addField);
   const activeDocument = usePdfStore((s) => s.activeDocument);
+  const documents = usePdfStore((s) => s.documents);
+  const createFileOpen = usePdfStore((s) => s.createFileOpen);
+  const setCreateFileOpen = usePdfStore((s) => s.setCreateFileOpen);
   const uid = () => Math.random().toString(36).slice(2, 10);
+
+  // First visit with no docs — offer create modal once
+  useEffect(() => {
+    if (documents.length === 0 && !createFileOpen) {
+      const t = window.setTimeout(() => setCreateFileOpen(true), 400);
+      return () => window.clearTimeout(t);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Global file input for Upload / Image tool */
   const onGlobalFiles = async (list: FileList | null) => {
