@@ -30,8 +30,18 @@ export const PDFCreateFileModal: React.FC = () => {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4">
-      <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-[#e5e7eb] overflow-hidden">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 p-4"
+      onClick={() => setCreateFileOpen(false)}
+      onKeyDown={(e) => e.key === 'Escape' && setCreateFileOpen(false)}
+      role="presentation"
+    >
+      <div
+        className="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-[#e5e7eb] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
         <div className="flex items-center justify-between px-5 py-3 border-b border-[#eef2f7]">
           <h2 className="text-[15px] font-semibold text-[#0f172a] flex items-center gap-2">
             <FilePlus size={18} className="text-[#3b82f6]" />
