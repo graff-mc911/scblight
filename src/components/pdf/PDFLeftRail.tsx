@@ -1,14 +1,16 @@
 import React from 'react';
 import { Bookmark, Layers } from 'lucide-react';
-import { usePdfWorkspace } from '../../lib/pdf/workspaceStore';
+import { usePdfStore } from '../../store/usePdfStore';
 
-/** Left icon rail — pages / bookmarks (Soda style) */
 export const PDFLeftRail: React.FC = () => {
-  const leftRail = usePdfWorkspace((s) => s.leftRail);
-  const setLeftRail = usePdfWorkspace((s) => s.setLeftRail);
-  const documents = usePdfWorkspace((s) => s.documents);
-  const activeDocId = usePdfWorkspace((s) => s.activeDocId);
+  const leftRail = usePdfStore((s) => s.leftRail);
+  const setLeftRail = usePdfStore((s) => s.setLeftRail);
+  const documents = usePdfStore((s) => s.documents);
+  const activeDocId = usePdfStore((s) => s.activeDocId);
+  const setActivePage = usePdfStore((s) => s.setActivePage);
+  const pushToast = usePdfStore((s) => s.pushToast);
   const doc = documents.find((d) => d.id === activeDocId);
+  const pages = doc?.pages?.length ? doc.pages : (doc?.pageUrls || []).map((dataUrl) => ({ dataUrl, rotation: 0 }));
 
   return (
     <div className="flex shrink-0 z-10">
@@ -25,7 +27,10 @@ export const PDFLeftRail: React.FC = () => {
         </button>
         <button
           type="button"
-          onClick={() => setLeftRail(leftRail === 'bookmarks' ? null : 'bookmarks')}
+          onClick={() => {
+            setLeftRail(leftRail === 'bookmarks' ? null : 'bookmarks');
+            pushToast('info', 'Закладки: позначте сторінки через мініатюри');
+          }}
           className={`p-2 rounded-lg ${
             leftRail === 'bookmarks' ? 'bg-white text-[#2563eb] shadow-sm' : 'text-[#64748b] hover:bg-white/70'
           }`}
@@ -35,17 +40,25 @@ export const PDFLeftRail: React.FC = () => {
         </button>
       </div>
 
-      {leftRail === 'pages' && doc && doc.pageUrls.length > 0 && (
+      {leftRail === 'pages' && pages.length > 0 && (
         <div className="w-[120px] bg-white border-r border-[#e5e7eb] overflow-y-auto p-2 space-y-2 hidden sm:block">
-          {doc.pageUrls.map((url, i) => (
-            <a
+          {pages.map((page, i) => (
+            <button
               key={i}
-              href={`#page-${i}`}
-              className="block rounded border border-[#e5e7eb] overflow-hidden hover:border-[#3b82f6]"
+              type="button"
+              onClick={() => setActivePage(i)}
+              className={`block w-full rounded border overflow-hidden ${
+                doc?.activePageIndex === i ? 'border-[#3b82f6] ring-1 ring-[#3b82f6]' : 'border-[#e5e7eb] hover:border-[#93c5fd]'
+              }`}
             >
-              <img src={url} alt="" className="w-full h-auto" />
+              <img
+                src={page.dataUrl}
+                alt=""
+                className="w-full h-auto"
+                style={{ transform: `rotate(${page.rotation || 0}deg)` }}
+              />
               <p className="text-[10px] text-center text-[#64748b] py-0.5">{i + 1}</p>
-            </a>
+            </button>
           ))}
         </div>
       )}

@@ -2,13 +2,15 @@ import React from 'react';
 import {
   AtSign,
   Calendar,
+  CheckSquare,
   ChevronRight,
+  Image as ImageIcon,
   PenLine,
   Type,
   User,
   X,
 } from 'lucide-react';
-import { type OverlayFieldType, usePdfWorkspace } from '../../lib/pdf/workspaceStore';
+import { type OverlayFieldType, usePdfStore } from '../../store/usePdfStore';
 
 const SIGN_FIELDS: { type: OverlayFieldType; label: string; icon: typeof PenLine; tone: string }[] = [
   { type: 'signature', label: 'Signature', icon: PenLine, tone: 'bg-[#ecfdf5] text-[#047857] border-[#a7f3d0]' },
@@ -16,19 +18,26 @@ const SIGN_FIELDS: { type: OverlayFieldType; label: string; icon: typeof PenLine
   { type: 'date', label: 'Date', icon: Calendar, tone: 'bg-[#eff6ff] text-[#1d4ed8] border-[#bfdbfe]' },
   { type: 'name', label: 'Name', icon: User, tone: 'bg-[#eff6ff] text-[#1e40af] border-[#bfdbfe]' },
   { type: 'email', label: 'Email', icon: AtSign, tone: 'bg-[#eef2ff] text-[#4338ca] border-[#c7d2fe]' },
+  { type: 'checkbox', label: 'Checkbox', icon: CheckSquare, tone: 'bg-[#f8fafc] text-[#334155] border-[#cbd5e1]' },
+  { type: 'text', label: 'Text', icon: Type, tone: 'bg-[#f8fafc] text-[#0f172a] border-[#cbd5e1]' },
+  { type: 'image', label: 'Image', icon: ImageIcon, tone: 'bg-[#faf5ff] text-[#6b21a8] border-[#e9d5ff]' },
 ];
 
 export const PDFRightSidebar: React.FC = () => {
-  const sidebarOpen = usePdfWorkspace((s) => s.sidebarOpen);
-  const ribbonTab = usePdfWorkspace((s) => s.ribbonTab);
-  const placingType = usePdfWorkspace((s) => s.placingType);
-  const setPlacingType = usePdfWorkspace((s) => s.setPlacingType);
-  const toggleSidebar = usePdfWorkspace((s) => s.toggleSidebar);
-  const setSidebarOpen = usePdfWorkspace((s) => s.setSidebarOpen);
-  const selectedFieldId = usePdfWorkspace((s) => s.selectedFieldId);
-  const removeField = usePdfWorkspace((s) => s.removeField);
-  const documents = usePdfWorkspace((s) => s.documents);
-  const activeDocId = usePdfWorkspace((s) => s.activeDocId);
+  const sidebarOpen = usePdfStore((s) => s.sidebarOpen);
+  const ribbonTab = usePdfStore((s) => s.ribbonTab);
+  const placingType = usePdfStore((s) => s.placingType);
+  const setPlacingType = usePdfStore((s) => s.setPlacingType);
+  const toggleSidebar = usePdfStore((s) => s.toggleSidebar);
+  const setSidebarOpen = usePdfStore((s) => s.setSidebarOpen);
+  const selectedFieldId = usePdfStore((s) => s.selectedFieldId);
+  const removeField = usePdfStore((s) => s.removeField);
+  const setSignatureModalOpen = usePdfStore((s) => s.setSignatureModalOpen);
+  const setQuickToolsOpen = usePdfStore((s) => s.setQuickToolsOpen);
+  const triggerUploadDialog = usePdfStore((s) => s.triggerUploadDialog);
+  const pushToast = usePdfStore((s) => s.pushToast);
+  const documents = usePdfStore((s) => s.documents);
+  const activeDocId = usePdfStore((s) => s.activeDocId);
   const doc = documents.find((d) => d.id === activeDocId);
 
   if (!sidebarOpen) {
@@ -44,98 +53,89 @@ export const PDFRightSidebar: React.FC = () => {
     );
   }
 
-  const isSign = ribbonTab === 'esign' || ribbonTab === 'fill';
   const title =
     ribbonTab === 'ocr'
       ? 'OCR'
       : ribbonTab === 'edit'
-        ? 'Edit'
+        ? 'Edit tools'
         : ribbonTab === 'secure'
           ? 'Secure'
-          : 'Sign your document';
+          : ribbonTab === 'forms'
+            ? 'Forms'
+            : ribbonTab === 'comment'
+              ? 'Comment'
+              : 'Sign your document';
+
+  const pick = (type: OverlayFieldType) => {
+    if (type === 'signature') {
+      setSignatureModalOpen(true);
+      return;
+    }
+    if (type === 'image') {
+      setPlacingType('image');
+      triggerUploadDialog();
+      pushToast('info', 'Оберіть зображення, потім клікніть на сторінку');
+      return;
+    }
+    setPlacingType(placingType === type ? null : type);
+    pushToast('info', `Клікніть на сторінку: ${type}`);
+  };
 
   return (
     <aside className="w-[260px] shrink-0 bg-white border-l border-[#e5e7eb] flex flex-col z-10">
       <div className="flex items-center justify-between px-4 py-3 border-b border-[#eef2f7]">
         <h3 className="text-[14px] font-semibold text-[#0f172a]">{title}</h3>
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          className="p-1 rounded hover:bg-[#f1f5f9] text-[#94a3b8]"
-          aria-label="Collapse"
-        >
+        <button type="button" onClick={toggleSidebar} className="p-1 rounded hover:bg-[#f1f5f9] text-[#94a3b8]" aria-label="Collapse">
           <X size={16} />
         </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
-        {isSign && (
-          <>
-            <p className="text-[11px] text-[#94a3b8] uppercase tracking-wide px-1 mb-2">
-              Drag fields onto the document
-            </p>
-            {SIGN_FIELDS.map(({ type, label, icon: Icon, tone }) => (
-              <button
-                key={type}
-                type="button"
-                onClick={() => setPlacingType(placingType === type ? null : type)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left text-[13px] font-medium transition-all ${tone} ${
-                  placingType === type ? 'ring-2 ring-[#3b82f6] ring-offset-1' : 'hover:brightness-[0.98]'
-                }`}
-              >
-                <Icon size={18} />
-                {label}
-              </button>
-            ))}
-            {placingType && (
-              <p className="text-[12px] text-[#2563eb] px-1 pt-2">
-                Клікніть на сторінку, щоб розмістити «{placingType}»
-              </p>
-            )}
-            {selectedFieldId && (
-              <button
-                type="button"
-                onClick={() => removeField(selectedFieldId)}
-                className="w-full mt-3 text-[12px] text-red-600 hover:bg-red-50 rounded-lg py-2 border border-red-100"
-              >
-                Видалити вибране поле
-              </button>
-            )}
-            {doc && doc.fields.length > 0 && (
-              <p className="text-[11px] text-[#94a3b8] px-1 pt-2">Полів: {doc.fields.length}</p>
-            )}
-          </>
+        <p className="text-[11px] text-[#94a3b8] uppercase tracking-wide px-1 mb-2">Поля на документ</p>
+        {SIGN_FIELDS.map(({ type, label, icon: Icon, tone }) => (
+          <button
+            key={type}
+            type="button"
+            onClick={() => pick(type)}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left text-[13px] font-medium transition-all ${tone} ${
+              placingType === type ? 'ring-2 ring-[#3b82f6] ring-offset-1' : 'hover:brightness-[0.98]'
+            }`}
+          >
+            <Icon size={18} />
+            {label}
+          </button>
+        ))}
+
+        <button
+          type="button"
+          onClick={() => setSignatureModalOpen(true)}
+          className="w-full mt-2 py-2 rounded-lg bg-[#dbeafe] text-[#1d4ed8] text-[13px] font-medium"
+        >
+          My signature…
+        </button>
+
+        {placingType && (
+          <p className="text-[12px] text-[#2563eb] px-1 pt-2">Клікніть на сторінку → «{placingType}»</p>
         )}
+        {selectedFieldId && (
+          <button
+            type="button"
+            onClick={() => removeField(selectedFieldId)}
+            className="w-full mt-2 text-[12px] text-red-600 hover:bg-red-50 rounded-lg py-2 border border-red-100"
+          >
+            Видалити вибране поле
+          </button>
+        )}
+        {doc && <p className="text-[11px] text-[#94a3b8] px-1 pt-2">Полів: {doc.fields.length}</p>}
 
         {ribbonTab === 'ocr' && (
-          <div className="text-sm text-[#475569] space-y-2 px-1">
-            <p>OCR доступний у Швидких інструментах (Recognize text).</p>
-            <button
-              type="button"
-              onClick={() => usePdfWorkspace.getState().setQuickToolsOpen(true)}
-              className="w-full py-2 rounded-lg bg-[#eff6ff] text-[#1d4ed8] text-[13px] font-medium"
-            >
-              Відкрити OCR
-            </button>
-          </div>
-        )}
-
-        {ribbonTab === 'edit' && (
-          <div className="text-sm text-[#475569] px-1 space-y-2">
-            <p>Редагуйте розміщені поля або відкрийте Швидкі інструменти для обʼєднання / стиснення.</p>
-          </div>
-        )}
-
-        {ribbonTab === 'secure' && (
-          <div className="text-sm text-[#475569] px-1">
-            Protect / Watermark — через Швидкі інструменти.
-          </div>
-        )}
-
-        {!isSign && ribbonTab !== 'ocr' && ribbonTab !== 'edit' && ribbonTab !== 'secure' && (
-          <p className="text-sm text-[#64748b] px-1">
-            Оберіть вкладку E-Sign або Fill & Sign, щоб додати поля підпису.
-          </p>
+          <button
+            type="button"
+            onClick={() => setQuickToolsOpen(true)}
+            className="w-full py-2 rounded-lg bg-[#eff6ff] text-[#1d4ed8] text-[13px] font-medium mt-2"
+          >
+            Відкрити OCR у Quick Tools
+          </button>
         )}
       </div>
     </aside>

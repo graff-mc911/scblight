@@ -1,14 +1,15 @@
 import React, { useRef } from 'react';
-import { Plus, X } from 'lucide-react';
-import { usePdfWorkspace } from '../../lib/pdf/workspaceStore';
-import { openPdfFiles } from './openPdfFiles';
+import { Plus, X, Lock } from 'lucide-react';
+import { usePdfStore } from '../../store/usePdfStore';
 
 export const PDFDocumentTabs: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
-  const documents = usePdfWorkspace((s) => s.documents);
-  const activeDocId = usePdfWorkspace((s) => s.activeDocId);
-  const setActiveDoc = usePdfWorkspace((s) => s.setActiveDoc);
-  const closeDoc = usePdfWorkspace((s) => s.closeDoc);
+  const documents = usePdfStore((s) => s.documents);
+  const activeDocId = usePdfStore((s) => s.activeDocId);
+  const setActiveDoc = usePdfStore((s) => s.setActiveDoc);
+  const closeDoc = usePdfStore((s) => s.closeDoc);
+  const setCreateFileOpen = usePdfStore((s) => s.setCreateFileOpen);
+  const importFiles = usePdfStore((s) => s.importFiles);
 
   return (
     <div className="flex items-end gap-0 px-2 pt-1 bg-[#e8eaed] border-b border-[#d1d5db] shrink-0 min-h-[36px]">
@@ -27,6 +28,7 @@ export const PDFDocumentTabs: React.FC = () => {
             role="tab"
             tabIndex={0}
           >
+            {doc.protected && <Lock size={10} className="text-amber-500 shrink-0" />}
             <span className="truncate">{doc.name}</span>
             <button
               type="button"
@@ -44,20 +46,20 @@ export const PDFDocumentTabs: React.FC = () => {
       })}
       <button
         type="button"
-        onClick={() => inputRef.current?.click()}
+        onClick={() => setCreateFileOpen(true)}
         className="ml-1 mb-0.5 p-1.5 rounded hover:bg-[#d1d5db] text-[#64748b]"
-        title="Відкрити PDF"
+        title="Створити / відкрити"
       >
         <Plus size={14} />
       </button>
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,application/pdf"
+        accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/*"
         multiple
         className="hidden"
         onChange={(e) => {
-          void openPdfFiles(e.target.files);
+          if (e.target.files?.length) void importFiles(e.target.files);
           e.target.value = '';
         }}
       />
