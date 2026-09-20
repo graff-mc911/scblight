@@ -127,7 +127,8 @@ function AppContent() {
     location.pathname === '/signup' ||
     location.pathname === '/onboarding' ||
     location.pathname === '/privacy' ||
-    location.pathname === '/terms';
+    location.pathname === '/terms' ||
+    location.pathname === '/pdf-creator';
 
   return (
     <div className="min-h-screen overflow-x-hidden" key={language}>
