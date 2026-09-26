@@ -274,38 +274,38 @@ export const Home: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-6xl mx-auto">
+    <div className="min-h-screen pt-20 pb-8 px-4 md:px-6 max-w-6xl mx-auto">
       <div className="mb-6">
         <h1 className="text-3xl font-semibold text-white mb-1">{t('appName')}</h1>
         <p className="text-white/50 text-sm">{t('appSubtitle')}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 mb-6">
-        <Card className="p-4">
+        <Card
+          className="p-4"
+          onClick={() => navigate('/invoices?status=unpaid')}
+        >
           <p className="text-white/50 text-xs mb-1.5">{t('unpaid') || 'Не оплачено'}</p>
           <h2 className="text-xl font-semibold text-orange-400 leading-tight">
             {formatAmount(unpaidTotal)}
           </h2>
         </Card>
 
-        <Card className="p-4">
+        <Card className="p-4" onClick={() => navigate('/invoices')}>
           <p className="text-white/50 text-xs mb-1.5">{t('totalInvoices') || 'Інвойси'}</p>
           <h2 className="text-xl font-semibold text-white leading-tight">
             {invoices.length}
           </h2>
         </Card>
 
-        <Card className="p-4">
+        <Card className="p-4" onClick={() => navigate('/clients')}>
           <p className="text-white/50 text-xs mb-1.5">{t('clients') || 'Клієнти'}</p>
           <h2 className="text-xl font-semibold text-green-400 leading-tight">
             {clients.length}
           </h2>
         </Card>
 
-        <Card
-          className="p-4 cursor-pointer"
-          onClick={() => navigate('/receipts')}
-        >
+        <Card className="p-4" onClick={() => navigate('/receipts')}>
           <p className="text-white/50 text-xs mb-1.5">
             {t('expenseDocuments') || t('receipts')}
           </p>
@@ -315,9 +315,12 @@ export const Home: React.FC = () => {
         </Card>
       </div>
 
-      {/* Received / Spent / Profit — same YTD numbers as chart */}
+      {/* Received is navigable; Spent / Profit stay display-only */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-        <Card className="p-4">
+        <Card
+          className="p-4"
+          onClick={() => navigate('/invoices?status=paid')}
+        >
           <p className="text-white/50 text-xs mb-1.5">{t('totalEarnings')}</p>
           <h2 className="text-xl font-semibold text-green-400 leading-tight">
             {formatAmount(money.received)}

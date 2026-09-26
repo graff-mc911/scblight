@@ -209,7 +209,7 @@ export const Clients: React.FC = () => {
   }, [clients, search]);
 
   return (
-    <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-6xl mx-auto">
+    <div className="min-h-screen pt-20 pb-8 px-4 md:px-6 max-w-6xl mx-auto">
       {/* Верх сторінки */}
       <div className="flex justify-between items-center mb-6">
         <div>

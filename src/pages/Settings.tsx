@@ -133,7 +133,7 @@ export default function Settings() {
   const currentLanguage = languages.find(lang => lang.code === language) || languages[0];
 
   return (
-    <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-4xl mx-auto">
+    <div className="min-h-screen pt-20 pb-8 px-4 md:px-6 max-w-4xl mx-auto">
       <button
         onClick={() => navigate(-1)}
         className="flex items-center justify-center p-2 bg-white/10 backdrop-blur-xl border border-white/10 text-gray-300 hover:text-white hover:bg-white/20 rounded-xl mb-6 transition-all active:scale-95"

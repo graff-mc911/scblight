@@ -1,4 +1,5 @@
 import React from 'react'
+import { useNavigate } from 'react-router-dom'
 
 /**
  * Типи пропсів для логотипа
@@ -7,16 +8,20 @@ interface LogoProps {
   variant?: 'full' | 'icon' | 'text' | 'glass'  // тип відображення
   size?: 'sm' | 'md' | 'lg' | 'xl'              // розмір
   className?: string                           // додаткові стилі
+  /** When false, logo is not clickable (default: navigates to Home). */
+  linkToHome?: boolean
 }
 
 /**
- * Головний компонент логотипа
+ * Головний компонент логотипа — клік веде на Home (/).
  */
 export const Logo: React.FC<LogoProps> = ({
   variant = 'full',
   size = 'md',
   className = '',
+  linkToHome = true,
 }) => {
+  const navigate = useNavigate()
 
   /**
    * Розміри для різних варіантів
@@ -126,32 +131,29 @@ export const Logo: React.FC<LogoProps> = ({
     </div>
   )
 
-  /**
-   * ВИБІР ВАРІАНТА
-   */
+  const content = (() => {
+    if (variant === 'glass') return <GlassLogo />
+    if (variant === 'icon') return <div className={className}><IconSVG /></div>
+    if (variant === 'text') return <div className={className}><TextLogo /></div>
+    return (
+      <div className={`flex items-center gap-3 ${className}`}>
+        <IconSVG />
+        <TextLogo />
+      </div>
+    )
+  })()
 
-  // тільки glass
-  if (variant === 'glass') {
-    return <GlassLogo />
-  }
+  if (!linkToHome) return content
 
-  // тільки іконка
-  if (variant === 'icon') {
-    return <div className={className}><IconSVG /></div>
-  }
-
-  // тільки текст
-  if (variant === 'text') {
-    return <div className={className}><TextLogo /></div>
-  }
-
-  /**
-   * FULL (іконка + текст)
-   */
   return (
-    <div className={`flex items-center gap-3 ${className}`}>
-      <IconSVG />
-      <TextLogo />
-    </div>
+    <button
+      type="button"
+      onClick={() => navigate('/')}
+      className="inline-flex items-center justify-center p-0 m-0 bg-transparent border-0 cursor-pointer shrink-0 active:scale-95 transition-transform"
+      aria-label="Home"
+      title="Home"
+    >
+      {content}
+    </button>
   )
 }

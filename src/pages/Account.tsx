@@ -293,7 +293,7 @@ export const Account: React.FC = () => {
   });
 
   return (
-    <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-4xl mx-auto">
+    <div className="min-h-screen pt-20 pb-8 px-4 md:px-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-semibold text-white mb-6">
         {t('account') || 'Акаунт'}
       </h1>

@@ -319,7 +319,7 @@ export const ClientForm: React.FC = () => {
   // 9. Розмітка компонента
   // ---------------------------------------------------------
   return (
-    <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-4xl mx-auto">
+    <div className="min-h-screen pt-20 pb-8 px-4 md:px-6 max-w-4xl mx-auto">
       {/* Кнопка повернення до списку клієнтів */}
       <button
         onClick={() => navigate('/clients')}

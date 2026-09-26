@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Plus,
   FileText,
@@ -86,8 +86,18 @@ interface EditUploadedInvoiceModalProps {
 
 /**
  * Фільтр по статусах рахунків.
+ * `unpaid` = draft + sent (matches Home «Неоплачено» card).
  */
-type FilterStatus = 'all' | 'draft' | 'sent' | 'paid' | 'overdue';
+type FilterStatus = 'all' | 'draft' | 'sent' | 'paid' | 'overdue' | 'unpaid';
+
+const VALID_FILTERS: FilterStatus[] = ['all', 'draft', 'sent', 'paid', 'overdue', 'unpaid'];
+
+function parseStatusParam(value: string | null): FilterStatus {
+  if (value && (VALID_FILTERS as string[]).includes(value)) {
+    return value as FilterStatus;
+  }
+  return 'all';
+}
 
 /**
  * Маленька мініатюра звичайного рахунку в списку.
@@ -843,6 +853,7 @@ const EditUploadedInvoiceModal: React.FC<EditUploadedInvoiceModalProps> = ({
  */
 export const Invoices: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { t, language } = useLanguage();
   const { showSuccess, showError } = useToastContext();
   const queryClient = useQueryClient();
@@ -850,13 +861,32 @@ export const Invoices: React.FC = () => {
   // Стани UI
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [invoicesToDelete, setInvoicesToDelete] = useState<string[]>([]);
-  const [activeFilter, setActiveFilter] = useState<FilterStatus>('all');
+  const [activeFilter, setActiveFilter] = useState<FilterStatus>(() =>
+    parseStatusParam(searchParams.get('status')),
+  );
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [editUploadedInvoice, setEditUploadedInvoice] = useState<Record<string, any> | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionBusy, setSelectionBusy] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [groupMode, setGroupMode] = useState<'none' | 'day' | 'month' | 'year'>('month');
+
+  /** Sync filter when arriving via Home cards (?status=paid|unpaid|…). */
+  useEffect(() => {
+    setActiveFilter(parseStatusParam(searchParams.get('status')));
+  }, [searchParams]);
+
+  const applyFilter = useCallback(
+    (next: FilterStatus) => {
+      setActiveFilter(next);
+      if (next === 'all') {
+        setSearchParams({}, { replace: true });
+      } else {
+        setSearchParams({ status: next }, { replace: true });
+      }
+    },
+    [setSearchParams],
+  );
 
   /**
    * Отримуємо поточну сесію користувача.
@@ -947,7 +977,11 @@ export const Invoices: React.FC = () => {
    */
   const filteredInvoices = React.useMemo(() => {
     const byStatus =
-      activeFilter === 'all' ? invoices : invoices.filter((inv) => inv.status === activeFilter);
+      activeFilter === 'all'
+        ? invoices
+        : activeFilter === 'unpaid'
+          ? invoices.filter((inv) => inv.status === 'sent' || inv.status === 'draft')
+          : invoices.filter((inv) => inv.status === activeFilter);
 
     const q = searchQuery.trim().toLowerCase();
     const searched = !q
@@ -1204,6 +1238,7 @@ export const Invoices: React.FC = () => {
    */
   const filterTabs: { key: FilterStatus; label: string }[] = [
     { key: 'all', label: t('allStatuses') || 'All' },
+    { key: 'unpaid', label: t('unpaid') },
     { key: 'draft', label: t('draft') },
     { key: 'sent', label: t('sent') },
     { key: 'paid', label: t('paid') },
@@ -1211,7 +1246,7 @@ export const Invoices: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen pt-20 pb-24 px-4 md:px-6 max-w-2xl mx-auto">
+    <div className="min-h-screen pt-20 pb-8 px-4 md:px-6 max-w-2xl mx-auto">
       {/* Верхній заголовок сторінки */}
       <div className="flex justify-between items-center mb-4">
         <div>
@@ -1371,14 +1406,16 @@ export const Invoices: React.FC = () => {
           const count =
             tab.key === 'all'
               ? invoices.length
-              : invoices.filter((inv) => inv.status === tab.key).length;
+              : tab.key === 'unpaid'
+                ? invoices.filter((inv) => inv.status === 'sent' || inv.status === 'draft').length
+                : invoices.filter((inv) => inv.status === tab.key).length;
 
           const isActive = activeFilter === tab.key;
 
           return (
             <button
               key={tab.key}
-              onClick={() => setActiveFilter(tab.key)}
+              onClick={() => applyFilter(tab.key)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all whitespace-nowrap flex-shrink-0 ${
                 isActive
                   ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20'

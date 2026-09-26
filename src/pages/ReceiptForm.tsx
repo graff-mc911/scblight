@@ -770,7 +770,7 @@ export default function ReceiptForm() {
   };
 
   return (
-    <div className="min-h-screen bg-[#1a1f24] text-white pb-24 pt-20">
+    <div className="min-h-screen bg-[#1a1f24] text-white pb-8 pt-20">
       <TopNav />
 
       <form onSubmit={handleSubmit} className="p-4 space-y-4 max-w-xl mx-auto">
